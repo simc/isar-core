@@ -45,22 +45,17 @@ impl Env {
     }
 
     pub fn txn(&self, write: bool) -> Result<Txn> {
-        self.txn_internal(write, None)
-    }
-
-    pub(crate) fn txn_internal(&self, write: bool, parent: Option<&Txn>) -> Result<Txn> {
-        let mut txn: *mut ffi::MDB_txn = ptr::null_mut();
-        let parent = if let Some(parent) = parent {
-            parent.txn
-        } else {
-            ptr::null_mut()
-        };
-
         let flags = if write { 0 } else { ffi::MDB_RDONLY };
-
-        unsafe { lmdb_result(ffi::mdb_txn_begin(self.env, parent, flags, &mut txn))? }
-
-        Ok(Txn::new(txn, self))
+        let mut txn: *mut ffi::MDB_txn = ptr::null_mut();
+        unsafe {
+            lmdb_result(ffi::mdb_txn_begin(
+                self.env,
+                ptr::null_mut(),
+                flags,
+                &mut txn,
+            ))?
+        }
+        Ok(Txn::new(txn, write))
     }
 }
 

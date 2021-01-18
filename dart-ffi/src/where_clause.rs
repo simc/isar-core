@@ -14,9 +14,9 @@ pub unsafe extern "C" fn isar_wc_create(
 ) -> i32 {
     isar_try! {
         let where_clause = if primary {
-            Some(collection.create_primary_where_clause())
+            Some(collection.new_primary_where_clause())
         } else {
-            collection.create_secondary_where_clause(index_index as usize)
+            collection.new_secondary_where_clause(index_index as usize)
         };
         if let Some(where_clause) = where_clause {
             let ptr = Box::into_raw(Box::new(where_clause));
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn isar_wc_add_oid(
     counter: u32,
     rand: u32,
 ) {
-    let oid = ObjectId::new(0, time, counter, rand);
+    let oid = ObjectId::new(time, counter, rand);
     where_clause.add_oid(oid);
 }
 

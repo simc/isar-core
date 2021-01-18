@@ -47,9 +47,13 @@ impl RawObject {
         unsafe { slice::from_raw_parts(self.data, self.data_length as usize) }
     }
 
-    pub fn get_object_id(&self, col: &IsarCollection) -> Option<ObjectId> {
+    pub fn get_object_id(&self) -> Option<ObjectId> {
         if self.oid_time != 0 {
-            Some(col.get_object_id(self.oid_time, self.oid_counter, self.oid_rand))
+            Some(ObjectId::new(
+                self.oid_time,
+                self.oid_counter,
+                self.oid_rand,
+            ))
         } else {
             None
         }
@@ -80,7 +84,7 @@ pub struct RawObjectSetSend(pub &'static mut RawObjectSet);
 unsafe impl Send for RawObjectSetSend {}
 
 impl RawObjectSet {
-    pub fn fill_from_query(&mut self, query: &Query, txn: &IsarTxn) -> Result<()> {
+    pub fn fill_from_query(&mut self, query: &Query, txn: &mut IsarTxn) -> Result<()> {
         let mut objects = vec![];
         query.find_all(txn, |oid, object| {
             objects.push(RawObject::new(*oid, object));

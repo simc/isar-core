@@ -1,7 +1,6 @@
 use crate::collection::IsarCollection;
-use crate::data_dbs::DataDbs;
 use crate::error::{illegal_arg, Result};
-use crate::index::{Index, IndexType};
+use crate::index::Index;
 use crate::object::data_type::DataType;
 use crate::object::object_id::ObjectId;
 use crate::object::object_info::ObjectInfo;
@@ -124,20 +123,14 @@ impl CollectionSchema {
         Ok(())
     }
 
-    pub(super) fn get_isar_collection(&self, dbs: DataDbs) -> IsarCollection {
+    pub(super) fn get_isar_collection(&self) -> IsarCollection {
         let properties = self.get_properties();
-        let indexes = self.get_indexes(&properties, dbs);
+        let indexes = self.get_indexes(&properties);
         let object_info = ObjectInfo::new(properties);
-        IsarCollection::new(
-            self.id.unwrap(),
-            self.name.clone(),
-            object_info,
-            indexes,
-            dbs.primary,
-        )
+        IsarCollection::new(self.id.unwrap(), self.name.clone(), object_info, indexes)
     }
 
-    fn get_properties(&self) -> Vec<Property> {
+    fn get_properties(&self) -> Vec<(String, Property)> {
         let oid_offset = ObjectId::get_size();
         let mut offset = oid_offset;
 
@@ -150,15 +143,15 @@ impl CollectionSchema {
                     offset += size - offset % size;
                 }
                 // padding to align data
-                let property = Property::new(f.name.clone(), f.data_type, offset - oid_offset);
+                let property = Property::new(f.data_type, offset - oid_offset);
                 offset += size;
 
-                property
+                (f.name.clone(), property)
             })
             .collect()
     }
 
-    fn get_indexes(&self, properties: &[Property], dbs: DataDbs) -> Vec<Index> {
+    fn get_indexes(&self, properties: &[(String, Property)]) -> Vec<Index> {
         self.indexes
             .iter()
             .map(|index| {
@@ -167,21 +160,17 @@ impl CollectionSchema {
                     .iter()
                     .map(|property| {
                         let pos = self.properties.iter().position(|p| property == p).unwrap();
-                        properties.get(pos).unwrap()
+                        let (_, property) = properties.get(pos).unwrap();
+                        property
                     })
                     .cloned()
                     .collect_vec();
-                let (index_type, db) = if index.unique {
-                    (IndexType::Secondary, dbs.secondary)
-                } else {
-                    (IndexType::SecondaryDup, dbs.secondary_dup)
-                };
+
                 Index::new(
                     index.id.unwrap(),
                     properties,
-                    index_type,
+                    index.unique,
                     index.hash_value,
-                    db,
                 )
             })
             .collect()
@@ -316,10 +305,11 @@ mod tests {
         fn get_offsets(mut schema: CollectionSchema) -> Vec<usize> {
             let mut get_id = || 1;
             schema.update_with_existing_collections(&[], &mut get_id);
-            let col = schema.get_isar_collection(DataDbs::debug_new());
+            let col = schema.get_isar_collection();
             let mut offsets = vec![];
             for i in 0..schema.properties.len() {
-                offsets.push(col.get_properties().get(i).unwrap().offset);
+                let (_, p) = col.get_properties().get(i).unwrap();
+                offsets.push(p.offset);
             }
             offsets
         }

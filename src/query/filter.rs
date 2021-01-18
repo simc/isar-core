@@ -9,23 +9,24 @@ pub enum Case {
 }
 
 #[enum_dispatch]
-pub enum Filter<'col> {
-    IsNull(IsNull<'col>),
-    ByteBetween(ByteBetween<'col>),
-    ByteNotEqual(ByteNotEqual<'col>),
-    IntBetween(IntBetween<'col>),
-    IntNotEqual(IntNotEqual<'col>),
-    LongBetween(LongBetween<'col>),
-    LongNotEqual(LongNotEqual<'col>),
-    FloatBetween(FloatBetween<'col>),
-    DoubleBetween(DoubleBetween<'col>),
+#[derive(Clone)]
+pub enum Filter {
+    IsNull(IsNull),
+    ByteBetween(ByteBetween),
+    ByteNotEqual(ByteNotEqual),
+    IntBetween(IntBetween),
+    IntNotEqual(IntNotEqual),
+    LongBetween(LongBetween),
+    LongNotEqual(LongNotEqual),
+    FloatBetween(FloatBetween),
+    DoubleBetween(DoubleBetween),
     /*StrAnyOf(StrAnyOf),
     StrStartsWith(),
     StrEndsWith(),
     StrContains(),*/
-    And(And<'col>),
-    Or(Or<'col>),
-    Not(Not<'col>),
+    And(And),
+    Or(Or),
+    Not(Not),
 }
 
 #[enum_dispatch(Filter)]
@@ -33,19 +34,20 @@ pub trait Condition {
     fn evaluate(&self, object: &[u8]) -> bool;
 }
 
-pub struct IsNull<'col> {
-    property: &'col Property,
+#[derive(Clone)]
+pub struct IsNull {
+    property: Property,
     is_null: bool,
 }
 
-impl<'col> Condition for IsNull<'col> {
+impl Condition for IsNull {
     fn evaluate(&self, object: &[u8]) -> bool {
         self.property.is_null(object) == self.is_null
     }
 }
 
-impl<'col> IsNull<'col> {
-    pub fn filter(property: &'col Property, is_null: bool) -> Filter<'col> {
+impl IsNull {
+    pub fn filter(property: Property, is_null: bool) -> Filter {
         Filter::IsNull(Self { property, is_null })
     }
 }
@@ -53,18 +55,15 @@ impl<'col> IsNull<'col> {
 #[macro_export]
 macro_rules! filter_between {
     ($name:ident, $data_type:ident, $type:ty) => {
-        pub struct $name<'col> {
+        #[derive(Clone)]
+        pub struct $name {
             upper: $type,
             lower: $type,
-            property: &'col Property,
+            property: Property,
         }
 
-        impl<'col> $name<'col> {
-            pub fn filter(
-                property: &'col Property,
-                lower: $type,
-                upper: $type,
-            ) -> Result<Filter<'col>> {
+        impl $name {
+            pub fn filter(property: Property, lower: $type, upper: $type) -> Result<Filter> {
                 if property.data_type == crate::object::data_type::DataType::$data_type {
                     Ok(Filter::$name(Self {
                         property,
@@ -84,7 +83,7 @@ macro_rules! primitive_filter_between {
     ($name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
         filter_between!($name, $data_type, $type);
 
-        impl<'col> Condition for $name<'col> {
+        impl Condition for $name {
             fn evaluate(&self, object: &[u8]) -> bool {
                 let val = self.property.$prop_accessor(object);
                 self.lower <= val && self.upper >= val
@@ -98,7 +97,7 @@ macro_rules! float_filter_between {
     ($name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
         filter_between!($name, $data_type, $type);
 
-        impl<'col> Condition for $name<'col> {
+        impl Condition for $name {
             fn evaluate(&self, object: &[u8]) -> bool {
                 let val = self.property.$prop_accessor(object);
                 if self.upper.is_nan() {
@@ -122,13 +121,14 @@ float_filter_between!(DoubleBetween, Double, f64, get_double);
 #[macro_export]
 macro_rules! filter_not_equal {
     ($name:ident, $data_type:ident, $type:ty) => {
-        pub struct $name<'col> {
+        #[derive(Clone)]
+        pub struct $name {
             value: $type,
-            property: &'col Property,
+            property: Property,
         }
 
-        impl<'col> $name<'col> {
-            pub fn filter(property: &'col Property, value: $type) -> Result<Filter<'col>> {
+        impl $name {
+            pub fn filter(property: Property, value: $type) -> Result<Filter> {
                 if property.data_type == crate::object::data_type::DataType::$data_type {
                     Ok(Filter::$name(Self { property, value }))
                 } else {
@@ -144,7 +144,7 @@ macro_rules! primitive_filter_not_equal {
     ($not_equal_name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
         filter_not_equal!($not_equal_name, $data_type, $type);
 
-        impl<'col> Condition for $not_equal_name<'col> {
+        impl Condition for $not_equal_name {
             fn evaluate(&self, object: &[u8]) -> bool {
                 let val = self.property.$prop_accessor(object);
                 self.value != val
@@ -210,11 +210,12 @@ impl StrAnyOf {
     }
 }*/
 
-pub struct And<'col> {
-    filters: Vec<Filter<'col>>,
+#[derive(Clone)]
+pub struct And {
+    filters: Vec<Filter>,
 }
 
-impl<'col> Condition for And<'col> {
+impl Condition for And {
     fn evaluate(&self, object: &[u8]) -> bool {
         for filter in &self.filters {
             if !filter.evaluate(object) {
@@ -225,17 +226,18 @@ impl<'col> Condition for And<'col> {
     }
 }
 
-impl<'col> And<'col> {
-    pub fn filter(filters: Vec<Filter<'col>>) -> Filter<'col> {
+impl And {
+    pub fn filter(filters: Vec<Filter>) -> Filter {
         Filter::And(And { filters })
     }
 }
 
-pub struct Or<'col> {
-    filters: Vec<Filter<'col>>,
+#[derive(Clone)]
+pub struct Or {
+    filters: Vec<Filter>,
 }
 
-impl<'col> Condition for Or<'col> {
+impl Condition for Or {
     fn evaluate(&self, object: &[u8]) -> bool {
         for filter in &self.filters {
             if filter.evaluate(object) {
@@ -246,24 +248,25 @@ impl<'col> Condition for Or<'col> {
     }
 }
 
-impl<'col> Or<'col> {
-    pub fn filter(filters: Vec<Filter<'col>>) -> Filter<'col> {
+impl Or {
+    pub fn filter(filters: Vec<Filter>) -> Filter {
         Filter::Or(Or { filters })
     }
 }
 
-pub struct Not<'col> {
-    filter: Box<Filter<'col>>,
+#[derive(Clone)]
+pub struct Not {
+    filter: Box<Filter>,
 }
 
-impl<'col> Condition for Not<'col> {
+impl Condition for Not {
     fn evaluate(&self, object: &[u8]) -> bool {
         self.filter.evaluate(object)
     }
 }
 
-impl<'col> Not<'col> {
-    pub fn filter(filter: Filter<'col>) -> Filter<'col> {
+impl Not {
+    pub fn filter(filter: Filter) -> Filter {
         Filter::Not(Not {
             filter: Box::new(filter),
         })

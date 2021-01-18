@@ -5,10 +5,10 @@ use isar_core::query::filter::{And, Filter, IsNull, Or};
 use std::slice;
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_and_or<'col>(
-    filter: *mut *const Filter<'col>,
+pub unsafe extern "C" fn isar_filter_and_or(
+    filter: *mut *const Filter,
     and: bool,
-    conditions: *mut *mut Filter<'col>,
+    conditions: *mut *mut Filter,
     length: u32,
 ) -> u8 {
     let filters = slice::from_raw_parts(conditions, length as usize)
@@ -26,16 +26,16 @@ pub unsafe extern "C" fn isar_filter_and_or<'col>(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_is_null<'col>(
-    collection: &'col IsarCollection,
-    filter: *mut *const Filter<'col>,
+pub unsafe extern "C" fn isar_filter_is_null(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
     is_null: bool,
     property_index: u32,
 ) -> i32 {
     let property = collection.get_properties().get(property_index as usize);
     isar_try! {
-        if let Some(property) = property {
-            let query_filter = IsNull::filter(property, is_null);
+        if let Some((_,property)) = property {
+            let query_filter = IsNull::filter(*property, is_null);
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
         } else {
@@ -48,9 +48,9 @@ pub unsafe extern "C" fn isar_filter_is_null<'col>(
 macro_rules! filter_between_ffi {
     ($filter_name:ident, $function_name:ident, $next:ident, $prev:ident, $type:ty) => {
         #[no_mangle]
-        pub unsafe extern "C" fn $function_name<'col>(
-            collection: &'col IsarCollection,
-            filter: *mut *const Filter<'col>,
+        pub unsafe extern "C" fn $function_name(
+            collection: &IsarCollection,
+            filter: *mut *const Filter,
             mut lower: $type,
             include_lower: bool,
             mut upper: $type,
@@ -73,8 +73,8 @@ macro_rules! filter_between_ffi {
                         illegal_arg("Invalid bounds")?;
                     }
                 }
-                if let Some(property) = property {
-                    let query_filter = isar_core::query::filter::$filter_name::filter(property, lower, upper)?;
+                if let Some((_, property)) = property {
+                    let query_filter = isar_core::query::filter::$filter_name::filter(*property, lower, upper)?;
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
                 } else {
@@ -187,16 +187,16 @@ filter_between_ffi!(
 macro_rules! filter_not_equal_to_ffi {
     ($filter_name:ident, $function_name:ident, $type:ty) => {
         #[no_mangle]
-        pub unsafe extern "C" fn $function_name<'col>(
-            collection: &'col IsarCollection,
-            filter: *mut *const Filter<'col>,
+        pub unsafe extern "C" fn $function_name(
+            collection: &IsarCollection,
+            filter: *mut *const Filter,
             value: $type,
             property_index: u32,
         ) -> i32 {
             let property = collection.get_properties().get(property_index as usize);
             isar_try! {
-                if let Some(property) = property {
-                    let query_filter = isar_core::query::filter::$filter_name::filter(property, value)?;
+                if let Some((_, property)) = property {
+                    let query_filter = isar_core::query::filter::$filter_name::filter(*property, value)?;
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
                 } else {

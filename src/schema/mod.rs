@@ -2,10 +2,9 @@ mod collection_migrator;
 pub mod collection_schema;
 pub mod index_schema;
 pub mod property_schema;
-pub(super) mod schema_manager;
+pub(crate) mod schema_manager;
 
 use crate::collection::IsarCollection;
-use crate::data_dbs::DataDbs;
 use crate::error::{illegal_arg, Result};
 use crate::schema::collection_schema::CollectionSchema;
 use hashbrown::HashSet;
@@ -32,10 +31,10 @@ impl Schema {
         Ok(())
     }
 
-    pub(crate) fn build_collections(self, dbs: DataDbs) -> Vec<IsarCollection> {
+    pub(crate) fn build_collections(self) -> Vec<IsarCollection> {
         self.collections
             .iter()
-            .map(|c| c.get_isar_collection(dbs))
+            .map(|c| c.get_isar_collection())
             .collect()
     }
 

@@ -5,12 +5,12 @@ use serde_json::{json, Map, Value};
 
 #[cfg_attr(test, derive(Clone))]
 pub(crate) struct ObjectInfo {
-    properties: Vec<Property>,
+    properties: Vec<(String, Property)>,
     static_size: usize,
 }
 
 impl ObjectInfo {
-    pub(crate) fn new(properties: Vec<Property>) -> ObjectInfo {
+    pub(crate) fn new(properties: Vec<(String, Property)>) -> ObjectInfo {
         let static_size = Self::calculate_static_size(&properties);
         ObjectInfo {
             properties,
@@ -18,16 +18,19 @@ impl ObjectInfo {
         }
     }
 
-    fn calculate_static_size(properties: &[Property]) -> usize {
-        let last_property = properties.last().unwrap();
-        last_property.offset + last_property.data_type.get_static_size()
+    fn calculate_static_size(properties: &[(String, Property)]) -> usize {
+        return if let Some((_, last_property)) = properties.last() {
+            last_property.offset + last_property.data_type.get_static_size()
+        } else {
+            0
+        };
     }
 
     pub fn get_static_size(&self) -> usize {
         self.static_size
     }
 
-    pub fn get_properties(&self) -> &[Property] {
+    pub fn get_properties(&self) -> &[(String, Property)] {
         &self.properties
     }
 
@@ -37,7 +40,7 @@ impl ObjectInfo {
         let oid = ObjectId::from_bytes(key);
         object_map.insert("id".to_string(), json!(oid.to_string()));
 
-        for property in &self.properties {
+        for (property_name, property) in &self.properties {
             let value =
                 if primitive_null && property.data_type.is_static() && property.is_null(object) {
                     Value::Null
@@ -57,7 +60,7 @@ impl ObjectInfo {
                         DataType::StringList => json!(property.get_string_list(object)),
                     }
                 };
-            object_map.insert(property.name.clone(), value);
+            object_map.insert(property_name.clone(), value);
         }
         json!(object_map)
     }
@@ -85,7 +88,7 @@ impl ObjectInfo {
 
         let mut static_offset = 0;
         let mut dynamic_offset = self.static_size;
-        for property in &self.properties {
+        for (_, property) in &self.properties {
             let required_padding = property.offset - static_offset;
             if !check_padding(static_offset, required_padding) {
                 return false;
@@ -139,14 +142,14 @@ mod tests {
     #[test]
     fn test_calculate_static_size() {
         let properties1 = vec![
-            Property::new_debug(DataType::Byte, 0),
-            Property::new_debug(DataType::Int, 2),
+            ("".to_string(), Property::new(DataType::Byte, 0)),
+            ("".to_string(), Property::new(DataType::Int, 2)),
         ];
         let properties2 = vec![
-            Property::new_debug(DataType::Byte, 0),
-            Property::new_debug(DataType::String, 1),
-            Property::new_debug(DataType::ByteList, 9),
-            Property::new_debug(DataType::Double, 9),
+            ("".to_string(), Property::new(DataType::Byte, 0)),
+            ("".to_string(), Property::new(DataType::String, 1)),
+            ("".to_string(), Property::new(DataType::ByteList, 9)),
+            ("".to_string(), Property::new(DataType::Double, 9)),
         ];
 
         assert_eq!(ObjectInfo::calculate_static_size(&properties1), 6);

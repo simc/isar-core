@@ -7,11 +7,11 @@ use isar_core::txn::IsarTxn;
 #[no_mangle]
 pub unsafe extern "C" fn isar_get(
     collection: &IsarCollection,
-    txn: &IsarTxn,
+    txn: &mut IsarTxn,
     object: &mut RawObject,
 ) -> i32 {
     isar_try! {
-        let object_id = object.get_object_id(collection).unwrap();
+        let object_id = object.get_object_id().unwrap();
         let result = collection.get(txn, object_id)?;
         if let Some(result) = result {
             object.set_object(result);
@@ -28,7 +28,7 @@ pub unsafe extern "C" fn isar_get_async(
     object: &'static mut RawObject,
 ) {
     let object = RawObjectSend(object);
-    let oid = object.0.get_object_id(collection).unwrap();
+    let oid = object.0.get_object_id().unwrap();
     txn.exec(move |txn| -> Result<()> {
         let result = collection.get(txn, oid)?;
         if let Some(result) = result {
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn isar_put(
     object: &mut RawObject,
 ) -> i32 {
     isar_try! {
-        let oid = object.get_object_id(collection);
+        let oid = object.get_object_id();
         let data = object.object_as_slice();
         let oid = collection.put(txn, oid, data)?;
         object.set_object_id(oid);
@@ -61,8 +61,8 @@ pub unsafe extern "C" fn isar_put_async(
     object: &'static mut RawObject,
 ) {
     let object = RawObjectSend(object);
-    let oid = object.0.get_object_id(collection);
     txn.exec(move |txn| -> Result<()> {
+        let oid = object.0.get_object_id();
         let data = object.0.object_as_slice();
         let oid = collection.put(txn, oid, data)?;
         object.0.set_object_id(oid);
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn isar_delete(
     object: &RawObject,
 ) -> i32 {
     isar_try! {
-    let oid = object.get_object_id(collection).unwrap();
+    let oid = object.get_object_id().unwrap();
         collection.delete(txn, oid)?;
     }
 }
@@ -88,14 +88,17 @@ pub unsafe extern "C" fn isar_delete_async(
     txn: &IsarAsyncTxn,
     object: &RawObject,
 ) {
-    let oid = object.get_object_id(collection).unwrap();
-    txn.exec(move |txn| collection.delete(txn, oid));
+    let oid = object.get_object_id().unwrap();
+    txn.exec(move |txn| {
+        collection.delete(txn, oid)?;
+        Ok(())
+    });
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_delete_all(collection: &IsarCollection, txn: &mut IsarTxn) -> i32 {
     isar_try! {
-        collection.delete_all(txn)?;
+        collection.new_query_builder().build().delete_all(txn,collection)?;
     }
 }
 
@@ -104,13 +107,19 @@ pub unsafe extern "C" fn isar_delete_all_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
 ) {
-    txn.exec(move |txn| collection.delete_all(txn));
+    txn.exec(move |txn| {
+        collection
+            .new_query_builder()
+            .build()
+            .delete_all(txn, collection)?;
+        Ok(())
+    });
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_export_json(
     collection: &IsarCollection,
-    txn: &IsarTxn,
+    txn: &mut IsarTxn,
     primitive_null: bool,
     json: *mut *mut u8,
     json_length: *mut u32,

@@ -1,43 +1,25 @@
 use crate::collection::IsarCollection;
 use crate::error::{illegal_arg, Result};
-use crate::index::IndexType;
-use crate::lmdb::db::Db;
 use crate::object::property::Property;
-use crate::option;
 use crate::query::filter::Filter;
 use crate::query::query::{Query, Sort};
 use crate::query::where_clause::WhereClause;
 use itertools::Itertools;
 
-pub struct QueryBuilder<'col> {
-    collection: &'col IsarCollection,
+pub struct QueryBuilder<'a> {
+    collection: &'a IsarCollection,
     where_clauses: Vec<WhereClause>,
-    primary_db: Db,
-    secondary_db: Db,
-    secondary_dup_db: Db,
-    has_secondary_where: bool,
-    has_secondary_dup_where: bool,
-    filter: Option<Filter<'col>>,
+    filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
     distinct: Option<Vec<Property>>,
     offset_limit: Option<(usize, usize)>,
 }
 
-impl<'col> QueryBuilder<'col> {
-    pub(crate) fn new(
-        collection: &IsarCollection,
-        primary_db: Db,
-        secondary_db: Db,
-        secondary_dup_db: Db,
-    ) -> QueryBuilder {
+impl<'a> QueryBuilder<'a> {
+    pub(crate) fn new(collection: &'a IsarCollection) -> QueryBuilder {
         QueryBuilder {
             collection,
             where_clauses: vec![],
-            primary_db,
-            secondary_db,
-            secondary_dup_db,
-            has_secondary_where: false,
-            has_secondary_dup_where: false,
             filter: None,
             sort: vec![],
             distinct: None,
@@ -50,19 +32,24 @@ impl<'col> QueryBuilder<'col> {
         mut wc: WhereClause,
         include_lower: bool,
         include_upper: bool,
-    ) {
+    ) -> Result<()> {
+        /*if let Some(index) = &wc.index {
+            if !self.collection.get_indexes().contains(index) {
+                return illegal_arg("Wrong WhereClause for this collection.");
+            }
+        } else if self.collection.get_id() != wc.get_prefix() {
+            return illegal_arg("Wrong WhereClause for this collection.");
+        }*/
         if !wc.try_exclude(include_lower, include_upper) {
-            wc = WhereClause::empty();
+            wc = WhereClause::new_empty();
         }
-        if wc.index_type == IndexType::Secondary {
-            self.has_secondary_where = true;
-        } else if wc.index_type == IndexType::SecondaryDup {
-            self.has_secondary_dup_where = true;
+        if self.where_clauses.is_empty() || !wc.is_empty() {
+            self.where_clauses.push(wc);
         }
-        self.where_clauses.push(wc);
+        Ok(())
     }
 
-    pub fn set_filter(&mut self, filter: Filter<'col>) {
+    pub fn set_filter(&mut self, filter: Filter) {
         self.filter = Some(filter);
     }
 
@@ -120,28 +107,13 @@ impl<'col> QueryBuilder<'col> {
         merged
     }*/
 
-    pub fn build(self) -> Query<'col> {
-        let secondary_db = option!(self.has_secondary_where, self.secondary_db);
-        let secondary_dup_db = option!(self.has_secondary_dup_where, self.secondary_dup_db);
-        let where_clauses = if self.where_clauses.is_empty() {
-            vec![self.collection.create_primary_where_clause()]
-        } else {
-            let filtered = self
-                .where_clauses
-                .into_iter()
-                .filter(|wc| !wc.is_empty())
-                .collect_vec();
-            if filtered.is_empty() {
-                vec![WhereClause::empty()]
-            } else {
-                filtered
-            }
-        };
+    pub fn build(mut self) -> Query {
+        if self.where_clauses.is_empty() {
+            self.where_clauses
+                .push(self.collection.new_primary_where_clause())
+        }
         Query::new(
-            where_clauses,
-            self.primary_db,
-            secondary_db,
-            secondary_dup_db,
+            self.where_clauses,
             self.filter,
             self.sort,
             self.distinct,

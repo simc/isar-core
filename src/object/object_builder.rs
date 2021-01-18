@@ -23,14 +23,17 @@ impl<'a> ObjectBuilder<'a> {
         }
     }
 
-    fn get_next_property(&mut self) -> (usize, DataType) {
-        let property = self
+    fn get_next_property(&mut self, peek: bool) -> Property {
+        let (_, property) = self
             .object_info
             .get_properties()
             .get(self.property_index)
             .unwrap();
-        self.property_index += 1;
-        (property.offset, property.data_type)
+        if !peek {
+            self.property_index += 1;
+        }
+
+        *property
     }
 
     fn write_at(&mut self, offset: usize, bytes: &[u8]) {
@@ -42,11 +45,7 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     pub fn write_null(&mut self) {
-        let property = self
-            .object_info
-            .get_properties()
-            .get(self.property_index)
-            .unwrap();
+        let property = self.get_next_property(true);
         match property.data_type {
             DataType::Byte => self.write_byte(Property::NULL_BYTE),
             DataType::Int => self.write_int(Property::NULL_INT),
@@ -63,76 +62,100 @@ impl<'a> ObjectBuilder<'a> {
         }
     }
 
+    pub fn write_from(&mut self, property: Property, object: &[u8]) {
+        match property.data_type {
+            DataType::Byte => self.write_byte(property.get_byte(object)),
+            DataType::Int => self.write_int(property.get_int(object)),
+            DataType::Float => self.write_float(property.get_float(object)),
+            DataType::Long => self.write_long(property.get_long(object)),
+            DataType::Double => self.write_double(property.get_double(object)),
+            DataType::String => self.write_string(property.get_string(object)),
+            DataType::ByteList => self.write_byte_list(property.get_byte_list(object)),
+            DataType::IntList => self.write_int_list(property.get_int_list(object)),
+            DataType::FloatList => self.write_float_list(property.get_float_list(object)),
+            DataType::LongList => self.write_long_list(property.get_long_list(object)),
+            DataType::DoubleList => self.write_double_list(property.get_double_list(object)),
+            DataType::StringList => {
+                let list = property.get_string_list(object);
+                if let Some(list) = list {
+                    self.write_string_list(Some(list.as_slice()))
+                } else {
+                    self.write_string_list(None)
+                }
+            }
+        }
+    }
+
     pub fn write_byte(&mut self, value: u8) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::Byte);
-        self.write_at(offset, &[value]);
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::Byte);
+        self.write_at(property.offset, &[value]);
     }
 
     pub fn write_int(&mut self, value: i32) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::Int);
-        self.write_at(offset, &value.to_le_bytes());
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::Int);
+        self.write_at(property.offset, &value.to_le_bytes());
     }
 
     pub fn write_float(&mut self, value: f32) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::Float);
-        self.write_at(offset, &value.to_le_bytes());
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::Float);
+        self.write_at(property.offset, &value.to_le_bytes());
     }
 
     pub fn write_long(&mut self, value: i64) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::Long);
-        self.write_at(offset, &value.to_le_bytes());
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::Long);
+        self.write_at(property.offset, &value.to_le_bytes());
     }
 
     pub fn write_double(&mut self, value: f64) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::Double);
-        self.write_at(offset, &value.to_le_bytes());
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::Double);
+        self.write_at(property.offset, &value.to_le_bytes());
     }
 
     pub fn write_string(&mut self, value: Option<&str>) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::String);
-        self.write_list(offset, value.map(|s| s.as_bytes()));
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::String);
+        self.write_list(property.offset, value.map(|s| s.as_bytes()));
     }
 
     pub fn write_byte_list(&mut self, value: Option<&[u8]>) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::ByteList);
-        self.write_list(offset, value);
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::ByteList);
+        self.write_list(property.offset, value);
     }
 
     pub fn write_int_list(&mut self, value: Option<&[i32]>) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::IntList);
-        self.write_list(offset, value);
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::IntList);
+        self.write_list(property.offset, value);
     }
 
     pub fn write_float_list(&mut self, value: Option<&[f32]>) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::FloatList);
-        self.write_list(offset, value);
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::FloatList);
+        self.write_list(property.offset, value);
     }
 
     pub fn write_long_list(&mut self, value: Option<&[i64]>) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::LongList);
-        self.write_list(offset, value);
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::LongList);
+        self.write_list(property.offset, value);
     }
 
     pub fn write_double_list(&mut self, value: Option<&[f64]>) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::DoubleList);
-        self.write_list(offset, value);
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::DoubleList);
+        self.write_list(property.offset, value);
     }
 
     pub fn write_string_list(&mut self, value: Option<&[Option<&str>]>) {
-        let (offset, data_type) = self.get_next_property();
-        assert_eq!(data_type, DataType::StringList);
-        self.write_list::<u8>(offset, None);
+        let property = self.get_next_property(false);
+        assert_eq!(property.data_type, DataType::StringList);
+        self.write_list::<u8>(property.offset, None);
     }
 
     pub fn finish(self) -> ObjectBuilderResult {
@@ -180,7 +203,7 @@ mod tests {
     macro_rules! builder {
         ($var:ident, $oi:ident, $type:ident) => {
             isar!(isar, col => col!("int" => $type));
-            let mut $var = col.get_object_builder();
+            let mut $var = col.new_object_builder();
             let $oi = col.debug_get_object_info();
         };
     }

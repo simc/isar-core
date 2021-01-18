@@ -1,15 +1,16 @@
 use crate::error::{IsarError, Result};
-use crate::lmdb::db::Db;
-use crate::lmdb::txn::Txn;
 use crate::object::data_type::DataType;
 use crate::object::property::Property;
 use crate::query::where_clause::WhereClause;
+use crate::txn::Cursors;
 use std::mem::transmute;
 use wyhash::wyhash;
 
-use itertools::Itertools;
 #[cfg(test)]
-use {crate::txn::IsarTxn, crate::utils::debug::dump_db, hashbrown::HashSet};
+use {
+    crate::object::object_id::ObjectId, crate::txn::IsarTxn, crate::utils::debug::dump_db,
+    hashbrown::HashSet,
+};
 
 pub const MAX_STRING_INDEX_SIZE: usize = 1500;
 
@@ -19,79 +20,90 @@ Null values are always considered the "smallest" element.
 
  */
 
-#[derive(Copy, Clone, PartialEq)]
-pub enum IndexType {
-    Primary,
-    Secondary,
-    SecondaryDup,
-}
-
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Index {
-    prefix: [u8; 2],
+    id: u16,
     properties: Vec<Property>,
-    index_type: IndexType,
+    unique: bool,
     hash_value: bool,
-    db: Db,
 }
 
 impl Index {
-    pub(crate) fn new(
-        id: u16,
-        properties: Vec<Property>,
-        index_type: IndexType,
-        hash_value: bool,
-        db: Db,
-    ) -> Self {
-        assert!(index_type == IndexType::Secondary || index_type == IndexType::SecondaryDup);
+    pub(crate) fn new(id: u16, properties: Vec<Property>, unique: bool, hash_value: bool) -> Self {
         Index {
-            prefix: u16::to_le_bytes(id),
+            id,
             properties,
-            index_type,
+            unique,
             hash_value,
-            db,
         }
     }
 
     pub(crate) fn get_id(&self) -> u16 {
-        u16::from_le_bytes(self.prefix)
+        self.id
     }
 
-    pub(crate) fn create_for_object(&self, txn: &Txn, key: &[u8], object: &[u8]) -> Result<()> {
+    pub(crate) fn get_prefix(&self) -> Vec<u8> {
+        self.id.to_le_bytes().to_vec()
+    }
+
+    pub(crate) fn is_unique(&self) -> bool {
+        self.unique
+    }
+
+    pub(crate) fn create_for_object(
+        &self,
+        cursors: &mut Cursors,
+        oid: &[u8],
+        object: &[u8],
+    ) -> Result<()> {
         let index_key = self.create_key(object);
-        if self.index_type == IndexType::SecondaryDup {
-            self.db.put(txn, &index_key, key)
-        } else {
-            let success = self.db.put_no_override(txn, &index_key, key)?;
+        if self.unique {
+            let success = cursors.secondary.put_no_override(&index_key, oid)?;
             if success {
                 Ok(())
             } else {
-                Err(IsarError::UniqueViolated {
-                    index: self.properties.iter().map(|p| &p.name).join(" | "),
-                })
+                Err(IsarError::UniqueViolated {})
             }
-        }
-    }
-
-    pub(crate) fn delete_for_object(&self, txn: &Txn, key: &[u8], object: &[u8]) -> Result<()> {
-        let index_key = self.create_key(object);
-        if self.index_type == IndexType::SecondaryDup {
-            self.db.delete(txn, &index_key, Some(key))
         } else {
-            self.db.delete(txn, &index_key, None)
+            cursors.secondary_dup.put(&index_key, oid)
         }
     }
 
-    pub fn clear(&self, txn: &Txn) -> Result<()> {
-        self.db.delete_key_prefix(txn, &self.prefix)
+    pub(crate) fn delete_for_object(
+        &self,
+        cursors: &mut Cursors,
+        oid: &[u8],
+        object: &[u8],
+    ) -> Result<()> {
+        let index_key = self.create_key(object);
+        if self.unique {
+            cursors.secondary.move_to(&index_key)?;
+            cursors.secondary.delete_current()
+        } else {
+            cursors.secondary_dup.move_to_dup(&index_key, oid)?;
+            cursors.secondary_dup.delete_current()
+        }
     }
 
-    pub fn create_where_clause(&self) -> WhereClause {
-        WhereClause::new(&self.prefix, self.index_type)
+    pub(crate) fn clear(&self, cursors: &mut Cursors) -> Result<()> {
+        let cursor = if self.unique {
+            &mut cursors.secondary
+        } else {
+            &mut cursors.secondary_dup
+        };
+        cursor.iter_prefix(&self.get_prefix(), |cursor, _, _| {
+            cursor.delete_current()?;
+            Ok(true)
+        })?;
+        Ok(())
     }
 
-    fn create_key(&self, object: &[u8]) -> Vec<u8> {
-        let mut bytes = self.prefix.to_vec();
+    pub fn new_where_clause(&self) -> WhereClause {
+        WhereClause::new_secondary(self.clone())
+    }
+
+    pub(crate) fn create_key(&self, object: &[u8]) -> Vec<u8> {
+        let mut bytes = self.get_prefix();
         let index_iter = self
             .properties
             .iter()
@@ -199,21 +211,25 @@ impl Index {
     }
 
     #[cfg(test)]
-    pub fn debug_dump(&self, txn: &IsarTxn) -> HashSet<(Vec<u8>, Vec<u8>)> {
-        dump_db(self.db, txn, Some(&self.prefix))
-            .into_iter()
-            .map(|(key, val)| (key.to_vec(), val.to_vec()))
-            .collect()
+    pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashSet<(Vec<u8>, ObjectId)> {
+        txn.read(|cursors| {
+            let cursor = if self.unique {
+                &mut cursors.secondary
+            } else {
+                &mut cursors.secondary_dup
+            };
+            let set = dump_db(cursor, Some(&self.id.to_le_bytes()))
+                .into_iter()
+                .map(|(key, val)| (key.to_vec(), *ObjectId::from_bytes(&val)))
+                .collect();
+            Ok(set)
+        })
+        .unwrap()
     }
 
     #[cfg(test)]
     pub fn debug_create_key(&self, object: &[u8]) -> Vec<u8> {
         self.create_key(object).to_vec()
-    }
-
-    #[cfg(test)]
-    pub fn debug_get_db(&self) -> &Db {
-        &self.db
     }
 }
 
@@ -228,18 +244,18 @@ mod tests {
         macro_rules! test_index (
             ($data_type:ident , $data:expr, $write:ident) => {
                 isar!(isar, col => col!(field => $data_type; ind!(field)));
-                let txn = isar.begin_txn(true).unwrap();
+                let mut txn = isar.begin_txn(true).unwrap();
 
-                let mut builder = col.get_object_builder();
+                let mut builder = col.new_object_builder();
                 builder.$write($data);
                 let obj = builder.finish();
 
-                let oid = col.put(&txn, None, obj.as_bytes()).unwrap();
+                let oid = col.put(&mut txn, None, obj.as_bytes()).unwrap();
                 let index = col.debug_get_index(0);
 
                 assert_eq!(
-                    index.debug_dump(&txn),
-                    set![(index.create_key(obj.as_bytes()), oid.as_bytes().to_vec())]
+                    index.debug_dump(&mut txn),
+                    set![(index.create_key(obj.as_bytes()), oid)]
                 )
             };
         );
@@ -258,15 +274,15 @@ mod tests {
     #[test]
     fn test_create_for_violate_unique() {
         isar!(isar, col => col!(field => Int; ind!(field; true)));
-        let txn = isar.begin_txn(true).unwrap();
+        let mut txn = isar.begin_txn(true).unwrap();
 
-        let mut o = col.get_object_builder();
+        let mut o = col.new_object_builder();
         o.write_int(5);
         let bytes = o.finish();
 
-        col.put(&txn, None, bytes.as_bytes()).unwrap();
+        col.put(&mut txn, None, bytes.as_bytes()).unwrap();
 
-        let result = col.put(&txn, None, bytes.as_bytes());
+        let result = col.put(&mut txn, None, bytes.as_bytes());
         match result {
             Err(IsarError::UniqueViolated { .. }) => {}
             _ => panic!("wrong error"),

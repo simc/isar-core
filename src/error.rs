@@ -15,8 +15,8 @@ pub enum IsarError {
     #[error("The database is full.")]
     DbFull {},
 
-    #[error("The unique index {index:?} violated.")]
-    UniqueViolated { index: String },
+    #[error("Unique index violated.")]
+    UniqueViolated {},
 
     #[error("Write transaction required.")]
     WriteTxnRequired {},

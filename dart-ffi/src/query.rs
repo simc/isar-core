@@ -3,7 +3,6 @@ use crate::async_txn::IsarAsyncTxn;
 use crate::raw_object_set::RawObjectSetSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
-use isar_core::instance::IsarInstance;
 use isar_core::query::filter::Filter;
 use isar_core::query::query::Query;
 use isar_core::query::query_builder::QueryBuilder;
@@ -11,11 +10,8 @@ use isar_core::query::where_clause::WhereClause;
 use isar_core::txn::IsarTxn;
 
 #[no_mangle]
-pub extern "C" fn isar_qb_create<'col>(
-    isar: &IsarInstance,
-    collection: &'col IsarCollection,
-) -> *mut QueryBuilder<'col> {
-    let builder = isar.create_query_builder(collection);
+pub extern "C" fn isar_qb_create(collection: &IsarCollection) -> *mut QueryBuilder {
+    let builder = collection.new_query_builder();
     Box::into_raw(Box::new(builder))
 }
 
@@ -25,16 +21,15 @@ pub unsafe extern "C" fn isar_qb_add_where_clause(
     where_clause: *mut WhereClause,
     include_lower: bool,
     include_upper: bool,
-) {
+) -> i32 {
     let wc = *Box::from_raw(where_clause);
-    builder.add_where_clause(wc, include_lower, include_upper);
+    isar_try! {
+        builder.add_where_clause(wc, include_lower, include_upper)?;
+    }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_qb_set_filter<'col>(
-    builder: &mut QueryBuilder<'col>,
-    filter: *mut Filter<'col>,
-) {
+pub unsafe extern "C" fn isar_qb_set_filter(builder: &mut QueryBuilder, filter: *mut Filter) {
     let filter = *Box::from_raw(filter);
     builder.set_filter(filter);
 }
@@ -48,7 +43,7 @@ pub unsafe extern "C" fn isar_qb_build(builder: *mut QueryBuilder) -> *mut Query
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_find_all(
     query: &Query,
-    txn: &IsarTxn,
+    txn: &mut IsarTxn<'static>,
     result: &mut RawObjectSet,
 ) -> i32 {
     isar_try! {
@@ -67,7 +62,7 @@ pub unsafe extern "C" fn isar_q_find_all_async(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_q_count(query: &Query, txn: &IsarTxn, count: &mut i64) -> i32 {
+pub unsafe extern "C" fn isar_q_count(query: &Query, txn: &mut IsarTxn, count: &mut i64) -> i32 {
     isar_try! {
         *count = query.count(txn)? as i64;
     }

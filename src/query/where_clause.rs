@@ -1,60 +1,84 @@
 use crate::error::Result;
-use crate::index::{Index, IndexType};
-use crate::lmdb::cursor::{Cursor, CursorIterator};
-use crate::lmdb::KeyVal;
+use crate::index::Index;
+use crate::lmdb::check_below_upper_key;
+use crate::lmdb::cursor::Cursor;
 use crate::object::object_id::ObjectId;
+use std::convert::TryInto;
 
 #[derive(Clone)]
 pub struct WhereClause {
     lower_key: Vec<u8>,
     upper_key: Vec<u8>,
-    prefix_len: usize,
-    pub(super) index_type: IndexType,
+    index: Option<Index>,
 }
 
 impl WhereClause {
-    pub(crate) fn new(prefix: &[u8], index_type: IndexType) -> Self {
+    const PREFIX_LEN: usize = 2;
+
+    pub(crate) fn new_primary(collection_id: u16) -> Self {
         WhereClause {
-            lower_key: prefix.to_vec(),
-            upper_key: prefix.to_vec(),
-            prefix_len: prefix.len(),
-            index_type,
+            lower_key: collection_id.to_le_bytes().to_vec(),
+            upper_key: collection_id.to_le_bytes().to_vec(),
+            index: None,
         }
     }
 
-    pub(crate) fn empty() -> Self {
+    pub(crate) fn new_secondary(index: Index) -> Self {
         WhereClause {
-            lower_key: vec![0],
-            upper_key: vec![10],
-            prefix_len: 0,
-            index_type: IndexType::Primary,
+            lower_key: index.get_id().to_le_bytes().to_vec(),
+            upper_key: index.get_id().to_le_bytes().to_vec(),
+            index: Some(index),
         }
     }
 
-    pub(crate) fn iter<'a, 'txn>(
-        &'a self,
-        cursor: &'a mut Cursor<'txn>,
-    ) -> Result<Option<WhereClauseIterator<'a, 'txn>>> {
-        WhereClauseIterator::new(&self, cursor)
+    pub(crate) fn new_empty() -> Self {
+        WhereClause {
+            lower_key: vec![1],
+            upper_key: vec![0],
+            index: None,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        !self.check_below_upper_key(&self.lower_key)
+        !check_below_upper_key(&self.lower_key, &self.upper_key)
     }
 
-    #[inline]
-    fn check_below_upper_key(&self, mut key: &[u8]) -> bool {
-        let upper_key: &[u8] = &self.upper_key;
-        if upper_key.len() < key.len() {
-            key = &key[0..self.upper_key.len()]
+    pub fn is_primary(&self) -> bool {
+        self.index.is_none()
+    }
+
+    pub fn is_unique(&self) -> bool {
+        self.index.as_ref().map_or(true, |i| i.is_unique())
+    }
+
+    pub fn get_prefix(&self) -> u16 {
+        if self.lower_key.len() < 2 {
+            0 // empty
+        } else {
+            u16::from_le_bytes(self.lower_key[0..2].try_into().unwrap())
         }
-        upper_key >= key
+    }
+
+    pub(crate) fn object_matches(&self, oid: &[u8], object: &[u8]) -> bool {
+        if let Some(index) = &self.index {
+            let index_key = index.create_key(object);
+            self.lower_key <= index_key && check_below_upper_key(&index_key, &self.upper_key)
+        } else {
+            &self.lower_key[..] <= oid && check_below_upper_key(oid, &self.upper_key)
+        }
+    }
+
+    pub(crate) fn iter<'txn, F>(&self, cursor: &mut Cursor<'txn>, callback: F) -> Result<bool>
+    where
+        F: FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
+    {
+        cursor.iter_between(&self.lower_key, &self.upper_key, callback)
     }
 
     pub(crate) fn try_exclude(&mut self, include_lower: bool, include_upper: bool) -> bool {
         if !include_lower {
             let mut increased = false;
-            for i in (self.prefix_len..self.lower_key.len()).rev() {
+            for i in (Self::PREFIX_LEN..self.lower_key.len()).rev() {
                 if let Some(added) = self.lower_key[i].checked_add(1) {
                     self.lower_key[i] = added;
                     increased = true;
@@ -67,7 +91,7 @@ impl WhereClause {
         }
         if !include_upper {
             let mut decreased = false;
-            for i in (self.prefix_len..self.upper_key.len()).rev() {
+            for i in (Self::PREFIX_LEN..self.upper_key.len()).rev() {
                 if let Some(subtracted) = self.upper_key[i].checked_sub(1) {
                     self.upper_key[i] = subtracted;
                     decreased = true;
@@ -143,43 +167,6 @@ impl WhereClause {
     }
 }
 
-pub struct WhereClauseIterator<'a, 'txn> {
-    where_clause: &'a WhereClause,
-    iter: CursorIterator<'a, 'txn>,
-}
-
-impl<'a, 'txn> WhereClauseIterator<'a, 'txn> {
-    fn new(where_clause: &'a WhereClause, cursor: &'a mut Cursor<'txn>) -> Result<Option<Self>> {
-        let result = cursor.move_to_gte(&where_clause.lower_key)?;
-        if result.is_some() {
-            Ok(Some(WhereClauseIterator {
-                where_clause,
-                iter: cursor.iter(),
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-impl<'a, 'txn> Iterator for WhereClauseIterator<'a, 'txn> {
-    type Item = Result<KeyVal<'txn>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let next = self.iter.next();
-        match next? {
-            Ok((key, val)) => {
-                if self.where_clause.check_below_upper_key(&key) {
-                    Some(Ok((key, val)))
-                } else {
-                    None
-                }
-            }
-            Err(e) => Some(Err(e)),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     //use super::*;
@@ -198,7 +185,7 @@ mod tests {
     );
 
     /*fn get_str_obj(col: &IsarCollection, str: &str) -> Vec<u8> {
-        let mut ob = col.get_object_builder();
+        let mut ob = col.new_object_builder();
         ob.write_string(Some(str));
         ob.finish()
     }*/
@@ -220,7 +207,7 @@ mod tests {
             oid4.as_bytes(),
         ];
 
-        let mut wc = col.create_where_clause(Some(0)).unwrap();
+        let mut wc = col.new_where_clause(Some(0)).unwrap();
         exec_wc!(txn, col, wc, oids);
         assert_eq!(&oids, all_oids);
 
@@ -228,7 +215,7 @@ mod tests {
         exec_wc!(txn, col, wc, oids);
         assert_eq!(&oids, all_oids);
 
-        let mut wc = col.create_where_clause(Some(0)).unwrap();
+        let mut wc = col.new_where_clause(Some(0)).unwrap();
         wc.add_lower_string_value(Some("aa"), false);
         exec_wc!(txn, col, wc, oids);
         assert_eq!(&oids, &[oid3.as_bytes(), oid4.as_bytes()]);
@@ -237,7 +224,7 @@ mod tests {
         exec_wc!(txn, col, wc, oids);
         assert_eq!(&oids, &[oid3.as_bytes()]);
 
-        let mut wc = col.create_where_clause(Some(0)).unwrap();
+        let mut wc = col.new_where_clause(Some(0)).unwrap();
         wc.add_lower_string_value(Some("x"), false);
         exec_wc!(txn, col, wc, oids);
         assert_eq!(&oids, &[] as &[&[u8]]);*/

@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::collection::IsarCollection;
-use crate::lmdb::db::Db;
+use crate::lmdb::cursor::Cursor;
 use crate::object::object_builder::ObjectBuilderResult;
 use crate::object::object_id::ObjectId;
 use crate::txn::IsarTxn;
@@ -12,10 +12,9 @@ use std::mem;
 #[macro_export]
 macro_rules! map (
     ($($key:expr => $value:expr),+) => {
-        #[allow(clippy::useless_vec)]
         {
             let mut m = ::hashbrown::HashMap::new();
-            $(m.insert($key.to_vec(), $value.to_vec());)+
+            $(m.insert($key, $value);)+
             m
         }
     };
@@ -37,26 +36,20 @@ macro_rules! isar (
     (path: $path:ident, $isar:ident, $($col:ident => $schema:expr),+) => {
         let mut schema = crate::schema::Schema::new();
         $(
-        let col = $schema;
-        schema.add_collection(col).unwrap();
+            let col = $schema;
+            schema.add_collection(col).expect("HMM");
         )+
-        let $isar = crate::instance::IsarInstance::create($path, 10000000, schema).unwrap();
-        isar!(x $isar, 0, $($col),+);
+        let $isar = crate::instance::IsarInstance::create($path, 10000000, schema).expect("DIDNT GET");
+        $(
+            let col = $schema;
+            let $col = $isar.get_collection_by_name(&col.name).unwrap();
+        )+
     };
 
     ($isar:ident, $($col:ident => $schema:expr),+) => {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().to_str().unwrap();
+        let temp = tempfile::tempdir().expect("DIR");
+        let path = temp.path().to_str().expect("PATH");
         isar!(path: path, $isar, $($col => $schema),+);
-    };
-
-    (x $isar:ident, $index:expr, $col:ident, $($other:ident),+) => {
-        let $col = $isar.get_collection($index).unwrap();
-        isar!(x $isar, $index + 1, $($other),*)
-    };
-
-    (x $isar:ident, $index:expr, $col:ident) => {
-        let $col = $isar.get_collection($index).unwrap();
     };
 );
 
@@ -110,10 +103,10 @@ macro_rules! ind (
     };
 );
 
-pub fn fill_db<'a>(
+pub fn fill_db(
     col: &IsarCollection,
     txn: &mut IsarTxn,
-    data: &'a [(Option<ObjectId>, ObjectBuilderResult)],
+    data: &[(Option<ObjectId>, ObjectBuilderResult)],
 ) -> HashMap<Vec<u8>, Vec<u8>> {
     let mut result = HashMap::new();
     for (oid, object) in data {
@@ -127,24 +120,16 @@ pub fn ref_map<K: Eq + Hash, V>(map: &HashMap<K, V>) -> HashMap<&K, &V> {
     map.iter().map(|(k, v)| (k, v)).collect()
 }
 
-pub fn dump_db(db: Db, txn: &IsarTxn, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, Vec<u8>)> {
+pub fn dump_db(cursor: &mut Cursor, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, Vec<u8>)> {
     let mut set = HashSet::new();
-    let mut cursor = db.cursor(txn.get_txn()).unwrap();
 
-    let result = if let Some(prefix) = prefix {
-        cursor.move_to_gte(prefix).unwrap()
-    } else {
-        cursor.move_to_first().unwrap()
-    };
-    if result.is_some() {
-        for kv in cursor.iter() {
-            let (key, val) = kv.unwrap();
-            if prefix.is_some() && !key.starts_with(prefix.unwrap()) {
-                break;
-            }
-            set.insert((key.to_vec(), val.to_vec()));
-        }
-    }
+    cursor
+        .iter_prefix(prefix.unwrap_or(&[]), |_, k, v| {
+            set.insert((k.to_vec(), v.to_vec()));
+            Ok(true)
+        })
+        .unwrap();
+
     set
 }
 

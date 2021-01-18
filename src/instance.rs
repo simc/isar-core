@@ -1,40 +1,90 @@
 use crate::collection::IsarCollection;
-use crate::data_dbs::DataDbs;
 use crate::error::*;
+use crate::lmdb::cursor::Cursor;
 use crate::lmdb::db::Db;
 use crate::lmdb::env::Env;
-use crate::query::query_builder::QueryBuilder;
+use crate::lmdb::txn::Txn;
+use crate::object::object_id::ObjectId;
+use crate::query::query::Query;
 use crate::schema::schema_manager::SchemaManger;
 use crate::schema::Schema;
-use crate::txn::IsarTxn;
+use crate::txn::{Cursors, IsarTxn};
+use crate::watch::change_set::ChangeSet;
+use crate::watch::isar_watchers::{IsarWatchers, WatcherModifier};
+use crate::watch::{
+    CollectionWatcherCallback, ObjectWatcherCallback, QueryWatcherCallback, WatchHandle,
+};
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use hashbrown::hash_map::Entry;
+use hashbrown::HashMap;
+use once_cell::sync::Lazy;
+use rand::random;
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+
+static INSTANCES: Lazy<RwLock<HashMap<String, Arc<IsarInstance>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub struct IsarInstance {
     env: Env,
     dbs: DataDbs,
+    path: String,
     collections: Vec<IsarCollection>,
+    watchers: Mutex<IsarWatchers>,
+    watcher_modifier_sender: Sender<WatcherModifier>,
+    watcher_modifier_receiver: Receiver<WatcherModifier>,
 }
 
 impl IsarInstance {
-    pub fn create(path: &str, max_size: usize, schema: Schema) -> Result<Self> {
+    pub fn create(path: &str, max_size: usize, schema: Schema) -> Result<Arc<Self>> {
+        let mut lock = INSTANCES.write().unwrap();
+        match lock.entry(path.to_string()) {
+            Entry::Occupied(e) => Ok(e.get().clone()),
+            Entry::Vacant(e) => {
+                let new_instance = Self::create_internal(e.key(), max_size, schema)?;
+                let instance_ref = e.insert(Arc::new(new_instance));
+                Ok(instance_ref.clone())
+            }
+        }
+    }
+
+    fn create_internal(path: &str, max_size: usize, schema: Schema) -> Result<Self> {
         let env = Env::create(path, 4, max_size)?;
         let dbs = IsarInstance::open_databases(&env)?;
 
-        let manager = SchemaManger::new(&env, dbs);
-        manager.check_isar_version()?;
-        let collections = manager.get_collections(schema)?;
+        let txn = env.txn(true)?;
+        let collections = {
+            let info_cursor = dbs.open_info_cursor(&txn)?;
+            let cursors = dbs.open_cursors(&txn)?;
+            let migration_cursors = dbs.open_cursors(&txn)?;
+
+            let mut manager = SchemaManger::new(info_cursor, cursors, migration_cursors);
+            manager.check_isar_version()?;
+            manager.get_collections(schema)?
+        };
+        txn.commit()?;
+
+        let (tx, rx) = unbounded();
 
         Ok(IsarInstance {
             env,
             dbs,
+            path: path.to_string(),
             collections,
+            watchers: Mutex::new(IsarWatchers::new()),
+            watcher_modifier_sender: tx,
+            watcher_modifier_receiver: rx,
         })
+    }
+
+    pub fn open(path: &str) -> Option<Arc<Self>> {
+        INSTANCES.read().unwrap().get(path).cloned()
     }
 
     fn open_databases(env: &Env) -> Result<DataDbs> {
         let txn = env.txn(true)?;
         let info = Db::open(&txn, "info", false, false)?;
         let primary = Db::open(&txn, "data", false, false)?;
-        let secondary = Db::open(&txn, "index", false, true)?;
+        let secondary = Db::open(&txn, "index", false, false)?;
         let secondary_dup = Db::open(&txn, "index_dup", true, true)?;
         txn.commit()?;
         Ok(DataDbs {
@@ -45,9 +95,42 @@ impl IsarInstance {
         })
     }
 
+    pub(crate) fn open_cursors<'a>(&self, txn: &Txn<'a>) -> Result<Cursors<'a>> {
+        self.dbs.open_cursors(txn)
+    }
+
     #[inline]
     pub fn begin_txn(&self, write: bool) -> Result<IsarTxn> {
-        Ok(IsarTxn::new(self.env.txn(write)?, write))
+        let change_set = if write {
+            let mut watchers_lock = self.watchers.lock().unwrap();
+            self.sync_watchers(&mut watchers_lock);
+            let change_set = ChangeSet::new(watchers_lock);
+            Some(change_set)
+        } else {
+            None
+        };
+
+        let txn = self.env.txn(write)?;
+        let cursors = self.open_cursors(&txn)?;
+        IsarTxn::new(self, txn, cursors, write, change_set)
+    }
+
+    pub(crate) fn write_txn_complete(&self, change_set: Option<ChangeSet>) {
+        if let Some(change_set) = change_set {
+            let txn = self.begin_txn(false);
+            if let Ok(mut txn) = txn {
+                change_set.notify_watchers(&mut txn);
+                txn.abort();
+            }
+
+            //self.sync_watchers(change_set.)
+        }
+    }
+
+    fn sync_watchers(&self, mut watchers: &mut MutexGuard<IsarWatchers>) {
+        for modifier in self.watcher_modifier_receiver.try_iter() {
+            modifier(&mut watchers)
+        }
     }
 
     pub fn get_collection(&self, collection_index: usize) -> Option<&IsarCollection> {
@@ -60,19 +143,85 @@ impl IsarInstance {
             .find(|c| c.get_name() == collection_name)
     }
 
-    pub fn create_query_builder<'col>(
+    pub fn watch_collection(
         &self,
-        collection: &'col IsarCollection,
-    ) -> QueryBuilder<'col> {
-        QueryBuilder::new(
-            collection,
-            self.dbs.primary,
-            self.dbs.secondary,
-            self.dbs.secondary_dup,
-        )
+        collection: &IsarCollection,
+        callback: CollectionWatcherCallback,
+    ) -> WatchHandle {
+        let watcher_id = random();
+        let col_id = collection.get_id();
+        self.watcher_modifier_sender
+            .try_send(Box::new(move |iw| {
+                iw.get_col_watchers(col_id)
+                    .add_watcher(watcher_id, callback);
+            }))
+            .unwrap();
+
+        let sender = self.watcher_modifier_sender.clone();
+        WatchHandle::new(Box::new(move || {
+            let _ = sender.try_send(Box::new(move |iw| {
+                iw.get_col_watchers(col_id).remove_watcher(watcher_id);
+            }));
+        }))
     }
 
-    pub fn close(self) {}
+    pub fn watch_object(
+        &self,
+        collection: &IsarCollection,
+        mut oid: ObjectId,
+        callback: ObjectWatcherCallback,
+    ) -> WatchHandle {
+        let watcher_id = random();
+        let col_id = collection.get_id();
+        oid.set_prefix(col_id);
+        self.watcher_modifier_sender
+            .try_send(Box::new(move |iw| {
+                iw.get_col_watchers(col_id)
+                    .add_object_watcher(watcher_id, oid, callback);
+            }))
+            .unwrap();
+
+        let sender = self.watcher_modifier_sender.clone();
+        WatchHandle::new(Box::new(move || {
+            let _ = sender.try_send(Box::new(move |iw| {
+                iw.get_col_watchers(col_id)
+                    .remove_object_watcher(oid, watcher_id);
+            }));
+        }))
+    }
+
+    pub fn watch_query(
+        &self,
+        collection: &IsarCollection,
+        query: Query,
+        callback: QueryWatcherCallback,
+    ) -> WatchHandle {
+        let watcher_id = random();
+        let col_id = collection.get_id();
+        self.watcher_modifier_sender
+            .send(Box::new(move |iw| {
+                iw.get_col_watchers(col_id)
+                    .add_query_watcher(watcher_id, query, callback);
+            }))
+            .unwrap();
+
+        let sender = self.watcher_modifier_sender.clone();
+        WatchHandle::new(Box::new(move || {
+            let _ = sender.send(Box::new(move |iw| {
+                iw.get_col_watchers(col_id).remove_query_watcher(watcher_id);
+            }));
+        }))
+    }
+
+    pub fn close(self: Arc<Self>) -> Option<Arc<Self>> {
+        if Arc::strong_count(&self) == 2 {
+            INSTANCES.write().unwrap().remove(&self.path);
+            Arc::downgrade(&self);
+            None
+        } else {
+            Some(self)
+        }
+    }
 
     #[cfg(test)]
     pub fn debug_get_primary_db(&self) -> Db {
@@ -90,6 +239,27 @@ impl IsarInstance {
     }
 }
 
+struct DataDbs {
+    pub info: Db,
+    pub primary: Db,
+    pub secondary: Db,
+    pub secondary_dup: Db,
+}
+
+impl DataDbs {
+    fn open_cursors<'txn>(&self, txn: &Txn) -> Result<Cursors<'txn>> {
+        Ok(Cursors {
+            primary: self.primary.cursor(&txn)?,
+            secondary: self.secondary.cursor(&txn)?,
+            secondary_dup: self.secondary_dup.cursor(&txn)?,
+        })
+    }
+
+    fn open_info_cursor<'txn>(&self, txn: &'txn Txn) -> Result<Cursor<'txn>> {
+        self.info.cursor(&txn)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{col, isar};
@@ -99,16 +269,16 @@ mod tests {
     fn test_open_new_instance() {
         isar!(isar, col => col!(f1 => Int));
 
-        let mut ob = col.get_object_builder();
+        let mut ob = col.new_object_builder();
         ob.write_int(123);
         let o = ob.finish();
 
-        let txn = isar.begin_txn(true).unwrap();
-        let oid = col.put(&txn, None, o.as_bytes()).unwrap();
+        let mut txn = isar.begin_txn(true).unwrap();
+        let oid = col.put(&mut txn, None, o.as_bytes()).unwrap();
         txn.commit().unwrap();
 
-        let txn = isar.begin_txn(false).unwrap();
-        assert_eq!(col.get(&txn, oid).unwrap().unwrap(), o.as_bytes());
+        let mut txn = isar.begin_txn(false).unwrap();
+        assert_eq!(col.get(&mut txn, oid).unwrap().unwrap(), o.as_bytes());
         txn.abort();
     }
 
@@ -117,28 +287,23 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        let (oid, object) = {
-            isar!(path: path, isar, col1 => col!("col1", f1 => Int));
+        isar!(path: path, isar, col1 => col!("col1", f1 => Int));
 
-            let mut ob = col1.get_object_builder();
-            ob.write_int(123);
-            let o = ob.finish();
+        let mut ob = col1.new_object_builder();
+        ob.write_int(123);
+        let o = ob.finish();
 
-            let txn = isar.begin_txn(true).unwrap();
-            let oid = col1.put(&txn, None, o.as_bytes()).unwrap();
-            txn.commit().unwrap();
+        let mut txn = isar.begin_txn(true).unwrap();
+        let oid = col1.put(&mut txn, None, &o.as_bytes()).unwrap();
+        let object = o.as_bytes().to_vec();
+        txn.commit().unwrap();
 
-            (oid, o.as_bytes().to_vec())
-        };
+        isar.close().unwrap();
 
         isar!(path: path, isar, col1 => col!("col1", f1 => Int), col2 => col!("col2", f1 => Int));
-
-        let txn = isar.begin_txn(false).unwrap();
-        assert_eq!(col1.get(&txn, oid).unwrap().unwrap().to_vec(), object);
-        assert_eq!(
-            isar.create_query_builder(col2).build().count(&txn).unwrap(),
-            0
-        );
+        let mut txn = isar.begin_txn(false).unwrap();
+        assert_eq!(col1.get(&mut txn, oid).unwrap().unwrap().to_vec(), object);
+        assert_eq!(col2.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();
     }
 
@@ -150,13 +315,13 @@ mod tests {
         {
             isar!(path: path, isar, col1 => col!("col1", f1 => Int), _col2 => col!("col2", f1 => Int));
 
-            let mut ob = col1.get_object_builder();
+            let mut ob = col1.new_object_builder();
             ob.write_int(123);
             let o = ob.finish();
 
-            let txn = isar.begin_txn(true).unwrap();
+            let mut txn = isar.begin_txn(true).unwrap();
             //col1.put(&txn, None, o.as_bytes()).unwrap();
-            col1.put(&txn, None, o.as_bytes()).unwrap();
+            col1.put(&mut txn, None, o.as_bytes()).unwrap();
             txn.commit().unwrap();
         };
 
@@ -166,11 +331,8 @@ mod tests {
 
         isar!(path: path, isar, col1 => col!("col1", f1 => Int), _col2 => col!("col2", f1 => Int));
 
-        let txn = isar.begin_txn(false).unwrap();
-        assert_eq!(
-            isar.create_query_builder(col1).build().count(&txn).unwrap(),
-            0
-        );
+        let mut txn = isar.begin_txn(false).unwrap();
+        assert_eq!(col1.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();
     }
 }

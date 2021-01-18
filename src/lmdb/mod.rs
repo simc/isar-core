@@ -34,3 +34,11 @@ pub unsafe fn to_mdb_val(value: &[u8]) -> ffi::MDB_val {
         mv_data: value.as_ptr() as *mut libc::c_void,
     }
 }
+
+#[inline]
+pub fn check_below_upper_key(mut key: &[u8], upper_key: &[u8]) -> bool {
+    if upper_key.len() < key.len() {
+        key = &key[0..(upper_key.len())]
+    }
+    upper_key >= key
+}

@@ -1,16 +1,19 @@
+use crate::collection::IsarCollection;
 use crate::error::Result;
-use crate::lmdb::db::Db;
-use crate::map_option;
+use crate::lmdb::cursor::Cursor;
 use crate::object::object_id::ObjectId;
 use crate::object::property::Property;
 use crate::query::filter::*;
 use crate::query::where_clause::WhereClause;
 use crate::query::where_executor::WhereExecutor;
-use crate::txn::IsarTxn;
+use crate::txn::{Cursors, IsarTxn};
+use crate::watch::change_set::ChangeSet;
 use hashbrown::HashSet;
+use std::cmp::Ordering;
 use std::hash::Hasher;
 use wyhash::WyHash;
 
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Sort {
     Ascending,
     Descending,
@@ -21,26 +24,21 @@ pub enum Case {
     Insensitive,
 }
 
-pub struct Query<'col> {
+#[derive(Clone)]
+pub struct Query {
     where_clauses: Vec<WhereClause>,
     where_clauses_overlapping: bool,
-    primary_db: Db,
-    secondary_db: Option<Db>,
-    secondary_dup_db: Option<Db>,
-    filter: Option<Filter<'col>>,
+    filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
     distinct: Option<Vec<Property>>,
     offset_limit: Option<(usize, usize)>,
 }
 
-impl<'col> Query<'col> {
+impl<'txn> Query {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         where_clauses: Vec<WhereClause>,
-        primary_db: Db,
-        secondary_db: Option<Db>,
-        secondary_dup_db: Option<Db>,
-        filter: Option<Filter<'col>>,
+        filter: Option<Filter>,
         sort: Vec<(Property, Sort)>,
         distinct: Option<Vec<Property>>,
         offset_limit: Option<(usize, usize)>,
@@ -48,9 +46,6 @@ impl<'col> Query<'col> {
         Query {
             where_clauses,
             where_clauses_overlapping: true,
-            primary_db,
-            secondary_db,
-            secondary_dup_db,
             filter,
             sort,
             distinct,
@@ -58,140 +53,263 @@ impl<'col> Query<'col> {
         }
     }
 
-    fn execute_raw<'txn, F>(&self, txn: &'txn IsarTxn, mut callback: F) -> Result<()>
+    fn execute_raw<F>(&self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<()>
     where
-        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
+        F: FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
     {
-        let lmdb_txn = txn.get_txn();
-        let primary_cursor = self.primary_db.cursor(lmdb_txn)?;
-        let secondary_cursor = map_option!(self.secondary_db, db, db.cursor(lmdb_txn)?);
-        let secondary_dup_cursor = map_option!(self.secondary_dup_db, db, db.cursor(lmdb_txn)?);
-        let mut executor = WhereExecutor::new(
-            primary_cursor,
-            secondary_cursor,
-            secondary_dup_cursor,
-            &self.where_clauses,
-            self.where_clauses_overlapping,
-        );
+        let mut executor = WhereExecutor::new(&self.where_clauses, self.where_clauses_overlapping);
         if let Some(filter) = &self.filter {
-            executor.run(|oid, val| {
+            executor.execute(cursors, |cursor, key, val| {
                 if filter.evaluate(val) {
-                    callback(oid, val)
+                    callback(cursor, key, val)
                 } else {
-                    true
+                    Ok(true)
                 }
             })
         } else {
-            executor.run(callback)
+            executor.execute(cursors, callback)
         }
     }
 
-    fn execute_unsorted<'txn, F>(&self, txn: &'txn IsarTxn, callback: F) -> Result<()>
+    fn execute_unsorted<F>(&self, cursors: &mut Cursors<'txn>, callback: F) -> Result<()>
     where
-        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
+        F: FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
     {
         if self.distinct.is_some() {
-            let callback = self.add_distinct(callback);
+            let callback = self.add_distinct_unsorted(callback);
             if self.offset_limit.is_some() {
-                let callback = self.add_offset_limit(callback);
-                self.execute_raw(txn, callback)
+                let callback = self.add_offset_limit_unsorted(callback);
+                self.execute_raw(cursors, callback)
             } else {
-                self.execute_raw(txn, callback)
+                self.execute_raw(cursors, callback)
             }
         } else if self.offset_limit.is_some() {
-            let callback = self.add_offset_limit(callback);
-            self.execute_raw(txn, callback)
+            let callback = self.add_offset_limit_unsorted(callback);
+            self.execute_raw(cursors, callback)
         } else {
-            self.execute_raw(txn, callback)
+            self.execute_raw(cursors, callback)
         }
     }
 
-    fn execute_sorted<'txn, F>(&self, _txn: &'txn IsarTxn, _callback: F) -> Result<()>
-    where
-        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
-    {
-        /*let mut result = vec![];
-        self.execute_raw(txn, |key,val| {
-            result.push((key,val));
-            true
-        });
-        result.sort_by()
-        let callback = self.add_distinct(callback);
-        let callback = self.add_offset_limit(callback);*/
-        Ok(())
-    }
-
-    fn add_distinct<'txn, F>(
+    fn add_distinct_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(&'txn ObjectId, &'txn [u8]) -> bool
+    ) -> impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>
     where
-        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
+        F: FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
     {
         let properties = self.distinct.as_ref().unwrap().clone();
         let mut hashes = HashSet::new();
-        move |key, val| {
+        move |cursor, key, val| {
             let mut hasher = WyHash::default();
             for property in &properties {
                 property.hash_value(val, &mut hasher);
             }
             let hash = hasher.finish();
             if hashes.insert(hash) {
-                callback(key, val)
+                callback(cursor, key, val)
             } else {
-                true
+                Ok(true)
             }
         }
     }
 
-    fn add_offset_limit<'txn, F>(
+    fn add_offset_limit_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(&'txn ObjectId, &'txn [u8]) -> bool
+    ) -> impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>
     where
-        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
+        F: FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
     {
         let (offset, limit) = self.offset_limit.unwrap();
         let mut count = 0;
-        move |key, value| {
+        move |cursor, key, value| {
             let result = if count >= offset {
-                callback(key, value)
+                callback(cursor, key, value)?
             } else {
                 true
             };
             count += 1;
-            result && limit.saturating_add(offset) > count
+            let cont = result && limit.saturating_add(offset) > count;
+            Ok(cont)
         }
     }
 
-    pub fn find_all<'txn, F>(&self, txn: &'txn IsarTxn, callback: F) -> Result<()>
+    fn execute_sorted(&self, cursors: &mut Cursors<'txn>) -> Result<Vec<(&'txn [u8], &'txn [u8])>> {
+        let mut results = vec![];
+        self.execute_raw(cursors, |_, key, val| {
+            results.push((key, val));
+            Ok(true)
+        })?;
+
+        results.sort_unstable_by(|(_, o1), (_, o2)| {
+            for (p, sort) in &self.sort {
+                let ord = p.compare(o1, o2);
+                if ord != Ordering::Equal {
+                    if *sort == Sort::Ascending {
+                        return ord;
+                    } else {
+                        return ord.reverse();
+                    }
+                }
+            }
+            Ordering::Equal
+        });
+
+        Ok(self.add_distinct_sorted(results))
+    }
+
+    fn add_distinct_sorted(
+        &self,
+        results: Vec<(&'txn [u8], &'txn [u8])>,
+    ) -> Vec<(&'txn [u8], &'txn [u8])> {
+        let properties = self.distinct.as_ref().unwrap().clone();
+        let mut hashes = HashSet::new();
+        results
+            .into_iter()
+            .filter(|(_, val)| {
+                let mut hasher = WyHash::default();
+                for property in &properties {
+                    property.hash_value(val, &mut hasher);
+                }
+                let hash = hasher.finish();
+                hashes.insert(hash)
+            })
+            .collect()
+    }
+
+    fn add_offset_limit_sorted<'a>(
+        &self,
+        mut results: &'a [(&'txn [u8], &'txn [u8])],
+    ) -> &'a [(&'txn [u8], &'txn [u8])] {
+        if let Some((offset, limit)) = self.offset_limit {
+            if results.len() < offset {
+                results = &results[offset..];
+            } else {
+                results = &[];
+            }
+            if results.len() >= limit {
+                results = &results[0..limit];
+            } else {
+                results = &[];
+            }
+        }
+        results
+    }
+
+    pub(crate) fn matches_wc_filter(&self, oid: ObjectId, object: &[u8]) -> bool {
+        let oid_bytes = oid.as_bytes();
+        let wc_matches = self
+            .where_clauses
+            .iter()
+            .any(|wc| wc.object_matches(oid_bytes, object));
+        if !wc_matches {
+            return false;
+        }
+
+        if let Some(filter) = &self.filter {
+            filter.evaluate(object)
+        } else {
+            true
+        }
+    }
+
+    pub(crate) fn find_all_internal<F>(
+        &self,
+        cursors: &mut Cursors<'txn>,
+        mut callback: F,
+    ) -> Result<()>
     where
         F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
     {
         if self.sort.is_empty() {
-            self.execute_unsorted(txn, callback)
+            self.execute_unsorted(cursors, |_, key, val| {
+                let oid = ObjectId::from_bytes(key);
+                Ok(callback(oid, val))
+            })?;
         } else {
-            self.execute_sorted(txn, callback)
+            let results = self.execute_sorted(cursors)?;
+            let slice = self.add_offset_limit_sorted(&results);
+            for (key, val) in slice {
+                if !callback(ObjectId::from_bytes(key), val) {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn find_all<F>(&self, txn: &mut IsarTxn<'txn>, callback: F) -> Result<()>
+    where
+        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
+    {
+        txn.read(|cursors| self.find_all_internal(cursors, callback))
+    }
+
+    pub(crate) fn delete_all_internal(
+        &self,
+        cursors: &mut Cursors,
+        delete_cursors: &mut Cursors,
+        change_set: &mut ChangeSet,
+        collection: &IsarCollection,
+    ) -> Result<usize> {
+        let needs_sorting =
+            self.sort.is_empty() || (self.offset_limit.is_none() && self.distinct.is_none());
+        if !needs_sorting {
+            let mut count = 0;
+            self.execute_unsorted(cursors, |cursor, key, object| {
+                let oid = *ObjectId::from_bytes(key);
+                cursor.delete_current()?;
+                collection.delete_object_internal(
+                    delete_cursors,
+                    change_set,
+                    oid,
+                    object,
+                    false,
+                )?;
+                count += 1;
+                Ok(true)
+            })?;
+            Ok(count)
+        } else {
+            let results = self.execute_sorted(cursors)?;
+            let slice = self.add_offset_limit_sorted(&results);
+            for (key, object) in slice {
+                let oid = *ObjectId::from_bytes(key);
+                collection.delete_object_internal(cursors, change_set, oid, object, true)?;
+            }
+            Ok(slice.len())
         }
     }
 
-    pub fn find_all_vec<'txn>(
+    pub fn delete_all(&self, txn: &mut IsarTxn, collection: &IsarCollection) -> Result<usize> {
+        let mut delete_cursors = txn.open_cursors()?;
+        txn.write(|cursors, change_set| {
+            self.delete_all_internal(cursors, &mut delete_cursors, change_set, collection)
+        })
+    }
+
+    pub fn find_all_vec(
         &self,
-        txn: &'txn IsarTxn,
+        txn: &mut IsarTxn<'txn>,
     ) -> Result<Vec<(&'txn ObjectId, &'txn [u8])>> {
         let mut results = vec![];
-        self.find_all(txn, |key, value| {
-            results.push((key, value));
-            true
+        txn.read(|cursors| {
+            self.find_all_internal(cursors, |oid, value| {
+                results.push((oid, value));
+                true
+            })
         })?;
         Ok(results)
     }
 
-    pub fn count(&self, txn: &IsarTxn) -> Result<u32> {
+    pub fn count(&self, txn: &mut IsarTxn) -> Result<u32> {
         let mut counter = 0;
-        self.find_all(txn, &mut |_, _| {
-            counter += 1;
-            true
+        txn.read(|cursors| {
+            self.find_all_internal(cursors, |_, _| {
+                counter += 1;
+                true
+            })
         })?;
         Ok(counter)
     }
@@ -203,13 +321,14 @@ mod tests {
     use crate::instance::IsarInstance;
     use crate::object::object_id::ObjectId;
     use crate::{col, ind, isar, set};
+    use std::sync::Arc;
 
-    fn get_col(data: Vec<(i32, String)>) -> (IsarInstance, Vec<ObjectId>) {
+    fn get_col(data: Vec<(i32, String)>) -> (Arc<IsarInstance>, Vec<ObjectId>) {
         isar!(isar, col => col!(field1 => Int, field2 => String; ind!(field1, field2; true), ind!(field2)));
         let mut txn = isar.begin_txn(true).unwrap();
         let mut ids = vec![];
         for (f1, f2) in data {
-            let mut o = col.get_object_builder();
+            let mut o = col.new_object_builder();
             o.write_int(f1);
             o.write_string(Some(&f2));
             let bytes = o.finish();
@@ -227,10 +346,10 @@ mod tests {
     fn test_no_where_clauses() {
         let (isar, ids) = get_col(vec![(1, "a".to_string()), (2, "b".to_string())]);
         let col = isar.get_collection(0).unwrap();
-        let txn = isar.begin_txn(false).unwrap();
+        let mut txn = isar.begin_txn(false).unwrap();
 
-        let q = isar.create_query_builder(col).build();
-        let results = q.find_all_vec(&txn).unwrap();
+        let q = col.new_query_builder().build();
+        let results = q.find_all_vec(&mut txn).unwrap();
 
         assert_eq!(keys(results), vec![ids[0], ids[1]]);
     }
@@ -249,24 +368,24 @@ mod tests {
             (3, "b".to_string()),
         ]);
         let col = isar.get_collection(0).unwrap();
-        let txn = isar.begin_txn(false).unwrap();
+        let mut txn = isar.begin_txn(false).unwrap();
 
-        let mut wc = col.create_secondary_where_clause(0).unwrap();
+        let mut wc = col.new_secondary_where_clause(0).unwrap();
         wc.add_int(1, 1);
 
-        let mut qb = isar.create_query_builder(col);
-        qb.add_where_clause(wc.clone(), true, true);
+        let mut qb = col.new_query_builder();
+        qb.add_where_clause(wc.clone(), true, true).unwrap();
         let q = qb.build();
 
-        let results = q.find_all_vec(&txn).unwrap();
+        let results = q.find_all_vec(&mut txn).unwrap();
         assert_eq!(keys(results), vec![ids[0], ids[1], ids[2]]);
 
         wc.add_string_value(Some("b"), Some("x"));
-        let mut qb = isar.create_query_builder(col);
-        qb.add_where_clause(wc, true, true);
+        let mut qb = col.new_query_builder();
+        qb.add_where_clause(wc, true, true).unwrap();
         let q = qb.build();
 
-        let results = q.find_all_vec(&txn).unwrap();
+        let results = q.find_all_vec(&mut txn).unwrap();
         assert_eq!(keys(results), vec![ids[1], ids[2]]);
     }
 
@@ -279,25 +398,25 @@ mod tests {
             (3, "ab".to_string()),
         ]);
         let col = isar.get_collection(0).unwrap();
-        let txn = isar.begin_txn(false).unwrap();
+        let mut txn = isar.begin_txn(false).unwrap();
 
-        let mut wc = col.create_secondary_where_clause(1).unwrap();
+        let mut wc = col.new_secondary_where_clause(1).unwrap();
         wc.add_string_value(Some("ab"), Some("xx"));
 
-        let mut qb = isar.create_query_builder(col);
-        qb.add_where_clause(wc, true, true);
+        let mut qb = col.new_query_builder();
+        qb.add_where_clause(wc, true, true).unwrap();
         let q = qb.build();
 
-        let results = q.find_all_vec(&txn).unwrap();
+        let results = q.find_all_vec(&mut txn).unwrap();
         assert_eq!(keys(results), vec![ids[1], ids[3], ids[2]]);
 
-        let mut wc = col.create_secondary_where_clause(1).unwrap();
+        let mut wc = col.new_secondary_where_clause(1).unwrap();
         wc.add_string_value(Some("ab"), Some("ab"));
-        let mut qb = isar.create_query_builder(col);
-        qb.add_where_clause(wc, true, true);
+        let mut qb = col.new_query_builder();
+        qb.add_where_clause(wc, true, true).unwrap();
         let q = qb.build();
 
-        let results = q.find_all_vec(&txn).unwrap();
+        let results = q.find_all_vec(&mut txn).unwrap();
         assert_eq!(keys(results), vec![ids[1], ids[3]]);
     }
 
@@ -312,24 +431,24 @@ mod tests {
             (1, "bc".to_string()),
         ]);
         let col = isar.get_collection(0).unwrap();
-        let txn = isar.begin_txn(false).unwrap();
+        let mut txn = isar.begin_txn(false).unwrap();
 
-        let mut primary_wc = col.create_primary_where_clause();
+        let mut primary_wc = col.new_primary_where_clause();
         primary_wc.add_oid(ids[5]);
 
-        let mut secondary_wc = col.create_secondary_where_clause(0).unwrap();
+        let mut secondary_wc = col.new_secondary_where_clause(0).unwrap();
         secondary_wc.add_int(0, 0);
 
-        let mut secondary_dup_wc = col.create_secondary_where_clause(1).unwrap();
+        let mut secondary_dup_wc = col.new_secondary_where_clause(1).unwrap();
         secondary_dup_wc.add_string_value(None, Some("aa"));
 
-        let mut qb = isar.create_query_builder(col);
-        qb.add_where_clause(primary_wc, true, true);
-        qb.add_where_clause(secondary_wc, true, true);
-        qb.add_where_clause(secondary_dup_wc, true, true);
+        let mut qb = col.new_query_builder();
+        qb.add_where_clause(primary_wc, true, true).unwrap();
+        qb.add_where_clause(secondary_wc, true, true).unwrap();
+        qb.add_where_clause(secondary_dup_wc, true, true).unwrap();
         let q = qb.build();
 
-        let results = q.find_all_vec(&txn).unwrap();
+        let results = q.find_all_vec(&mut txn).unwrap();
         let set: HashSet<ObjectId> = keys(results).into_iter().collect();
         assert_eq!(set, set!(ids[0], ids[2], ids[4], ids[5]));
     }

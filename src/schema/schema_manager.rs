@@ -1,10 +1,10 @@
 use crate::collection::IsarCollection;
-use crate::data_dbs::DataDbs;
 use crate::error::{IsarError, Result};
-use crate::lmdb::env::Env;
-use crate::lmdb::txn::Txn;
+use crate::lmdb::cursor::Cursor;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
+use crate::txn::Cursors;
+use crate::watch::isar_watchers::IsarWatchers;
 use serde::{Deserialize, Serialize};
 use serde_json::{Deserializer, Serializer};
 use std::convert::TryInto;
@@ -13,37 +13,43 @@ const ISAR_VERSION: u64 = 1;
 const INFO_VERSION_KEY: &[u8] = b"version";
 const INFO_SCHEMA_KEY: &[u8] = b"schema";
 
-pub struct SchemaManger<'env> {
-    env: &'env Env,
-    dbs: DataDbs,
+pub(crate) struct SchemaManger<'env> {
+    info_cursor: Cursor<'env>,
+    cursors: Cursors<'env>,
+    migration_cursors: Cursors<'env>,
 }
 
 impl<'env> SchemaManger<'env> {
-    pub fn new(env: &'env Env, dbs: DataDbs) -> Self {
-        SchemaManger { env, dbs }
+    pub fn new(
+        info_cursor: Cursor<'env>,
+        cursors: Cursors<'env>,
+        migration_cursors: Cursors<'env>,
+    ) -> Self {
+        SchemaManger {
+            info_cursor,
+            cursors,
+            migration_cursors,
+        }
     }
 
-    pub fn check_isar_version(&self) -> Result<()> {
-        let txn = self.env.txn(true)?;
-        let version = self.dbs.info.get(&txn, INFO_VERSION_KEY)?;
-        if let Some(version) = version {
+    pub fn check_isar_version(&mut self) -> Result<()> {
+        let version = self.info_cursor.move_to(INFO_VERSION_KEY)?;
+        if let Some((_, version)) = version {
             let version_num = u64::from_le_bytes(version.try_into().unwrap());
             if version_num != ISAR_VERSION {
                 return Err(IsarError::VersionError {});
             }
         } else {
             let version_bytes = &ISAR_VERSION.to_le_bytes();
-            self.dbs.info.put(&txn, INFO_VERSION_KEY, version_bytes)?;
+            self.info_cursor.put(INFO_VERSION_KEY, version_bytes)?;
         }
-        txn.abort();
         Ok(())
     }
 
-    pub fn get_collections(&self, mut schema: Schema) -> Result<Vec<IsarCollection>> {
-        let txn = self.env.txn(true)?;
-        let existing_schema_bytes = self.dbs.info.get(&txn, INFO_SCHEMA_KEY)?;
+    pub fn get_collections(mut self, mut schema: Schema) -> Result<Vec<IsarCollection>> {
+        let existing_schema_bytes = self.info_cursor.move_to(INFO_SCHEMA_KEY)?;
 
-        let existing_collections = if let Some(existing_schema_bytes) = existing_schema_bytes {
+        let existing_collections = if let Some((_, existing_schema_bytes)) = existing_schema_bytes {
             let mut deser = Deserializer::from_slice(existing_schema_bytes);
             let existing_schema =
                 Schema::deserialize(&mut deser).map_err(|e| IsarError::DbCorrupted {
@@ -51,22 +57,20 @@ impl<'env> SchemaManger<'env> {
                     message: "Could not deserialize existing schema.".to_string(),
                 })?;
             schema.update_with_existing_schema(Some(&existing_schema));
-            existing_schema.build_collections(self.dbs)
+            existing_schema.build_collections()
         } else {
             schema.update_with_existing_schema(None);
             vec![]
         };
 
-        self.save_schema(&txn, &schema)?;
-        let collections = schema.build_collections(self.dbs);
-        self.perform_migration(&txn, &collections, &existing_collections)?;
-
-        txn.commit()?;
+        self.save_schema(&schema)?;
+        let collections = schema.build_collections();
+        self.perform_migration(&collections, &existing_collections)?;
 
         Ok(collections)
     }
 
-    fn save_schema(&self, txn: &Txn, schema: &Schema) -> Result<()> {
+    fn save_schema(&mut self, schema: &Schema) -> Result<()> {
         let mut bytes = vec![];
         let mut ser = Serializer::new(&mut bytes);
         schema
@@ -75,13 +79,12 @@ impl<'env> SchemaManger<'env> {
                 source: Some(Box::new(e)),
                 message: "Could not serialize schema.".to_string(),
             })?;
-        self.dbs.info.put(txn, INFO_SCHEMA_KEY, &bytes)?;
+        self.info_cursor.put(INFO_SCHEMA_KEY, &bytes)?;
         Ok(())
     }
 
     fn perform_migration(
-        &self,
-        txn: &Txn,
+        &mut self,
         collections: &[IsarCollection],
         existing_collections: &[IsarCollection],
     ) -> Result<()> {
@@ -89,9 +92,16 @@ impl<'env> SchemaManger<'env> {
             .iter()
             .filter(|existing| !collections.iter().any(|c| existing.get_id() == c.get_id()));
 
+        //let watchers = IsarWatchers::new();
+        /*let mut change_set = ChangeSet::new(&watchers);
         for col in removed_collections {
-            col.delete_all_internal(txn)?;
-        }
+            col.new_query_builder().build().delete_all_internal(
+                &mut self.cursors,
+                &mut self.migration_cursors,
+                &mut change_set,
+                col,
+            )?;
+        }*/
 
         for col in collections {
             let existing = existing_collections
@@ -100,7 +110,7 @@ impl<'env> SchemaManger<'env> {
 
             if let Some(existing) = existing {
                 let migrator = CollectionMigrator::create(col, existing);
-                migrator.migrate(txn, self.dbs.primary)?;
+                migrator.migrate(&mut self.cursors, &mut self.migration_cursors)?;
             }
         }
 

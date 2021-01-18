@@ -1,6 +1,7 @@
+use std::hash::{Hash, Hasher};
 use std::mem;
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Copy, Clone, Debug)]
 #[repr(packed)]
 pub struct ObjectId {
     prefix: u16,
@@ -14,9 +15,9 @@ impl ObjectId {
         mem::size_of::<ObjectId>()
     }
 
-    pub fn new(prefix: u16, time: u32, counter: u32, rand: u32) -> Self {
+    pub fn new(time: u32, counter: u32, rand: u32) -> Self {
         ObjectId {
-            prefix,
+            prefix: 0,
             time: time.to_be(),
             counter: counter.to_be(),
             rand,
@@ -29,7 +30,14 @@ impl ObjectId {
     }
 
     pub(crate) fn get_prefix(&self) -> u16 {
-        self.prefix
+        let prefix = self.prefix;
+        assert_ne!(prefix, 0);
+        prefix
+    }
+
+    pub(crate) fn set_prefix(&mut self, prefix: u16) {
+        assert_ne!(prefix, 0);
+        self.prefix = prefix;
     }
 
     pub fn get_time(&self) -> u32 {
@@ -45,7 +53,7 @@ impl ObjectId {
     }
 
     #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
+    fn as_bytes_internal(&self) -> &[u8] {
         let bytes = unsafe {
             ::std::slice::from_raw_parts(
                 (self as *const Self) as *const u8,
@@ -56,8 +64,31 @@ impl ObjectId {
     }
 
     #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        let prefix = self.prefix;
+        assert_ne!(prefix, 0);
+        self.as_bytes_internal()
+    }
+
+    #[inline]
     pub(crate) fn as_bytes_without_prefix(&self) -> &[u8] {
-        &self.as_bytes()[2..]
+        &self.as_bytes_internal()[2..]
+    }
+}
+
+impl PartialEq for ObjectId {
+    fn eq(&self, other: &Self) -> bool {
+        self.time == other.time && self.counter == other.counter && self.rand == other.rand
+    }
+}
+
+impl Eq for ObjectId {}
+
+impl Hash for ObjectId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u32(self.time);
+        state.write_u32(self.counter);
+        state.write_u32(self.rand);
     }
 }
 

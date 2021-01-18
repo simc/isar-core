@@ -7,7 +7,6 @@ compile_error!("Only little endian systems are supported.");
 compile_error!("Only 64-bit systems are supported at this time.");
 
 pub mod collection;
-pub mod data_dbs;
 pub mod error;
 pub mod index;
 pub mod instance;
@@ -17,3 +16,4 @@ pub mod query;
 pub mod schema;
 pub mod txn;
 pub mod utils;
+pub mod watch;

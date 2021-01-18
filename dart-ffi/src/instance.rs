@@ -11,10 +11,7 @@ use once_cell::sync::Lazy;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::os::raw::c_char;
-use std::sync::Mutex;
-
-static INSTANCES: Lazy<Mutex<HashMap<String, IsarInstance>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+use std::sync::{Arc, Mutex};
 
 struct IsarInstanceSend(*mut *const IsarInstance);
 
@@ -29,24 +26,13 @@ pub unsafe extern "C" fn isar_create_instance(
     port: DartPort,
 ) {
     let isar = IsarInstanceSend(isar);
-    let path = from_c_str(path).unwrap().to_string();
+    let path = from_c_str(path).unwrap();
     let schema = Box::from_raw(schema);
     run_async(move || {
-        let mut lock = INSTANCES.lock().unwrap();
-        let instance = match lock.entry(path) {
-            Entry::Occupied(e) => Ok(&*e.into_mut()),
-            Entry::Vacant(e) => {
-                let new_isar = IsarInstance::create(e.key(), max_size as usize, *schema);
-                match new_isar {
-                    Ok(new_isar) => Ok(&*e.insert(new_isar)),
-                    Err(e) => Err(e),
-                }
-            }
-        };
-
+        let instance = IsarInstance::create(&path, max_size as usize, *schema);
         match instance {
             Ok(instance) => {
-                isar.0.write(instance);
+                isar.0.write(instance.as_ref());
                 dart_post_int(port, 0);
             }
             Err(e) => {

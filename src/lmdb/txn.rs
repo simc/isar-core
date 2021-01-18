@@ -1,17 +1,22 @@
 use crate::error::Result;
-use crate::lmdb::env::Env;
 use crate::lmdb::error::lmdb_result;
 use core::ptr;
 use lmdb_sys as ffi;
+use std::marker::PhantomData;
 
 pub struct Txn<'env> {
     pub(crate) txn: *mut ffi::MDB_txn,
-    env: &'env Env,
+    pub(crate) write: bool,
+    _marker: PhantomData<&'env ()>,
 }
 
 impl<'env> Txn<'env> {
-    pub(crate) fn new(txn: *mut ffi::MDB_txn, env: &'env Env) -> Self {
-        Txn { txn, env }
+    pub(crate) fn new(txn: *mut ffi::MDB_txn, write: bool) -> Self {
+        Txn {
+            txn,
+            write,
+            _marker: PhantomData::default(),
+        }
     }
 
     pub fn commit(mut self) -> Result<()> {
@@ -21,14 +26,7 @@ impl<'env> Txn<'env> {
         Ok(())
     }
 
-    pub fn abort(mut self) {
-        unsafe { ffi::mdb_txn_abort(self.txn) };
-        self.txn = ptr::null_mut();
-    }
-
-    pub fn nested_txn(&self, write: bool) -> Result<Self> {
-        self.env.txn_internal(write, Some(self))
-    }
+    pub fn abort(self) {}
 }
 
 impl<'a> Drop for Txn<'a> {
