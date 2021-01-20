@@ -184,7 +184,7 @@ impl Index {
 
     pub fn get_string_hash_key(value: Option<&str>) -> Vec<u8> {
         let hash = if let Some(value) = value {
-            wyhash(value.as_bytes(), 0)
+            wyhash(value.as_ref(), 0)
         } else {
             0
         };
@@ -246,16 +246,16 @@ mod tests {
                 isar!(isar, col => col!(field => $data_type; ind!(field)));
                 let mut txn = isar.begin_txn(true).unwrap();
 
-                let mut builder = col.new_object_builder();
+                let mut builder = col.new_object_builder(None);
                 builder.$write($data);
                 let obj = builder.finish();
 
-                let oid = col.put(&mut txn, None, obj.as_bytes()).unwrap();
+                let oid = col.put(&mut txn, None, obj.as_ref()).unwrap();
                 let index = col.debug_get_index(0);
 
                 assert_eq!(
                     index.debug_dump(&mut txn),
-                    set![(index.create_key(obj.as_bytes()), oid)]
+                    set![(index.create_key(obj.as_ref()), oid)]
                 )
             };
         );
@@ -276,13 +276,13 @@ mod tests {
         isar!(isar, col => col!(field => Int; ind!(field; true)));
         let mut txn = isar.begin_txn(true).unwrap();
 
-        let mut o = col.new_object_builder();
+        let mut o = col.new_object_builder(None);
         o.write_int(5);
         let bytes = o.finish();
 
-        col.put(&mut txn, None, bytes.as_bytes()).unwrap();
+        col.put(&mut txn, None, bytes.as_ref()).unwrap();
 
-        let result = col.put(&mut txn, None, bytes.as_bytes());
+        let result = col.put(&mut txn, None, bytes.as_ref());
         match result {
             Err(IsarError::UniqueViolated { .. }) => {}
             _ => panic!("wrong error"),

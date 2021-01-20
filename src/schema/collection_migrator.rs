@@ -61,22 +61,25 @@ impl<'a> CollectionMigrator<'a> {
             removed_index.clear(cursors)?;
         }
 
+        let mut ob_bytes_cache = None;
         let collection_prefix = self.collection.get_id().to_le_bytes();
         if self.object_migration_required {
             cursors
                 .primary
                 .iter_prefix(&collection_prefix, |primary, key, object| {
-                    let mut ob = self.collection.new_object_builder();
+                    let mut ob = self.collection.new_object_builder(ob_bytes_cache.take());
                     for property in &self.retained_properties {
                         Self::write_property_to_ob(&mut ob, *property, object);
                     }
-                    let ob_result = ob.finish();
-                    let new_object = ob_result.as_bytes();
+                    let ob_bytes = ob.finish();
+                    let new_object = ob_bytes.as_ref();
                     primary.put(key, new_object)?;
 
                     for index in &self.added_indexes {
                         index.create_for_object(migration_cursors, key, new_object)?;
                     }
+
+                    ob_bytes_cache.replace(ob_bytes);
                     Ok(true)
                 })?;
         } else if !self.added_indexes.is_empty() {

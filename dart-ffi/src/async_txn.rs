@@ -10,10 +10,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use threadpool::{Builder, ThreadPool};
 
-static THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| Builder::new().build());
+static THREAD_POOL: Lazy<Mutex<ThreadPool>> = Lazy::new(|| Mutex::new(Builder::new().build()));
 
 pub fn run_async<F: FnOnce() + Send + 'static>(job: F) {
-    THREAD_POOL.execute(job);
+    THREAD_POOL.lock().unwrap().execute(job);
 }
 
 type AsyncJob = (Box<dyn FnOnce() + Send + 'static>, bool);

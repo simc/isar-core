@@ -1,6 +1,6 @@
 use crate::error::{IsarError, Result};
 use crate::index::Index;
-use crate::object::object_builder::ObjectBuilder;
+use crate::object::object_builder::{ObjectBuilder, ObjectBuilderBytes};
 use crate::object::object_id::ObjectId;
 use crate::object::object_id_generator::ObjectIdGenerator;
 use crate::object::object_info::ObjectInfo;
@@ -12,6 +12,7 @@ use crate::watch::change_set::ChangeSet;
 use serde_json::{json, Value};
 use std::hash::{Hash, Hasher};
 
+use crate::object::json_encode_decode::JsonEncodeDecode;
 #[cfg(test)]
 use {crate::utils::debug::dump_db, hashbrown::HashMap};
 
@@ -46,8 +47,8 @@ impl IsarCollection {
         self.object_info.get_properties()
     }
 
-    pub fn new_object_builder(&self) -> ObjectBuilder {
-        ObjectBuilder::new(&self.object_info)
+    pub fn new_object_builder(&self, bytes: Option<ObjectBuilderBytes>) -> ObjectBuilder {
+        ObjectBuilder::new(&self.object_info, bytes)
     }
 
     pub fn new_query_builder(&self) -> QueryBuilder {
@@ -166,19 +167,62 @@ impl IsarCollection {
         Ok(())
     }
 
-    pub fn export_json(&self, txn: &mut IsarTxn, primitive_null: bool) -> Result<Value> {
-        txn.read(|cursors| {
-            let cursor = &mut cursors.primary;
-            let result = cursor.move_to_gte(&self.id.to_le_bytes())?;
-            if result.is_none() {
-                return Ok(json!(Vec::<Value>::new()));
+    pub fn delete_all(&self, txn: &mut IsarTxn) -> Result<usize> {
+        txn.write(|cursors, change_set| self.delete_all_internal(cursors, Some(change_set)))
+    }
+
+    pub(crate) fn delete_all_internal(
+        &self,
+        cursors: &mut Cursors,
+        mut change_set: Option<&mut ChangeSet>,
+    ) -> Result<usize> {
+        let prefix = self.get_id().to_le_bytes();
+        let mut counter = 0;
+        cursors.primary.iter_prefix(&prefix, |primary, oid, val| {
+            if let Some(change_set) = &mut change_set {
+                change_set.register_change(*ObjectId::from_bytes(oid), val);
             }
+            primary.delete_current()?;
+            counter += 1;
+            Ok(true)
+        })?;
+        for index in self.get_indexes() {
+            index.clear(cursors)?;
+        }
+        Ok(counter)
+    }
+
+    pub fn import_json(&self, txn: &mut IsarTxn, json: Value) -> Result<()> {
+        txn.write(|cursors, change_set| {
+            let array = json.as_array().ok_or(IsarError::InvalidJson {})?;
+            let json_encode_decode = JsonEncodeDecode::new(&self.object_info);
+            let mut ob_result_cache = None;
+            for value in array {
+                let (oid, ob_result) = json_encode_decode.decode(value, ob_result_cache)?;
+                self.put_internal(cursors, change_set, Some(oid), ob_result.as_ref())?;
+                ob_result_cache = Some(ob_result);
+            }
+            Ok(())
+        })
+    }
+
+    pub fn export_json(
+        &self,
+        txn: &mut IsarTxn,
+        primitive_null: bool,
+        byte_as_bool: bool,
+    ) -> Result<Value> {
+        txn.read(|cursors| {
+            let json_encode_decode = JsonEncodeDecode::new(&self.object_info);
             let mut items = vec![];
-            cursor.iter_prefix(&self.id.to_le_bytes(), |_, key, val| {
-                let entry = self.object_info.entry_to_json(key, val, primitive_null);
-                items.push(entry);
-                Ok(true)
-            })?;
+            cursors
+                .primary
+                .iter_prefix(&self.id.to_le_bytes(), |_, oid_bytes, val| {
+                    let oid = ObjectId::from_bytes(oid_bytes);
+                    let entry = json_encode_decode.encode(*oid, val, primitive_null, byte_as_bool);
+                    items.push(entry);
+                    Ok(true)
+                })?;
             Ok(json!(items))
         })
     }
@@ -229,27 +273,27 @@ mod tests {
         isar!(isar, col => col!(field1 => Int));
         let mut txn = isar.begin_txn(true).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(1111111);
         let object1 = builder.finish();
-        let oid1 = col.put(&mut txn, None, object1.as_bytes()).unwrap();
+        let oid1 = col.put(&mut txn, None, object1.as_ref()).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(123123123);
         let object2 = builder.finish();
-        let oid2 = col.put(&mut txn, None, object2.as_bytes()).unwrap();
+        let oid2 = col.put(&mut txn, None, object2.as_ref()).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(123123123);
         let object3 = builder.finish();
-        let oid3 = col.put(&mut txn, None, object3.as_bytes()).unwrap();
+        let oid3 = col.put(&mut txn, None, object3.as_ref()).unwrap();
 
         assert_eq!(
             col.debug_dump(&mut txn),
             map![
-                oid1 => object1.as_bytes().to_vec(),
-                oid2 => object2.as_bytes().to_vec(),
-                oid3 => object3.as_bytes().to_vec()
+                oid1 => object1.as_ref().to_vec(),
+                oid2 => object2.as_ref().to_vec(),
+                oid3 => object3.as_ref().to_vec()
             ]
         );
     }
@@ -260,31 +304,29 @@ mod tests {
 
         let mut txn = isar.begin_txn(true).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(1111111);
         let object1 = builder.finish();
-        let oid1 = col.put(&mut txn, None, object1.as_bytes()).unwrap();
+        let oid1 = col.put(&mut txn, None, object1.as_ref()).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(123123123);
         let object2 = builder.finish();
-        let oid2 = col.put(&mut txn, Some(oid1), object2.as_bytes()).unwrap();
+        let oid2 = col.put(&mut txn, Some(oid1), object2.as_ref()).unwrap();
         assert_eq!(oid1, oid2);
 
         let new_oid = col.oidg.generate();
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(55555555);
         let object3 = builder.finish();
-        let oid3 = col
-            .put(&mut txn, Some(new_oid), object3.as_bytes())
-            .unwrap();
+        let oid3 = col.put(&mut txn, Some(new_oid), object3.as_ref()).unwrap();
         assert_eq!(new_oid, oid3);
 
         assert_eq!(
             col.debug_dump(&mut txn),
             map![
-                oid1 => object2.as_bytes().to_vec(),
-                new_oid => object3.as_bytes().to_vec()
+                oid1 => object2.as_ref().to_vec(),
+                new_oid => object3.as_ref().to_vec()
             ]
         );
     }
@@ -295,15 +337,15 @@ mod tests {
 
         let mut txn = isar.begin_txn(true).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(1234);
         let object = builder.finish();
-        let oid = col.put(&mut txn, None, object.as_bytes()).unwrap();
+        let oid = col.put(&mut txn, None, object.as_ref()).unwrap();
 
         let index = &col.indexes[0];
         assert_eq!(
             index.debug_dump(&mut txn),
-            set![(index.debug_create_key(object.as_bytes()), oid)]
+            set![(index.debug_create_key(object.as_ref()), oid)]
         );
     }
 
@@ -313,20 +355,20 @@ mod tests {
 
         let mut txn = isar.begin_txn(true).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(1234);
         let object = builder.finish();
-        let oid = col.put(&mut txn, None, object.as_bytes()).unwrap();
+        let oid = col.put(&mut txn, None, object.as_ref()).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(5678);
         let object2 = builder.finish();
-        col.put(&mut txn, Some(oid), object2.as_bytes()).unwrap();
+        col.put(&mut txn, Some(oid), object2.as_ref()).unwrap();
 
         let index = &col.indexes[0];
         assert_eq!(
             index.debug_dump(&mut txn),
-            set![(index.debug_create_key(object2.as_bytes()), oid)]
+            set![(index.debug_create_key(object2.as_ref()), oid)]
         );
     }
 
@@ -336,27 +378,27 @@ mod tests {
 
         let mut txn = isar.begin_txn(true).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(12345);
         let object = builder.finish();
-        let oid = col.put(&mut txn, None, object.as_bytes()).unwrap();
+        let oid = col.put(&mut txn, None, object.as_ref()).unwrap();
 
-        let mut builder = col.new_object_builder();
+        let mut builder = col.new_object_builder(None);
         builder.write_int(54321);
         let object2 = builder.finish();
-        let oid2 = col.put(&mut txn, None, object2.as_bytes()).unwrap();
+        let oid2 = col.put(&mut txn, None, object2.as_ref()).unwrap();
 
         col.delete(&mut txn, oid).unwrap();
 
         assert_eq!(
             col.debug_dump(&mut txn),
-            map![oid2 => object2.as_bytes().to_vec()],
+            map![oid2 => object2.as_ref().to_vec()],
         );
 
         let index = &col.indexes[0];
         assert_eq!(
             index.debug_dump(&mut txn),
-            set![(index.debug_create_key(object2.as_bytes()), oid2)],
+            set![(index.debug_create_key(object2.as_ref()), oid2)],
         );
     }
 }

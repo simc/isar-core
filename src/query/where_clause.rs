@@ -201,10 +201,10 @@ mod tests {
         let oid4 = col.put(&txn, None, &get_str_obj(&col, "bbbb")).unwrap();
 
         let all_oids = &[
-            oid1.as_bytes(),
-            oid2.as_bytes(),
-            oid3.as_bytes(),
-            oid4.as_bytes(),
+            oid1.as_ref(),
+            oid2.as_ref(),
+            oid3.as_ref(),
+            oid4.as_ref(),
         ];
 
         let mut wc = col.new_where_clause(Some(0)).unwrap();
@@ -218,11 +218,11 @@ mod tests {
         let mut wc = col.new_where_clause(Some(0)).unwrap();
         wc.add_lower_string_value(Some("aa"), false);
         exec_wc!(txn, col, wc, oids);
-        assert_eq!(&oids, &[oid3.as_bytes(), oid4.as_bytes()]);
+        assert_eq!(&oids, &[oid3.as_ref(), oid4.as_ref()]);
 
         wc.add_upper_string_value(Some("bba"), true);
         exec_wc!(txn, col, wc, oids);
-        assert_eq!(&oids, &[oid3.as_bytes()]);
+        assert_eq!(&oids, &[oid3.as_ref()]);
 
         let mut wc = col.new_where_clause(Some(0)).unwrap();
         wc.add_lower_string_value(Some("x"), false);

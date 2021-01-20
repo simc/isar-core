@@ -1,4 +1,3 @@
-use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::object::object_id::ObjectId;
 use isar_core::query::query::Query;
@@ -91,11 +90,23 @@ impl RawObjectSet {
             true
         })?;
 
+        self.fill_from_vec(objects);
+        Ok(())
+    }
+
+    pub fn fill_from_vec(&mut self, objects: Vec<RawObject>) {
         let mut objects = objects.into_boxed_slice();
         self.objects = objects.as_mut_ptr();
         self.length = objects.len() as u32;
         std::mem::forget(objects);
-        Ok(())
+    }
+
+    pub unsafe fn clear(&mut self) {
+        if !self.objects.is_null() {
+            Vec::from_raw_parts(self.objects, self.length as usize, self.length as usize);
+        }
+        self.objects = ptr::null_mut();
+        self.length = 0;
     }
 
     pub fn length(&self) -> u32 {
@@ -129,4 +140,19 @@ pub unsafe extern "C" fn isar_free_raw_obj(object: &mut RawObject) {
 
     let data = object.data.sub(padding);
     Vec::from_raw_parts(data as *mut u8, buffer_size, buffer_size);
+}
+
+#[no_mangle]
+pub extern "C" fn isar_alloc_raw_obj_set() -> *mut RawObjectSet {
+    let raw_obj_set = RawObjectSet {
+        objects: ptr::null_mut(),
+        length: 0,
+    };
+    Box::into_raw(Box::new(raw_obj_set))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_free_raw_obj_set(ros: &mut RawObjectSet) {
+    let mut ros = Box::from_raw(ros);
+    ros.clear();
 }

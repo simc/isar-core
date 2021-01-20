@@ -7,11 +7,7 @@ use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::instance::IsarInstance;
 use isar_core::schema::Schema;
-use once_cell::sync::Lazy;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::os::raw::c_char;
-use std::sync::{Arc, Mutex};
 
 struct IsarInstanceSend(*mut *const IsarInstance);
 

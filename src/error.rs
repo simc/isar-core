@@ -21,7 +21,7 @@ pub enum IsarError {
     #[error("Write transaction required.")]
     WriteTxnRequired {},
 
-    #[error("The ObjectId is not valid for this collection.")]
+    #[error("The provided ObjectId is invalid.")]
     InvalidObjectId {},
 
     #[error("The provided object is invalid.")]
@@ -32,6 +32,9 @@ pub enum IsarError {
 
     #[error("IllegalArg: {message:?}.")]
     IllegalArg { message: String },
+
+    #[error("Invalid JSON.")]
+    InvalidJson {},
 
     #[error("DbCorrupted: {message:?}")]
     DbCorrupted {

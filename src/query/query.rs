@@ -7,7 +7,6 @@ use crate::query::filter::*;
 use crate::query::where_clause::WhereClause;
 use crate::query::where_executor::WhereExecutor;
 use crate::txn::{Cursors, IsarTxn};
-use crate::watch::change_set::ChangeSet;
 use hashbrown::HashSet;
 use std::cmp::Ordering;
 use std::hash::Hasher;
@@ -246,46 +245,36 @@ impl<'txn> Query {
         txn.read(|cursors| self.find_all_internal(cursors, callback))
     }
 
-    pub(crate) fn delete_all_internal(
-        &self,
-        cursors: &mut Cursors,
-        delete_cursors: &mut Cursors,
-        change_set: &mut ChangeSet,
-        collection: &IsarCollection,
-    ) -> Result<usize> {
-        let needs_sorting =
-            self.sort.is_empty() || (self.offset_limit.is_none() && self.distinct.is_none());
-        if !needs_sorting {
-            let mut count = 0;
-            self.execute_unsorted(cursors, |cursor, key, object| {
-                let oid = *ObjectId::from_bytes(key);
-                cursor.delete_current()?;
-                collection.delete_object_internal(
-                    delete_cursors,
-                    change_set,
-                    oid,
-                    object,
-                    false,
-                )?;
-                count += 1;
-                Ok(true)
-            })?;
-            Ok(count)
-        } else {
-            let results = self.execute_sorted(cursors)?;
-            let slice = self.add_offset_limit_sorted(&results);
-            for (key, object) in slice {
-                let oid = *ObjectId::from_bytes(key);
-                collection.delete_object_internal(cursors, change_set, oid, object, true)?;
-            }
-            Ok(slice.len())
-        }
-    }
-
     pub fn delete_all(&self, txn: &mut IsarTxn, collection: &IsarCollection) -> Result<usize> {
         let mut delete_cursors = txn.open_cursors()?;
         txn.write(|cursors, change_set| {
-            self.delete_all_internal(cursors, &mut delete_cursors, change_set, collection)
+            let needs_sorting =
+                self.sort.is_empty() || (self.offset_limit.is_none() && self.distinct.is_none());
+            if !needs_sorting {
+                let mut count = 0;
+                self.execute_unsorted(cursors, |cursor, key, object| {
+                    let oid = *ObjectId::from_bytes(key);
+                    cursor.delete_current()?;
+                    collection.delete_object_internal(
+                        &mut delete_cursors,
+                        change_set,
+                        oid,
+                        object,
+                        false,
+                    )?;
+                    count += 1;
+                    Ok(true)
+                })?;
+                Ok(count)
+            } else {
+                let results = self.execute_sorted(cursors)?;
+                let slice = self.add_offset_limit_sorted(&results);
+                for (key, object) in slice {
+                    let oid = *ObjectId::from_bytes(key);
+                    collection.delete_object_internal(cursors, change_set, oid, object, true)?;
+                }
+                Ok(slice.len())
+            }
         })
     }
 
@@ -328,11 +317,11 @@ mod tests {
         let mut txn = isar.begin_txn(true).unwrap();
         let mut ids = vec![];
         for (f1, f2) in data {
-            let mut o = col.new_object_builder();
+            let mut o = col.new_object_builder(None);
             o.write_int(f1);
             o.write_string(Some(&f2));
             let bytes = o.finish();
-            ids.push(col.put(&mut txn, None, bytes.as_bytes()).unwrap());
+            ids.push(col.put(&mut txn, None, bytes.as_ref()).unwrap());
         }
         txn.commit().unwrap();
         (isar, ids)

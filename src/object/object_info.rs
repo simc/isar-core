@@ -1,7 +1,6 @@
 use crate::object::data_type::DataType;
 use crate::object::object_id::ObjectId;
 use crate::object::property::Property;
-use serde_json::{json, Map, Value};
 
 #[cfg_attr(test, derive(Clone))]
 pub(crate) struct ObjectInfo {
@@ -32,37 +31,6 @@ impl ObjectInfo {
 
     pub fn get_properties(&self) -> &[(String, Property)] {
         &self.properties
-    }
-
-    pub fn entry_to_json(&self, key: &[u8], object: &[u8], primitive_null: bool) -> Value {
-        let mut object_map = Map::new();
-
-        let oid = ObjectId::from_bytes(key);
-        object_map.insert("id".to_string(), json!(oid.to_string()));
-
-        for (property_name, property) in &self.properties {
-            let value =
-                if primitive_null && property.data_type.is_static() && property.is_null(object) {
-                    Value::Null
-                } else {
-                    match property.data_type {
-                        DataType::Byte => json!(property.get_byte(object)),
-                        DataType::Int => json!(property.get_int(object)),
-                        DataType::Float => json!(property.get_float(object)),
-                        DataType::Long => json!(property.get_long(object)),
-                        DataType::Double => json!(property.get_double(object)),
-                        DataType::String => json!(property.get_string(object)),
-                        DataType::ByteList => json!(property.get_byte_list(object)),
-                        DataType::IntList => json!(property.get_int_list(object)),
-                        DataType::FloatList => json!(property.get_float_list(object)),
-                        DataType::LongList => json!(property.get_float_list(object)),
-                        DataType::DoubleList => json!(property.get_double_list(object)),
-                        DataType::StringList => json!(property.get_string_list(object)),
-                    }
-                };
-            object_map.insert(property_name.clone(), value);
-        }
-        json!(object_map)
     }
 
     pub fn verify_object(&self, object: &[u8]) -> bool {

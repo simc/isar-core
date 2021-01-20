@@ -140,7 +140,7 @@ mod tests {
         let mut txn = isar.begin_txn(true).unwrap();
 
         let build_value = |field1: i32, field2: i32, field3: &str| {
-            let mut builder = col.new_object_builder();
+            let mut builder = col.new_object_builder(None);
             builder.write_int(field1);
             builder.write_int(field2);
             builder.write_string(Some(field3));

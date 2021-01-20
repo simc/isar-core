@@ -11,15 +11,14 @@ use crate::schema::Schema;
 use crate::txn::{Cursors, IsarTxn};
 use crate::watch::change_set::ChangeSet;
 use crate::watch::isar_watchers::{IsarWatchers, WatcherModifier};
-use crate::watch::{
-    CollectionWatcherCallback, ObjectWatcherCallback, QueryWatcherCallback, WatchHandle,
-};
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crate::watch::watcher::WatcherCallback;
+use crate::watch::WatchHandle;
+use crossbeam_channel::{unbounded, Sender};
 use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use once_cell::sync::Lazy;
 use rand::random;
-use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 static INSTANCES: Lazy<RwLock<HashMap<String, Arc<IsarInstance>>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
@@ -31,7 +30,6 @@ pub struct IsarInstance {
     collections: Vec<IsarCollection>,
     watchers: Mutex<IsarWatchers>,
     watcher_modifier_sender: Sender<WatcherModifier>,
-    watcher_modifier_receiver: Receiver<WatcherModifier>,
 }
 
 impl IsarInstance {
@@ -70,9 +68,8 @@ impl IsarInstance {
             dbs,
             path: path.to_string(),
             collections,
-            watchers: Mutex::new(IsarWatchers::new()),
+            watchers: Mutex::new(IsarWatchers::new(rx)),
             watcher_modifier_sender: tx,
-            watcher_modifier_receiver: rx,
         })
     }
 
@@ -103,7 +100,7 @@ impl IsarInstance {
     pub fn begin_txn(&self, write: bool) -> Result<IsarTxn> {
         let change_set = if write {
             let mut watchers_lock = self.watchers.lock().unwrap();
-            self.sync_watchers(&mut watchers_lock);
+            watchers_lock.sync();
             let change_set = ChangeSet::new(watchers_lock);
             Some(change_set)
         } else {
@@ -112,25 +109,7 @@ impl IsarInstance {
 
         let txn = self.env.txn(write)?;
         let cursors = self.open_cursors(&txn)?;
-        IsarTxn::new(self, txn, cursors, write, change_set)
-    }
-
-    pub(crate) fn write_txn_complete(&self, change_set: Option<ChangeSet>) {
-        if let Some(change_set) = change_set {
-            let txn = self.begin_txn(false);
-            if let Ok(mut txn) = txn {
-                change_set.notify_watchers(&mut txn);
-                txn.abort();
-            }
-
-            //self.sync_watchers(change_set.)
-        }
-    }
-
-    fn sync_watchers(&self, mut watchers: &mut MutexGuard<IsarWatchers>) {
-        for modifier in self.watcher_modifier_receiver.try_iter() {
-            modifier(&mut watchers)
-        }
+        Ok(IsarTxn::new(self, txn, cursors, write, change_set))
     }
 
     pub fn get_collection(&self, collection_index: usize) -> Option<&IsarCollection> {
@@ -146,7 +125,7 @@ impl IsarInstance {
     pub fn watch_collection(
         &self,
         collection: &IsarCollection,
-        callback: CollectionWatcherCallback,
+        callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
         let col_id = collection.get_id();
@@ -169,7 +148,7 @@ impl IsarInstance {
         &self,
         collection: &IsarCollection,
         mut oid: ObjectId,
-        callback: ObjectWatcherCallback,
+        callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
         let col_id = collection.get_id();
@@ -194,7 +173,7 @@ impl IsarInstance {
         &self,
         collection: &IsarCollection,
         query: Query,
-        callback: QueryWatcherCallback,
+        callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
         let col_id = collection.get_id();
@@ -269,16 +248,16 @@ mod tests {
     fn test_open_new_instance() {
         isar!(isar, col => col!(f1 => Int));
 
-        let mut ob = col.new_object_builder();
+        let mut ob = col.new_object_builder(None);
         ob.write_int(123);
         let o = ob.finish();
 
         let mut txn = isar.begin_txn(true).unwrap();
-        let oid = col.put(&mut txn, None, o.as_bytes()).unwrap();
+        let oid = col.put(&mut txn, None, o.as_ref()).unwrap();
         txn.commit().unwrap();
 
         let mut txn = isar.begin_txn(false).unwrap();
-        assert_eq!(col.get(&mut txn, oid).unwrap().unwrap(), o.as_bytes());
+        assert_eq!(col.get(&mut txn, oid).unwrap().unwrap(), o.as_ref());
         txn.abort();
     }
 
@@ -289,16 +268,16 @@ mod tests {
 
         isar!(path: path, isar, col1 => col!("col1", f1 => Int));
 
-        let mut ob = col1.new_object_builder();
+        let mut ob = col1.new_object_builder(None);
         ob.write_int(123);
         let o = ob.finish();
 
         let mut txn = isar.begin_txn(true).unwrap();
-        let oid = col1.put(&mut txn, None, &o.as_bytes()).unwrap();
-        let object = o.as_bytes().to_vec();
+        let oid = col1.put(&mut txn, None, &o.as_ref()).unwrap();
+        let object = o.as_ref().to_vec();
         txn.commit().unwrap();
 
-        isar.close().unwrap();
+        assert!(isar.close().is_none());
 
         isar!(path: path, isar, col1 => col!("col1", f1 => Int), col2 => col!("col2", f1 => Int));
         let mut txn = isar.begin_txn(false).unwrap();
@@ -312,25 +291,20 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        {
-            isar!(path: path, isar, col1 => col!("col1", f1 => Int), _col2 => col!("col2", f1 => Int));
+        isar!(path: path, isar, col1 => col!("col1", f1 => Int), _col2 => col!("col2", f1 => Int));
+        let mut ob = col1.new_object_builder(None);
+        ob.write_int(123);
+        let o = ob.finish();
+        let mut txn = isar.begin_txn(true).unwrap();
+        //col1.put(&txn, None, o.as_ref()).unwrap();
+        col1.put(&mut txn, None, o.as_ref()).unwrap();
+        txn.commit().unwrap();
+        isar.close();
 
-            let mut ob = col1.new_object_builder();
-            ob.write_int(123);
-            let o = ob.finish();
-
-            let mut txn = isar.begin_txn(true).unwrap();
-            //col1.put(&txn, None, o.as_bytes()).unwrap();
-            col1.put(&mut txn, None, o.as_bytes()).unwrap();
-            txn.commit().unwrap();
-        };
-
-        {
-            isar!(path: path, isar, _col2 => col!("col2", f1 => Int));
-        }
+        isar!(path: path, isar, _col2 => col!("col2", f1 => Int));
+        isar.close();
 
         isar!(path: path, isar, col1 => col!("col1", f1 => Int), _col2 => col!("col2", f1 => Int));
-
         let mut txn = isar.begin_txn(false).unwrap();
         assert_eq!(col1.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();

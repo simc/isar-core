@@ -171,7 +171,7 @@ impl StrAnyOf {
                 .map(|s| s.to_lowercase().into_bytes())
                 .collect_vec()
         } else {
-            values.iter().map(|s| s.as_bytes().to_vec()).collect_vec()
+            values.iter().map(|s| s.as_ref().to_vec()).collect_vec()
         };
         StrAnyOf {
             property,
@@ -191,7 +191,7 @@ impl Condition for StrAnyOf {
                 .any(|item| item.as_slice() == string_bytes),
             Case::Insensitive => unsafe {
                 let lowercase_string = std::str::from_utf8_unchecked(object).to_lowercase();
-                let lowercase_bytes = lowercase_string.as_bytes();
+                let lowercase_bytes = lowercase_string.as_ref();
                 self.values
                     .iter()
                     .any(|item| item.as_slice() == lowercase_bytes)

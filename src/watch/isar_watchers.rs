@@ -1,21 +1,22 @@
 use crate::object::object_id::ObjectId;
 use crate::query::query::Query;
-use crate::watch::collection_watcher::CollectionWatcher;
-use crate::watch::object_watcher::ObjectWatcher;
-use crate::watch::query_watcher::QueryWatcher;
-use crate::watch::{CollectionWatcherCallback, ObjectWatcherCallback, QueryWatcherCallback};
+use crate::watch::watcher::{Watcher, WatcherCallback};
+use crossbeam_channel::Receiver;
 use hashbrown::HashMap;
+use itertools::Itertools;
 use std::sync::Arc;
 
 pub(crate) type WatcherModifier = Box<dyn FnOnce(&mut IsarWatchers) + Send + 'static>;
 
 pub(crate) struct IsarWatchers {
+    modifiers: Receiver<WatcherModifier>,
     collection_watchers: HashMap<u16, IsarCollectionWatchers>,
 }
 
 impl IsarWatchers {
-    pub fn new() -> Self {
+    pub fn new(modifiers: Receiver<WatcherModifier>) -> Self {
         IsarWatchers {
+            modifiers,
             collection_watchers: HashMap::new(),
         }
     }
@@ -27,12 +28,19 @@ impl IsarWatchers {
         }
         self.collection_watchers.get_mut(&col_id).unwrap()
     }
+
+    pub(crate) fn sync(&mut self) {
+        let modifiers = self.modifiers.try_iter().collect_vec();
+        for modifier in modifiers {
+            modifier(self)
+        }
+    }
 }
 
 pub struct IsarCollectionWatchers {
-    pub(crate) watchers: Vec<Arc<CollectionWatcher>>,
-    pub(crate) object_watchers: HashMap<ObjectId, Vec<Arc<ObjectWatcher>>>,
-    pub(crate) query_watchers: Vec<Arc<QueryWatcher>>,
+    pub(super) watchers: Vec<Arc<Watcher>>,
+    pub(super) object_watchers: HashMap<ObjectId, Vec<Arc<Watcher>>>,
+    pub(super) query_watchers: Vec<(Query, Arc<Watcher>)>,
 }
 
 impl IsarCollectionWatchers {
@@ -44,8 +52,8 @@ impl IsarCollectionWatchers {
         }
     }
 
-    pub fn add_watcher(&mut self, watcher_id: usize, callback: CollectionWatcherCallback) {
-        let watcher = Arc::new(CollectionWatcher::new(watcher_id, callback));
+    pub fn add_watcher(&mut self, watcher_id: usize, callback: WatcherCallback) {
+        let watcher = Arc::new(Watcher::new(watcher_id, callback));
         self.watchers.push(watcher);
     }
 
@@ -53,7 +61,7 @@ impl IsarCollectionWatchers {
         let position = self
             .watchers
             .iter()
-            .position(|w| w.id == watcher_id)
+            .position(|w| w.get_id() == watcher_id)
             .unwrap();
         self.watchers.remove(position);
     }
@@ -62,10 +70,10 @@ impl IsarCollectionWatchers {
         &mut self,
         watcher_id: usize,
         oid: ObjectId,
-        callback: ObjectWatcherCallback,
+        callback: WatcherCallback,
     ) {
         assert_ne!(oid.get_prefix(), 0);
-        let watcher = Arc::new(ObjectWatcher::new(watcher_id, oid, callback));
+        let watcher = Arc::new(Watcher::new(watcher_id, callback));
         if let Some(object_watchers) = self.object_watchers.get_mut(&oid) {
             object_watchers.push(watcher);
         } else {
@@ -75,7 +83,10 @@ impl IsarCollectionWatchers {
 
     pub fn remove_object_watcher(&mut self, oid: ObjectId, watcher_id: usize) {
         let watchers = self.object_watchers.get_mut(&oid).unwrap();
-        let position = watchers.iter().position(|w| w.id == watcher_id).unwrap();
+        let position = watchers
+            .iter()
+            .position(|w| w.get_id() == watcher_id)
+            .unwrap();
         watchers.remove(position);
     }
 
@@ -83,17 +94,17 @@ impl IsarCollectionWatchers {
         &mut self,
         watcher_id: usize,
         query: Query,
-        callback: QueryWatcherCallback,
+        callback: WatcherCallback,
     ) {
-        let watcher = Arc::new(QueryWatcher::new(watcher_id, query, callback));
-        self.query_watchers.push(watcher);
+        let watcher = Arc::new(Watcher::new(watcher_id, callback));
+        self.query_watchers.push((query, watcher));
     }
 
     pub fn remove_query_watcher(&mut self, watcher_id: usize) {
         let position = self
             .query_watchers
             .iter()
-            .position(|w| w.id == watcher_id)
+            .position(|(_, w)| w.get_id() == watcher_id)
             .unwrap();
         self.query_watchers.remove(position);
     }

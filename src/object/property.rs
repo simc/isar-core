@@ -68,7 +68,9 @@ pub struct Property {
 }
 
 impl Property {
-    pub const NULL_BYTE: u8 = u8::MIN;
+    pub const NULL_BYTE: u8 = 0;
+    pub const FALSE_BYTE: u8 = 1;
+    pub const TRUE_BYTE: u8 = 2;
     pub const NULL_INT: i32 = i32::MIN;
     pub const NULL_LONG: i64 = i64::MIN;
     pub const NULL_FLOAT: f32 = f32::NAN;
@@ -78,7 +80,6 @@ impl Property {
         Property { data_type, offset }
     }
 
-    #[inline]
     pub fn is_null(&self, object: &[u8]) -> bool {
         match self.data_type {
             DataType::Byte => self.get_byte(object) == Self::NULL_BYTE,
@@ -90,34 +91,33 @@ impl Property {
         }
     }
 
-    #[inline]
     pub fn get_byte(&self, object: &[u8]) -> u8 {
         assert_eq!(self.data_type, DataType::Byte);
         object[self.offset]
     }
 
-    #[inline]
+    pub fn get_bool(&self, object: &[u8]) -> bool {
+        self.get_byte(object) == Property::TRUE_BYTE
+    }
+
     pub fn get_int(&self, object: &[u8]) -> i32 {
         assert_eq!(self.data_type, DataType::Int);
         let bytes: [u8; 4] = object[self.offset..self.offset + 4].try_into().unwrap();
         i32::from_le_bytes(bytes)
     }
 
-    #[inline]
     pub fn get_long(&self, object: &[u8]) -> i64 {
         assert_eq!(self.data_type, DataType::Long);
         let bytes: [u8; 8] = object[self.offset..self.offset + 8].try_into().unwrap();
         i64::from_le_bytes(bytes)
     }
 
-    #[inline]
     pub fn get_float(&self, object: &[u8]) -> f32 {
         assert_eq!(self.data_type, DataType::Float);
         let bytes: [u8; 4] = object[self.offset..self.offset + 4].try_into().unwrap();
         f32::from_le_bytes(bytes)
     }
 
-    #[inline]
     pub fn get_double(&self, object: &[u8]) -> f64 {
         assert_eq!(self.data_type, DataType::Double);
         let bytes: [u8; 8] = object[self.offset..self.offset + 8].try_into().unwrap();
@@ -148,14 +148,12 @@ impl Property {
         Some(self.get_list(object, position))
     }
 
-    #[inline]
     pub fn get_length(&self, object: &[u8]) -> Option<usize> {
         assert!(self.data_type.is_dynamic());
         let pos = self.get_dynamic_position(object)?;
         Some(pos.length as usize)
     }
 
-    #[inline]
     pub fn get_string<'a>(&self, object: &'a [u8]) -> Option<&'a str> {
         assert_eq!(self.data_type, DataType::String);
         let position = self.get_dynamic_position(object)?;
@@ -163,7 +161,6 @@ impl Property {
         Some(std::str::from_utf8(bytes).unwrap())
     }
 
-    #[inline]
     pub fn get_byte_list<'a>(&self, object: &'a [u8]) -> Option<&'a [u8]> {
         assert_eq!(self.data_type, DataType::ByteList);
         let position = self.get_dynamic_position(object)?;

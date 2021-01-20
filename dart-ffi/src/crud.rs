@@ -3,6 +3,7 @@ use crate::raw_object_set::{RawObject, RawObjectSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::txn::IsarTxn;
+use serde_json::Value;
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_get(
@@ -117,21 +118,15 @@ pub unsafe extern "C" fn isar_delete_all_async(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_export_json(
-    collection: &IsarCollection,
-    txn: &mut IsarTxn,
-    primitive_null: bool,
-    json: *mut *mut u8,
-    json_length: *mut u32,
-) -> i32 {
-    isar_try! {
-        let exported_json = collection.export_json(txn, primitive_null)?;
-        let bytes = serde_json::to_vec(&exported_json).unwrap();
-        let mut bytes = bytes.into_boxed_slice();
-        json_length.write(bytes.len() as u32);
-        json.write(bytes.as_mut_ptr());
-        std::mem::forget(bytes);
-    }
+pub unsafe extern "C" fn isar_import_json_async(
+    collection: &'static IsarCollection,
+    txn: &IsarAsyncTxn,
+    json_bytes: *const u8,
+    json_length: u32,
+) {
+    let bytes = std::slice::from_raw_parts(json_bytes, json_length as usize);
+    let json: Value = serde_json::from_slice(bytes).unwrap();
+    txn.exec(move |txn| -> Result<()> { collection.import_json(txn, json) });
 }
 
 struct JsonBytes(*mut *mut u8);
@@ -151,7 +146,7 @@ pub unsafe extern "C" fn isar_export_json_async(
     let json = JsonBytes(json_bytes);
     let json_length = JsonLen(json_length);
     txn.exec(move |txn| -> Result<()> {
-        let exported_json = collection.export_json(txn, primitive_null)?;
+        let exported_json = collection.export_json(txn, primitive_null, true)?;
         let bytes = serde_json::to_vec(&exported_json).unwrap();
         let mut bytes = bytes.into_boxed_slice();
         json_length.0.write(bytes.len() as u32);

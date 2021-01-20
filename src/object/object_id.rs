@@ -1,5 +1,7 @@
+use crate::error::{IsarError, Result};
 use std::hash::{Hash, Hasher};
 use std::mem;
+use std::str::FromStr;
 
 #[derive(Copy, Clone, Debug)]
 #[repr(packed)]
@@ -95,6 +97,17 @@ impl Hash for ObjectId {
 impl ToString for ObjectId {
     fn to_string(&self) -> String {
         hex::encode(self.as_bytes_without_prefix())
+    }
+}
+
+impl FromStr for ObjectId {
+    type Err = IsarError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let mut bytes = vec![0; ObjectId::get_size()];
+        hex::decode_to_slice(s, &mut bytes[2..]).map_err(|_| IsarError::InvalidObjectId {})?;
+        let oid = ObjectId::from_bytes(&bytes);
+        Ok(*oid)
     }
 }
 

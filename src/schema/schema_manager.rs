@@ -4,7 +4,6 @@ use crate::lmdb::cursor::Cursor;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
 use crate::txn::Cursors;
-use crate::watch::isar_watchers::IsarWatchers;
 use serde::{Deserialize, Serialize};
 use serde_json::{Deserializer, Serializer};
 use std::convert::TryInto;
@@ -92,16 +91,9 @@ impl<'env> SchemaManger<'env> {
             .iter()
             .filter(|existing| !collections.iter().any(|c| existing.get_id() == c.get_id()));
 
-        //let watchers = IsarWatchers::new();
-        /*let mut change_set = ChangeSet::new(&watchers);
         for col in removed_collections {
-            col.new_query_builder().build().delete_all_internal(
-                &mut self.cursors,
-                &mut self.migration_cursors,
-                &mut change_set,
-                col,
-            )?;
-        }*/
+            col.delete_all_internal(&mut self.cursors, None)?;
+        }
 
         for col in collections {
             let existing = existing_collections

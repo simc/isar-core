@@ -41,6 +41,11 @@ pub unsafe extern "C" fn isar_qb_build(builder: *mut QueryBuilder) -> *mut Query
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_q_free(query: *mut Query) {
+    Box::from_raw(query);
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_q_find_all(
     query: &Query,
     txn: &mut IsarTxn<'static>,

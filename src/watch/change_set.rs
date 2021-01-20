@@ -1,13 +1,12 @@
 use crate::object::object_id::ObjectId;
-use crate::txn::IsarTxn;
 use crate::watch::isar_watchers::IsarWatchers;
-use crate::watch::Watcher;
+use crate::watch::watcher::Watcher;
 use hashbrown::HashMap;
 use std::sync::{Arc, MutexGuard};
 
 pub(crate) struct ChangeSet<'a> {
     watchers: MutexGuard<'a, IsarWatchers>,
-    changed_watchers: HashMap<usize, Arc<dyn Watcher>>,
+    changed_watchers: HashMap<usize, Arc<Watcher>>,
 }
 
 impl<'a> ChangeSet<'a> {
@@ -22,32 +21,36 @@ impl<'a> ChangeSet<'a> {
         let col_id = oid.get_prefix();
         let cw = self.watchers.get_col_watchers(col_id);
         for w in &cw.watchers {
-            if self.changed_watchers.insert(w.id, w.clone()).is_some() {
+            if self
+                .changed_watchers
+                .insert(w.get_id(), w.clone())
+                .is_some()
+            {
                 break;
             }
         }
         if let Some(object_watchers) = cw.object_watchers.get(&oid) {
             for w in object_watchers {
-                if self.changed_watchers.insert(w.id, w.clone()).is_some() {
+                if self
+                    .changed_watchers
+                    .insert(w.get_id(), w.clone())
+                    .is_some()
+                {
                     break;
                 }
             }
         }
-        for w in &cw.query_watchers {
-            if !self.changed_watchers.contains_key(&w.id) && w.query.matches_wc_filter(oid, object)
+        for (q, w) in &cw.query_watchers {
+            if !self.changed_watchers.contains_key(&w.get_id()) && q.matches_wc_filter(oid, object)
             {
-                self.changed_watchers.insert(w.id, w.clone());
+                self.changed_watchers.insert(w.get_id(), w.clone());
             }
         }
     }
 
-    #[allow(unused_must_use)]
-    pub fn notify_watchers(self, txn: &mut IsarTxn) {
-        txn.read(|cursors| {
-            for watcher in self.changed_watchers.values() {
-                watcher.notify(cursors);
-            }
-            Ok(())
-        });
+    pub fn notify_watchers(self) {
+        for watcher in self.changed_watchers.values() {
+            watcher.notify();
+        }
     }
 }

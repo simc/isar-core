@@ -25,16 +25,16 @@ impl<'a> IsarTxn<'a> {
         cursors: Cursors<'a>,
         write: bool,
         change_set: Option<ChangeSet<'a>>,
-    ) -> Result<Self> {
+    ) -> Self {
         assert_eq!(write, change_set.is_some());
 
-        Ok(IsarTxn {
+        IsarTxn {
             isar,
             txn,
             cursors,
             write,
             change_set,
-        })
+        }
     }
 
     pub(crate) fn read<T, F>(&mut self, job: F) -> Result<T>
@@ -78,7 +78,7 @@ impl<'a> IsarTxn<'a> {
 
         if self.write {
             self.txn.commit()?;
-            self.isar.write_txn_complete(self.change_set);
+            self.change_set.unwrap().notify_watchers();
         } else {
             self.txn.abort();
         }
@@ -87,8 +87,5 @@ impl<'a> IsarTxn<'a> {
 
     pub fn abort(self) {
         self.txn.abort();
-        if self.write {
-            self.isar.write_txn_complete(None);
-        }
     }
 }
