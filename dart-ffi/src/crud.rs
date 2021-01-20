@@ -1,5 +1,6 @@
 use crate::async_txn::IsarAsyncTxn;
 use crate::raw_object_set::{RawObject, RawObjectSend};
+use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::txn::IsarTxn;
@@ -76,10 +77,11 @@ pub unsafe extern "C" fn isar_delete(
     collection: &IsarCollection,
     txn: &mut IsarTxn,
     object: &RawObject,
+    deleted: &mut bool,
 ) -> i32 {
     isar_try! {
     let oid = object.get_object_id().unwrap();
-        collection.delete(txn, oid)?;
+        *deleted = collection.delete(txn, oid)?;
     }
 }
 
@@ -88,18 +90,24 @@ pub unsafe extern "C" fn isar_delete_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
     object: &RawObject,
+    deleted: &'static mut bool,
 ) {
     let oid = object.get_object_id().unwrap();
+    let deleted = BoolSend(deleted);
     txn.exec(move |txn| {
-        collection.delete(txn, oid)?;
+        *deleted.0 = collection.delete(txn, oid)?;
         Ok(())
     });
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_delete_all(collection: &IsarCollection, txn: &mut IsarTxn) -> i32 {
+pub unsafe extern "C" fn isar_delete_all(
+    collection: &IsarCollection,
+    txn: &mut IsarTxn,
+    count: &mut i64,
+) -> i32 {
     isar_try! {
-        collection.new_query_builder().build().delete_all(txn,collection)?;
+        *count = collection.delete_all(txn)? as i64;
     }
 }
 
@@ -107,18 +115,17 @@ pub unsafe extern "C" fn isar_delete_all(collection: &IsarCollection, txn: &mut 
 pub unsafe extern "C" fn isar_delete_all_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
+    count: &'static mut i64,
 ) {
-    txn.exec(move |txn| {
-        collection
-            .new_query_builder()
-            .build()
-            .delete_all(txn, collection)?;
+    let count = IntSend(count);
+    txn.exec(move |txn| -> Result<()> {
+        *(count.0) = collection.delete_all(txn)? as i64;
         Ok(())
     });
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_import_json_async(
+pub unsafe extern "C" fn isar_json_import_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
     json_bytes: *const u8,
@@ -136,7 +143,7 @@ struct JsonLen(*mut u32);
 unsafe impl Send for JsonLen {}
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_export_json_async(
+pub unsafe extern "C" fn isar_json_export_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
     primitive_null: bool,

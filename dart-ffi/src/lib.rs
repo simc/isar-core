@@ -25,3 +25,11 @@ pub unsafe fn from_c_str<'a>(str: *const c_char) -> Result<&'a str> {
         Err(_) => illegal_arg("The provided String is not valid."),
     }
 }
+
+pub struct IntSend(&'static mut i64);
+
+unsafe impl Send for IntSend {}
+
+pub struct BoolSend(&'static mut bool);
+
+unsafe impl Send for BoolSend {}

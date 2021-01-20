@@ -7,6 +7,7 @@ use crate::query::filter::*;
 use crate::query::where_clause::WhereClause;
 use crate::query::where_executor::WhereExecutor;
 use crate::txn::{Cursors, IsarTxn};
+use crate::watch::change_set::ChangeSet;
 use hashbrown::HashSet;
 use std::cmp::Ordering;
 use std::hash::Hasher;
@@ -238,42 +239,85 @@ impl<'txn> Query {
         Ok(())
     }
 
-    pub fn find_all<F>(&self, txn: &mut IsarTxn<'txn>, callback: F) -> Result<()>
+    pub fn find_while<F>(&self, txn: &mut IsarTxn<'txn>, callback: F) -> Result<()>
     where
         F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
     {
         txn.read(|cursors| self.find_all_internal(cursors, callback))
     }
 
-    pub fn delete_all(&self, txn: &mut IsarTxn, collection: &IsarCollection) -> Result<usize> {
+    fn delete_unsorted<F>(
+        &self,
+        cursors: &mut Cursors<'txn>,
+        delete_cursors: &mut Cursors<'txn>,
+        change_set: &mut ChangeSet,
+        collection: &IsarCollection,
+        mut callback: F,
+    ) -> Result<usize>
+    where
+        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
+    {
+        let mut count = 0;
+        self.execute_unsorted(cursors, |cursor, key, object| {
+            let oid = ObjectId::from_bytes(key);
+            if !callback(oid, object) {
+                return Ok(false);
+            }
+            cursor.delete_current()?;
+            collection.delete_object_internal(delete_cursors, change_set, *oid, object, false)?;
+            count += 1;
+            Ok(true)
+        })?;
+        Ok(count)
+    }
+
+    fn delete_sorted<F>(
+        &self,
+        cursors: &mut Cursors<'txn>,
+        change_set: &mut ChangeSet,
+        collection: &IsarCollection,
+        mut callback: F,
+    ) -> Result<usize>
+    where
+        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
+    {
+        let mut count = 0;
+        let results = self.execute_sorted(cursors)?;
+        let slice = self.add_offset_limit_sorted(&results);
+        for (key, object) in slice {
+            let oid = ObjectId::from_bytes(key);
+            if !callback(oid, object) {
+                return Ok(count);
+            }
+            count += 1;
+            collection.delete_object_internal(cursors, change_set, *oid, object, true)?;
+        }
+        Ok(count)
+    }
+
+    pub fn delete_while<F>(
+        &self,
+        txn: &mut IsarTxn<'txn>,
+        collection: &IsarCollection,
+        callback: F,
+    ) -> Result<usize>
+    where
+        F: FnMut(&'txn ObjectId, &'txn [u8]) -> bool,
+    {
+        let needs_sorting =
+            self.sort.is_empty() || (self.offset_limit.is_none() && self.distinct.is_none());
         let mut delete_cursors = txn.open_cursors()?;
         txn.write(|cursors, change_set| {
-            let needs_sorting =
-                self.sort.is_empty() || (self.offset_limit.is_none() && self.distinct.is_none());
             if !needs_sorting {
-                let mut count = 0;
-                self.execute_unsorted(cursors, |cursor, key, object| {
-                    let oid = *ObjectId::from_bytes(key);
-                    cursor.delete_current()?;
-                    collection.delete_object_internal(
-                        &mut delete_cursors,
-                        change_set,
-                        oid,
-                        object,
-                        false,
-                    )?;
-                    count += 1;
-                    Ok(true)
-                })?;
-                Ok(count)
+                self.delete_unsorted(
+                    cursors,
+                    &mut delete_cursors,
+                    change_set,
+                    collection,
+                    callback,
+                )
             } else {
-                let results = self.execute_sorted(cursors)?;
-                let slice = self.add_offset_limit_sorted(&results);
-                for (key, object) in slice {
-                    let oid = *ObjectId::from_bytes(key);
-                    collection.delete_object_internal(cursors, change_set, oid, object, true)?;
-                }
-                Ok(slice.len())
+                self.delete_sorted(cursors, change_set, collection, callback)
             }
         })
     }

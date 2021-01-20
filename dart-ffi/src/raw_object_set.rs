@@ -85,7 +85,7 @@ unsafe impl Send for RawObjectSetSend {}
 impl RawObjectSet {
     pub fn fill_from_query(&mut self, query: &Query, txn: &mut IsarTxn) -> Result<()> {
         let mut objects = vec![];
-        query.find_all(txn, |oid, object| {
+        query.find_while(txn, |oid, object| {
             objects.push(RawObject::new(*oid, object));
             true
         })?;
