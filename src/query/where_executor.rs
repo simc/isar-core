@@ -176,7 +176,7 @@ mod tests {
         wc.add_oid_time(4, 4);
         assert_eq!(execute_where_clauses(&isar, &[wc], false), vec![4]);
 
-        let mut wc = col.new_secondary_where_clause(0).unwrap();
+        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
         wc.add_oid_time(u32::MAX, u32::MAX);
         assert_eq!(
             execute_where_clauses(&isar, &[wc], false),
@@ -189,18 +189,18 @@ mod tests {
         let isar = get_test_db();
         let col = isar.get_collection(0).unwrap();
 
-        let mut wc = col.new_secondary_where_clause(0).unwrap();
+        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
         wc.add_int(2, i32::MAX);
         assert_eq!(
             execute_where_clauses(&isar, &[wc.clone()], false),
             vec![3, 4, 5, 6]
         );
 
-        let mut wc = col.new_secondary_where_clause(0).unwrap();
+        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
         wc.add_int(2, 2);
         assert_eq!(execute_where_clauses(&isar, &[wc], false), vec![3, 4]);
 
-        let mut wc = col.new_secondary_where_clause(0).unwrap();
+        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
         wc.add_int(50, i32::MAX);
         assert_eq!(
             execute_where_clauses(&isar, &[wc], false),
@@ -213,18 +213,18 @@ mod tests {
         let isar = get_test_db();
         let col = isar.get_collection(0).unwrap();
 
-        let mut wc = col.new_secondary_where_clause(1).unwrap();
+        let mut wc = col.new_secondary_where_clause(1, false).unwrap();
         wc.add_int(4, i32::MAX);
         assert_eq!(
             execute_where_clauses(&isar, &[wc.clone()], false),
             vec![4, 5, 6]
         );
 
-        let mut wc = col.new_secondary_where_clause(1).unwrap();
+        let mut wc = col.new_secondary_where_clause(1, false).unwrap();
         wc.add_int(4, 5);
         assert_eq!(execute_where_clauses(&isar, &[wc], false), vec![4, 5]);
 
-        let mut wc = col.new_secondary_where_clause(0).unwrap();
+        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
         wc.add_int(50, i32::MAX);
         assert_eq!(
             execute_where_clauses(&isar, &[wc], false),
@@ -237,7 +237,7 @@ mod tests {
         let isar = get_test_db();
         let col = isar.get_collection(0).unwrap();
 
-        let mut wc = col.new_secondary_where_clause(0).unwrap();
+        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
         wc.add_int(2, i32::MAX);
         assert_eq!(
             execute_where_clauses(&isar, &[wc.clone()], false),
@@ -253,10 +253,10 @@ mod tests {
         let isar = get_test_db();
         let col = isar.get_collection(0).unwrap();
 
-        let mut wc1 = col.new_secondary_where_clause(0).unwrap();
+        let mut wc1 = col.new_secondary_where_clause(0, false).unwrap();
         wc1.add_int(1, 1);
 
-        let mut wc2 = col.new_secondary_where_clause(0).unwrap();
+        let mut wc2 = col.new_secondary_where_clause(0, false).unwrap();
         wc2.add_int(3, 3);
         assert_eq!(
             execute_where_clauses(&isar, &[wc1, wc2], false),
@@ -269,10 +269,10 @@ mod tests {
         let isar = get_test_db();
         let col = isar.get_collection(0).unwrap();
 
-        let mut wc1 = col.new_secondary_where_clause(0).unwrap();
+        let mut wc1 = col.new_secondary_where_clause(0, false).unwrap();
         wc1.add_int(2, i32::MAX);
 
-        let mut wc2 = col.new_secondary_where_clause(0).unwrap();
+        let mut wc2 = col.new_secondary_where_clause(0, false).unwrap();
         wc2.add_int(2, 3);
 
         let mut result = execute_where_clauses(&isar, &[wc1.clone(), wc2, wc1], true);

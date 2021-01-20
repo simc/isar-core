@@ -11,12 +11,13 @@ pub unsafe extern "C" fn isar_wc_create(
     wc: *mut *const WhereClause,
     primary: bool,
     index_index: u32,
+    skip_duplicates: bool,
 ) -> i32 {
     isar_try! {
         let where_clause = if primary {
             Some(collection.new_primary_where_clause())
         } else {
-            collection.new_secondary_where_clause(index_index as usize)
+            collection.new_secondary_where_clause(index_index as usize, skip_duplicates)
         };
         if let Some(where_clause) = where_clause {
             let ptr = Box::into_raw(Box::new(where_clause));

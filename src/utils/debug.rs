@@ -124,7 +124,7 @@ pub fn dump_db(cursor: &mut Cursor, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, 
     let mut set = HashSet::new();
 
     cursor
-        .iter_prefix(prefix.unwrap_or(&[]), |_, k, v| {
+        .iter_prefix(prefix.unwrap_or(&[]), false, |_, k, v| {
             set.insert((k.to_vec(), v.to_vec()));
             Ok(true)
         })

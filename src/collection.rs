@@ -59,8 +59,14 @@ impl IsarCollection {
         WhereClause::new_primary(self.id)
     }
 
-    pub fn new_secondary_where_clause(&self, index_index: usize) -> Option<WhereClause> {
-        self.indexes.get(index_index).map(|i| i.new_where_clause())
+    pub fn new_secondary_where_clause(
+        &self,
+        index_index: usize,
+        skip_duplicates: bool,
+    ) -> Option<WhereClause> {
+        self.indexes
+            .get(index_index)
+            .map(|i| i.new_where_clause(skip_duplicates))
     }
 
     pub(crate) fn get_indexes(&self) -> &[Index] {
@@ -178,14 +184,16 @@ impl IsarCollection {
     ) -> Result<usize> {
         let prefix = self.get_id().to_le_bytes();
         let mut counter = 0;
-        cursors.primary.iter_prefix(&prefix, |primary, oid, val| {
-            if let Some(change_set) = &mut change_set {
-                change_set.register_change(*ObjectId::from_bytes(oid), val);
-            }
-            primary.delete_current()?;
-            counter += 1;
-            Ok(true)
-        })?;
+        cursors
+            .primary
+            .iter_prefix(&prefix, false, |primary, oid, val| {
+                if let Some(change_set) = &mut change_set {
+                    change_set.register_change(*ObjectId::from_bytes(oid), val);
+                }
+                primary.delete_current()?;
+                counter += 1;
+                Ok(true)
+            })?;
         for index in self.get_indexes() {
             index.clear(cursors)?;
         }
@@ -217,7 +225,7 @@ impl IsarCollection {
             let mut items = vec![];
             cursors
                 .primary
-                .iter_prefix(&self.id.to_le_bytes(), |_, oid_bytes, val| {
+                .iter_prefix(&self.id.to_le_bytes(), false, |_, oid_bytes, val| {
                     let oid = ObjectId::from_bytes(oid_bytes);
                     let entry = json_encode_decode.encode(*oid, val, primitive_null, byte_as_bool);
                     items.push(entry);

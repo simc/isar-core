@@ -359,7 +359,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false).unwrap();
 
-        let mut wc = col.new_secondary_where_clause(0).unwrap();
+        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
         wc.add_int(1, 1);
 
         let mut qb = col.new_query_builder();
@@ -389,7 +389,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false).unwrap();
 
-        let mut wc = col.new_secondary_where_clause(1).unwrap();
+        let mut wc = col.new_secondary_where_clause(1, false).unwrap();
         wc.add_string_value(Some("ab"), Some("xx"));
 
         let mut qb = col.new_query_builder();
@@ -399,7 +399,7 @@ mod tests {
         let results = q.find_all_vec(&mut txn).unwrap();
         assert_eq!(keys(results), vec![ids[1], ids[3], ids[2]]);
 
-        let mut wc = col.new_secondary_where_clause(1).unwrap();
+        let mut wc = col.new_secondary_where_clause(1, false).unwrap();
         wc.add_string_value(Some("ab"), Some("ab"));
         let mut qb = col.new_query_builder();
         qb.add_where_clause(wc, true, true).unwrap();
@@ -425,10 +425,10 @@ mod tests {
         let mut primary_wc = col.new_primary_where_clause();
         primary_wc.add_oid(ids[5]);
 
-        let mut secondary_wc = col.new_secondary_where_clause(0).unwrap();
+        let mut secondary_wc = col.new_secondary_where_clause(0, false).unwrap();
         secondary_wc.add_int(0, 0);
 
-        let mut secondary_dup_wc = col.new_secondary_where_clause(1).unwrap();
+        let mut secondary_dup_wc = col.new_secondary_where_clause(1, false).unwrap();
         secondary_dup_wc.add_string_value(None, Some("aa"));
 
         let mut qb = col.new_query_builder();

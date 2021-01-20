@@ -67,6 +67,10 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDB_NEXT, None, None)
     }
 
+    pub fn move_to_next_key(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDB_NEXT_NODUP, None, None)
+    }
+
     pub fn put(&self, key: &[u8], data: &[u8]) -> Result<()> {
         self.put_internal(key, data, 0)?;
         Ok(())
@@ -109,6 +113,7 @@ impl<'txn> Cursor<'txn> {
         &mut self,
         lower_key: &[u8],
         upper_key: &[u8],
+        skip_duplicates: bool,
         mut callback: impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
         if let Some((key, val)) = self.move_to_gte(lower_key)? {
@@ -119,7 +124,12 @@ impl<'txn> Cursor<'txn> {
                 return Ok(false);
             }
             loop {
-                if let Some((key, val)) = self.move_to_next()? {
+                let next = if skip_duplicates {
+                    self.move_to_next_key()
+                } else {
+                    self.move_to_next()
+                }?;
+                if let Some((key, val)) = next {
                     let below_upper_key = check_below_upper_key(key, upper_key);
                     if !below_upper_key {
                         return Ok(true);
@@ -137,9 +147,10 @@ impl<'txn> Cursor<'txn> {
     pub fn iter_prefix(
         &mut self,
         prefix: &[u8],
+        skip_duplicates: bool,
         callback: impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
-        self.iter_between(prefix, prefix, callback)
+        self.iter_between(prefix, prefix, skip_duplicates, callback)
     }
 }
 

@@ -10,6 +10,7 @@ pub struct WhereClause {
     lower_key: Vec<u8>,
     upper_key: Vec<u8>,
     index: Option<Index>,
+    skip_duplicates: bool,
 }
 
 impl WhereClause {
@@ -20,14 +21,19 @@ impl WhereClause {
             lower_key: collection_id.to_le_bytes().to_vec(),
             upper_key: collection_id.to_le_bytes().to_vec(),
             index: None,
+            skip_duplicates: false,
         }
     }
 
-    pub(crate) fn new_secondary(index: Index) -> Self {
+    pub(crate) fn new_secondary(index: Index, mut skip_duplicates: bool) -> Self {
+        if index.is_unique() {
+            skip_duplicates = false;
+        }
         WhereClause {
             lower_key: index.get_id().to_le_bytes().to_vec(),
             upper_key: index.get_id().to_le_bytes().to_vec(),
             index: Some(index),
+            skip_duplicates,
         }
     }
 
@@ -36,6 +42,7 @@ impl WhereClause {
             lower_key: vec![1],
             upper_key: vec![0],
             index: None,
+            skip_duplicates: false,
         }
     }
 
@@ -72,7 +79,12 @@ impl WhereClause {
     where
         F: FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
     {
-        cursor.iter_between(&self.lower_key, &self.upper_key, callback)
+        cursor.iter_between(
+            &self.lower_key,
+            &self.upper_key,
+            self.skip_duplicates,
+            callback,
+        )
     }
 
     pub(crate) fn try_exclude(&mut self, include_lower: bool, include_upper: bool) -> bool {

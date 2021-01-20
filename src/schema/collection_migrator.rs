@@ -66,7 +66,7 @@ impl<'a> CollectionMigrator<'a> {
         if self.object_migration_required {
             cursors
                 .primary
-                .iter_prefix(&collection_prefix, |primary, key, object| {
+                .iter_prefix(&collection_prefix, false, |primary, key, object| {
                     let mut ob = self.collection.new_object_builder(ob_bytes_cache.take());
                     for property in &self.retained_properties {
                         Self::write_property_to_ob(&mut ob, *property, object);
@@ -85,7 +85,7 @@ impl<'a> CollectionMigrator<'a> {
         } else if !self.added_indexes.is_empty() {
             cursors
                 .primary
-                .iter_prefix(&collection_prefix, |_, key, object| {
+                .iter_prefix(&collection_prefix, false, |_, key, object| {
                     for index in &self.added_indexes {
                         index.create_for_object(migration_cursors, key, object)?;
                     }

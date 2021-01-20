@@ -91,15 +91,15 @@ impl Index {
         } else {
             &mut cursors.secondary_dup
         };
-        cursor.iter_prefix(&self.get_prefix(), |cursor, _, _| {
+        cursor.iter_prefix(&self.get_prefix(), false, |cursor, _, _| {
             cursor.delete_current()?;
             Ok(true)
         })?;
         Ok(())
     }
 
-    pub fn new_where_clause(&self) -> WhereClause {
-        WhereClause::new_secondary(self.clone())
+    pub fn new_where_clause(&self, skip_duplicates: bool) -> WhereClause {
+        WhereClause::new_secondary(self.clone(), skip_duplicates)
     }
 
     pub(crate) fn create_key(&self, object: &[u8]) -> Vec<u8> {
