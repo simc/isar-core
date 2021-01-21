@@ -121,7 +121,16 @@ pub unsafe extern "C" fn isar_free_raw_obj_buffer(object: &mut RawObject) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_clear_raw_obj_set(ros: &mut RawObjectSet) {
+pub unsafe extern "C" fn isar_alloc_raw_obj_list(ros: &mut RawObjectSet, size: u32) {
+    let mut ros = Box::from_raw(ros);
+    let mut objects = Vec::with_capacity(size as usize);
+    ros.objects = objects.as_mut_ptr();
+    ros.length = objects.len() as u32;
+    std::mem::forget(objects);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_free_raw_obj_list(ros: &mut RawObjectSet) {
     let mut ros = Box::from_raw(ros);
     let mut objects = Vec::from_raw_parts(ros.objects, ros.length as usize, ros.length as usize);
     for object in &mut objects {
