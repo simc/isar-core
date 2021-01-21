@@ -1,4 +1,5 @@
 use isar_core::error::Result;
+use isar_core::object::object_builder::IsarObjectAllocator;
 use isar_core::object::object_id::ObjectId;
 use isar_core::query::query::Query;
 use isar_core::txn::IsarTxn;
@@ -11,6 +12,7 @@ pub struct RawObject {
     oid_rand: u32,
     data: *const u8,
     data_length: u32,
+    data_capacity: u32,
 }
 
 #[repr(C)]
@@ -26,6 +28,7 @@ impl RawObject {
             oid_rand: oid.get_rand(),
             data: object as *const _ as *const u8,
             data_length: object.len() as u32,
+            data_capacity: 0,
         }
     }
 
@@ -56,18 +59,6 @@ impl RawObject {
         } else {
             None
         }
-    }
-
-    pub fn get_length(&self) -> u32 {
-        self.data_length
-    }
-
-    pub fn clear(&mut self) {
-        self.oid_time = 0;
-        self.oid_counter = 0;
-        self.oid_rand = 0;
-        self.data = ptr::null();
-        self.data_length = 0;
     }
 }
 
@@ -101,6 +92,10 @@ impl RawObjectSet {
         std::mem::forget(objects);
     }
 
+    pub unsafe fn get_objects(&self) -> &mut [RawObject] {
+        std::slice::from_raw_parts_mut(self.objects, self.length as usize)
+    }
+
     pub unsafe fn clear(&mut self) {
         if !self.objects.is_null() {
             Vec::from_raw_parts(self.objects, self.length as usize, self.length as usize);
@@ -108,19 +103,14 @@ impl RawObjectSet {
         self.objects = ptr::null_mut();
         self.length = 0;
     }
-
-    pub fn length(&self) -> u32 {
-        self.length
-    }
 }
 
 #[no_mangle]
-pub extern "C" fn isar_alloc_raw_obj(size: u32) -> *mut RawObject {
+pub extern "C" fn isar_alloc_raw_obj_buffer(size: u32) -> *mut RawObject {
     assert_eq!((size as usize + ObjectId::get_size()) % 8, 0);
-    let padding = ObjectId::get_size() % 8;
-    let buffer_size = size as usize + padding;
-    let buffer = vec![0u8; buffer_size];
-    let ptr = buffer[padding..].as_ptr();
+    let buffer = Vec::with_capacity_in(size as usize, IsarObjectAllocator {});
+    let ptr = buffer.as_ptr();
+    let capactity = buffer.capacity();
     std::mem::forget(buffer);
     let raw_obj = RawObject {
         oid_time: 0,
@@ -128,31 +118,34 @@ pub extern "C" fn isar_alloc_raw_obj(size: u32) -> *mut RawObject {
         oid_rand: 0,
         data: ptr,
         data_length: size,
+        data_capacity: capactity as u32,
     };
     Box::into_raw(Box::new(raw_obj))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_free_raw_obj(object: &mut RawObject) {
+pub unsafe extern "C" fn isar_free_raw_obj_buffer(object: &mut RawObject) {
     let object = Box::from_raw(object);
-    let padding = ObjectId::get_size() % 8;
-    let buffer_size = object.data_length as usize + padding;
-
-    let data = object.data.sub(padding);
-    Vec::from_raw_parts(data as *mut u8, buffer_size, buffer_size);
+    Vec::from_raw_parts(
+        object.data as *mut u8,
+        object.data_length as usize,
+        object.data_capacity as usize,
+    );
 }
 
 #[no_mangle]
-pub extern "C" fn isar_alloc_raw_obj_set() -> *mut RawObjectSet {
-    let raw_obj_set = RawObjectSet {
+pub extern "C" fn isar_alloc_raw_obj_set(length: u32) -> *mut RawObjectSet {
+    let mut raw_obj_set = RawObjectSet {
         objects: ptr::null_mut(),
         length: 0,
     };
+    let vec = Vec::with_capacity(length as usize);
+    raw_obj_set.fill_from_vec(vec);
     Box::into_raw(Box::new(raw_obj_set))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_free_raw_obj_set(ros: &mut RawObjectSet) {
+pub unsafe extern "C" fn isar_clear_raw_obj_set(ros: &mut RawObjectSet) {
     let mut ros = Box::from_raw(ros);
     ros.clear();
 }

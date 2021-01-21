@@ -2,7 +2,7 @@
 
 use crate::collection::IsarCollection;
 use crate::lmdb::cursor::Cursor;
-use crate::object::object_builder::ObjectBuilderBytes;
+use crate::object::object_builder::IsarObjectAllocator;
 use crate::object::object_id::ObjectId;
 use crate::txn::IsarTxn;
 use hashbrown::{HashMap, HashSet};
@@ -106,12 +106,12 @@ macro_rules! ind (
 pub fn fill_db(
     col: &IsarCollection,
     txn: &mut IsarTxn,
-    data: &[(Option<ObjectId>, ObjectBuilderBytes)],
+    data: &[(Option<ObjectId>, Vec<u8, IsarObjectAllocator>)],
 ) -> HashMap<Vec<u8>, Vec<u8>> {
     let mut result = HashMap::new();
     for (oid, object) in data {
-        let oid = col.put(txn, *oid, object.as_ref()).unwrap();
-        result.insert(oid.as_bytes().to_vec(), object.as_ref().to_vec());
+        let oid = col.put(txn, *oid, &object).unwrap();
+        result.insert(oid.as_bytes().to_vec(), object.to_vec());
     }
     result
 }

@@ -7,7 +7,7 @@ use std::ptr::NonNull;
 use std::slice::from_raw_parts;
 
 pub struct ObjectBuilder<'a> {
-    buffer: Vec<u8, OBAllocator>,
+    buffer: Vec<u8, IsarObjectAllocator>,
     object_info: &'a ObjectInfo,
     property_index: usize,
     dynamic_offset: usize,
@@ -16,12 +16,11 @@ pub struct ObjectBuilder<'a> {
 impl<'a> ObjectBuilder<'a> {
     pub(crate) fn new(
         object_info: &ObjectInfo,
-        bytes: Option<ObjectBuilderBytes>,
+        buffer: Option<Vec<u8, IsarObjectAllocator>>,
     ) -> ObjectBuilder {
-        let buffer = bytes.map_or_else(
-            || Vec::with_capacity_in(object_info.get_static_size() * 2, OBAllocator {}),
-            |b| b.bytes,
-        );
+        let buffer = buffer.unwrap_or_else(|| {
+            Vec::with_capacity_in(object_info.get_static_size() * 2, IsarObjectAllocator {})
+        });
         ObjectBuilder {
             buffer,
             object_info,
@@ -174,12 +173,12 @@ impl<'a> ObjectBuilder<'a> {
         self.write_list::<u8>(property.offset, None);
     }
 
-    pub fn finish(self) -> ObjectBuilderBytes {
+    pub fn finish(self) -> Vec<u8, IsarObjectAllocator> {
         let mut buffer = self.buffer;
         let end_padding = (8 - (buffer.len() + ObjectId::get_size()) % 8) % 8;
         buffer.resize(buffer.len() + end_padding, 0);
 
-        ObjectBuilderBytes { bytes: buffer }
+        buffer
     }
 
     fn write_list<T>(&mut self, offset: usize, list: Option<&[T]>) {
@@ -197,19 +196,9 @@ impl<'a> ObjectBuilder<'a> {
     }
 }
 
-pub struct ObjectBuilderBytes {
-    bytes: Vec<u8, OBAllocator>,
-}
+pub struct IsarObjectAllocator {}
 
-impl AsRef<[u8]> for ObjectBuilderBytes {
-    fn as_ref(&self) -> &[u8] {
-        &self.bytes
-    }
-}
-
-struct OBAllocator {}
-
-unsafe impl Allocator for OBAllocator {
+unsafe impl Allocator for IsarObjectAllocator {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         let alloc_size = layout.size() + 8;
         let layout = Layout::from_size_align(alloc_size, layout.align()).unwrap();
@@ -326,20 +315,20 @@ mod tests {
         builder!(b, oi, Byte);
         b.write_byte(0);
         let result = b.finish();
-        oi.verify_object(result.as_ref());
-        assert_eq!(result.as_ref(), &[0, 0]);
+        oi.verify_object(&result);
+        assert_eq!(&result, &[0, 0]);
 
         builder!(b, oi, Byte);
         b.write_byte(123);
         let result = b.finish();
-        oi.verify_object(result.as_ref());
-        assert_eq!(result.as_ref(), &[123, 0]);
+        oi.verify_object(&result);
+        assert_eq!(&result, &[123, 0]);
 
         builder!(b, oi, Byte);
         b.write_byte(255);
         let result = b.finish();
-        oi.verify_object(result.as_ref());
-        assert_eq!(result.as_ref(), &[255, 0]);
+        oi.verify_object(&result);
+        assert_eq!(&result, &[255, 0]);
     }
 
     #[test]

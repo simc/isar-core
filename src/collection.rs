@@ -1,6 +1,6 @@
 use crate::error::{IsarError, Result};
 use crate::index::Index;
-use crate::object::object_builder::{ObjectBuilder, ObjectBuilderBytes};
+use crate::object::object_builder::{IsarObjectAllocator, ObjectBuilder};
 use crate::object::object_id::ObjectId;
 use crate::object::object_id_generator::ObjectIdGenerator;
 use crate::object::object_info::ObjectInfo;
@@ -47,8 +47,11 @@ impl IsarCollection {
         self.object_info.get_properties()
     }
 
-    pub fn new_object_builder(&self, bytes: Option<ObjectBuilderBytes>) -> ObjectBuilder {
-        ObjectBuilder::new(&self.object_info, bytes)
+    pub fn new_object_builder(
+        &self,
+        buffer: Option<Vec<u8, IsarObjectAllocator>>,
+    ) -> ObjectBuilder {
+        ObjectBuilder::new(&self.object_info, buffer)
     }
 
     pub fn new_query_builder(&self) -> QueryBuilder {
@@ -294,14 +297,14 @@ mod tests {
         let mut builder = col.new_object_builder(None);
         builder.write_int(123123123);
         let object3 = builder.finish();
-        let oid3 = col.put(&mut txn, None, object3.as_ref()).unwrap();
+        let oid3 = col.put(&mut txn, None, &object3).unwrap();
 
         assert_eq!(
             col.debug_dump(&mut txn),
             map![
-                oid1 => object1.as_ref().to_vec(),
-                oid2 => object2.as_ref().to_vec(),
-                oid3 => object3.as_ref().to_vec()
+                oid1 => object1.to_vec(),
+                oid2 => object2.to_vec(),
+                oid3 => object3.to_vec()
             ]
         );
     }
@@ -333,8 +336,8 @@ mod tests {
         assert_eq!(
             col.debug_dump(&mut txn),
             map![
-                oid1 => object2.as_ref().to_vec(),
-                new_oid => object3.as_ref().to_vec()
+                oid1 => object2.to_vec(),
+                new_oid => object3.to_vec()
             ]
         );
     }
@@ -398,10 +401,7 @@ mod tests {
 
         col.delete(&mut txn, oid).unwrap();
 
-        assert_eq!(
-            col.debug_dump(&mut txn),
-            map![oid2 => object2.as_ref().to_vec()],
-        );
+        assert_eq!(col.debug_dump(&mut txn), map![oid2 => object2.to_vec()],);
 
         let index = &col.indexes[0];
         assert_eq!(

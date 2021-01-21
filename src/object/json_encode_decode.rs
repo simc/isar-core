@@ -1,6 +1,6 @@
 use crate::error::{IsarError, Result};
 use crate::object::data_type::DataType;
-use crate::object::object_builder::{ObjectBuilder, ObjectBuilderBytes};
+use crate::object::object_builder::{IsarObjectAllocator, ObjectBuilder};
 use crate::object::object_id::ObjectId;
 use crate::object::object_info::ObjectInfo;
 use crate::object::property::Property;
@@ -60,9 +60,9 @@ impl<'a> JsonEncodeDecode<'a> {
     pub fn decode(
         &self,
         json: &Value,
-        bytes: Option<ObjectBuilderBytes>,
-    ) -> Result<(ObjectId, ObjectBuilderBytes)> {
-        let mut ob = ObjectBuilder::new(self.object_info, bytes);
+        buffer: Option<Vec<u8, IsarObjectAllocator>>,
+    ) -> Result<(ObjectId, Vec<u8, IsarObjectAllocator>)> {
+        let mut ob = ObjectBuilder::new(self.object_info, buffer);
 
         let object = json.as_object().ok_or(IsarError::InvalidJson {})?;
         let oid_str = object

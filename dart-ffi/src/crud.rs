@@ -1,8 +1,9 @@
 use crate::async_txn::IsarAsyncTxn;
-use crate::raw_object_set::{RawObject, RawObjectSend};
+use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
 use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
+use isar_core::object::object_id::ObjectId;
 use isar_core::txn::IsarTxn;
 use serde_json::Value;
 
@@ -17,8 +18,6 @@ pub unsafe extern "C" fn isar_get(
         let result = collection.get(txn, object_id)?;
         if let Some(result) = result {
             object.set_object(result);
-        } else {
-            object.clear();
         }
     }
 }
@@ -35,8 +34,6 @@ pub unsafe extern "C" fn isar_get_async(
         let result = collection.get(txn, oid)?;
         if let Some(result) = result {
             object.0.set_object(result);
-        } else {
-            object.0.clear();
         }
         Ok(())
     });
@@ -68,6 +65,48 @@ pub unsafe extern "C" fn isar_put_async(
         let data = object.0.object_as_slice();
         let oid = collection.put(txn, oid, data)?;
         object.0.set_object_id(oid);
+        Ok(())
+    });
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_put_all(
+    collection: &mut IsarCollection,
+    txn: &mut IsarTxn,
+    objects: &mut RawObjectSet,
+) -> i32 {
+    let oids_objecs: Vec<(Option<ObjectId>, &[u8])> = objects
+        .get_objects()
+        .iter()
+        .map(|o| (o.get_object_id(), o.object_as_slice()))
+        .collect();
+
+    isar_try! {
+        let oids = collection.put_all(txn, &oids_objecs)?;
+        for (oid, obj) in oids.into_iter().zip(objects.get_objects().iter_mut()) {
+            obj.set_object_id(oid);
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_put_all_async(
+    collection: &'static IsarCollection,
+    txn: &IsarAsyncTxn,
+    objects: &'static mut RawObjectSet,
+) {
+    let objects = RawObjectSetSend(objects);
+    txn.exec(move |txn| -> Result<()> {
+        let oids_objecs: Vec<(Option<ObjectId>, &[u8])> = objects
+            .0
+            .get_objects()
+            .iter()
+            .map(|o| (o.get_object_id(), o.object_as_slice()))
+            .collect();
+        let oids = collection.put_all(txn, &oids_objecs)?;
+        for (oid, obj) in oids.into_iter().zip(objects.0.get_objects().iter_mut()) {
+            obj.set_object_id(oid);
+        }
         Ok(())
     });
 }

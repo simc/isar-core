@@ -1,3 +1,4 @@
+#![feature(allocator_api)]
 #![allow(clippy::missing_safety_doc)]
 
 use isar_core::error::{illegal_arg, Result};

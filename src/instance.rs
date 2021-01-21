@@ -257,7 +257,7 @@ mod tests {
         txn.commit().unwrap();
 
         let mut txn = isar.begin_txn(false).unwrap();
-        assert_eq!(col.get(&mut txn, oid).unwrap().unwrap(), o.as_ref());
+        assert_eq!(col.get(&mut txn, oid).unwrap().unwrap(), &o);
         txn.abort();
     }
 
@@ -270,18 +270,20 @@ mod tests {
 
         let mut ob = col1.new_object_builder(None);
         ob.write_int(123);
-        let o = ob.finish();
+        let object = ob.finish();
 
         let mut txn = isar.begin_txn(true).unwrap();
-        let oid = col1.put(&mut txn, None, &o.as_ref()).unwrap();
-        let object = o.as_ref().to_vec();
+        let oid = col1.put(&mut txn, None, &object).unwrap();
         txn.commit().unwrap();
 
         assert!(isar.close().is_none());
 
         isar!(path: path, isar, col1 => col!("col1", f1 => Int), col2 => col!("col2", f1 => Int));
         let mut txn = isar.begin_txn(false).unwrap();
-        assert_eq!(col1.get(&mut txn, oid).unwrap().unwrap().to_vec(), object);
+        assert_eq!(
+            col1.get(&mut txn, oid).unwrap().unwrap().to_vec(),
+            object.to_vec()
+        );
         assert_eq!(col2.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();
     }
