@@ -57,6 +57,7 @@ pub unsafe extern "C" fn isar_add_sort_by(
     }
 }
 
+#[no_mangle]
 pub unsafe extern "C" fn isar_set_distinct(
     collection: &IsarCollection,
     builder: &mut QueryBuilder,
@@ -84,6 +85,7 @@ pub unsafe extern "C" fn isar_set_distinct(
     }
 }
 
+#[no_mangle]
 pub unsafe extern "C" fn isar_set_offset_limit(
     builder: &mut QueryBuilder,
     offset: u32,
