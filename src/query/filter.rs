@@ -24,6 +24,7 @@ pub enum Filter {
     StrStartsWith(),
     StrEndsWith(),
     StrContains(),*/
+    Never(Never),
     And(And),
     Or(Or),
     Not(Not),
@@ -103,7 +104,7 @@ macro_rules! float_filter_between {
                 if self.upper.is_nan() {
                     self.lower.is_nan() && val.is_nan()
                 } else if self.lower.is_nan() {
-                    self.upper >= val
+                    self.upper >= val || val.is_nan()
                 } else {
                     self.lower <= val && self.upper >= val
                 }
@@ -270,5 +271,20 @@ impl Not {
         Filter::Not(Not {
             filter: Box::new(filter),
         })
+    }
+}
+
+#[derive(Clone)]
+pub struct Never {}
+
+impl Condition for Never {
+    fn evaluate(&self, _: &[u8]) -> bool {
+        false
+    }
+}
+
+impl Never {
+    pub fn filter() -> Filter {
+        Filter::Never(Never {})
     }
 }

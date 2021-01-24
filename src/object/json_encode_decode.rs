@@ -61,16 +61,16 @@ impl<'a> JsonEncodeDecode<'a> {
         &self,
         json: &Value,
         buffer: Option<Vec<u8, IsarObjectAllocator>>,
-    ) -> Result<(ObjectId, Vec<u8, IsarObjectAllocator>)> {
+    ) -> Result<(Option<ObjectId>, Vec<u8, IsarObjectAllocator>)> {
         let mut ob = ObjectBuilder::new(self.object_info, buffer);
 
         let object = json.as_object().ok_or(IsarError::InvalidJson {})?;
-        let oid_str = object
-            .get("id")
-            .map(|id_str| id_str.as_str())
-            .ok_or(IsarError::InvalidJson {})?
-            .ok_or(IsarError::InvalidJson {})?;
-        let oid = oid_str.parse()?;
+        let oid = if let Some(oid_json) = object.get("id") {
+            let oid_str = oid_json.as_str().ok_or(IsarError::InvalidJson {})?;
+            Some(oid_str.parse()?)
+        } else {
+            None
+        };
 
         for (name, property) in self.object_info.get_properties() {
             if let Some(value) = object.get(name) {

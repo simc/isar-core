@@ -37,9 +37,9 @@ macro_rules! isar (
         let mut schema = crate::schema::Schema::new();
         $(
             let col = $schema;
-            schema.add_collection(col).expect("HMM");
+            schema.add_collection(col).unwrap();
         )+
-        let $isar = crate::instance::IsarInstance::create($path, 10000000, schema).expect("DIDNT GET");
+        let $isar = crate::instance::IsarInstance::create($path, 10000000, schema).unwrap();
         $(
             let col = $schema;
             let $col = $isar.get_collection_by_name(&col.name).unwrap();

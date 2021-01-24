@@ -18,6 +18,8 @@ pub unsafe extern "C" fn isar_get(
         let result = collection.get(txn, object_id)?;
         if let Some(result) = result {
             object.set_object(result);
+        } else {
+            object.reset_object_id();
         }
     }
 }
@@ -34,6 +36,8 @@ pub unsafe extern "C" fn isar_get_async(
         let result = collection.get(txn, oid)?;
         if let Some(result) = result {
             object.0.set_object(result);
+        } else {
+            object.0.reset_object_id();
         }
         Ok(())
     });

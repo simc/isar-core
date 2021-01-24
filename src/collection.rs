@@ -210,7 +210,7 @@ impl IsarCollection {
             let mut ob_result_cache = None;
             for value in array {
                 let (oid, ob_result) = json_encode_decode.decode(value, ob_result_cache)?;
-                self.put_internal(cursors, change_set, Some(oid), ob_result.as_ref())?;
+                self.put_internal(cursors, change_set, oid, ob_result.as_ref())?;
                 ob_result_cache = Some(ob_result);
             }
             Ok(())

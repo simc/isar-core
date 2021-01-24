@@ -2,9 +2,10 @@ use super::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSet
 use crate::async_txn::IsarAsyncTxn;
 use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
-use isar_core::error::Result;
+use isar_core::error::{illegal_arg, Result};
+use isar_core::object::property::Property;
 use isar_core::query::filter::Filter;
-use isar_core::query::query::Query;
+use isar_core::query::query::{Query, Sort};
 use isar_core::query::query_builder::QueryBuilder;
 use isar_core::query::where_clause::WhereClause;
 use isar_core::txn::IsarTxn;
@@ -32,6 +33,75 @@ pub unsafe extern "C" fn isar_qb_add_where_clause(
 pub unsafe extern "C" fn isar_qb_set_filter(builder: &mut QueryBuilder, filter: *mut Filter) {
     let filter = *Box::from_raw(filter);
     builder.set_filter(filter);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_add_sort_by(
+    collection: &IsarCollection,
+    builder: &mut QueryBuilder,
+    property_index: u32,
+    asc: bool,
+) -> i32 {
+    let property = collection.get_properties().get(property_index as usize);
+    let sort = if asc {
+        Sort::Ascending
+    } else {
+        Sort::Descending
+    };
+    isar_try! {
+        if let Some((_,property)) = property {
+            builder.add_sort(*property, sort);
+        } else {
+            illegal_arg("Property does not exist.")?;
+        }
+    }
+}
+
+pub unsafe extern "C" fn isar_set_distinct(
+    collection: &IsarCollection,
+    builder: &mut QueryBuilder,
+    distinct_property_indices: *const u32,
+    distinct_property_indices_length: u32,
+) -> i32 {
+    let properties: Option<Vec<Property>> = std::slice::from_raw_parts(
+        distinct_property_indices,
+        distinct_property_indices_length as usize,
+    )
+    .iter()
+    .map(|index| {
+        collection
+            .get_properties()
+            .get(*index as usize)
+            .map(|(_, p)| *p)
+    })
+    .collect();
+    isar_try! {
+        if let Some(properties) = properties {
+            builder.set_distinct(&properties);
+        } else {
+            illegal_arg("Property does not exist.")?;
+        }
+    }
+}
+
+pub unsafe extern "C" fn isar_set_offset_limit(
+    builder: &mut QueryBuilder,
+    offset: u32,
+    limit: u32,
+) -> i32 {
+    let offset = if offset > 0 {
+        Some(offset as usize)
+    } else {
+        None
+    };
+    let limit = if limit > 0 {
+        Some(limit as usize)
+    } else {
+        None
+    };
+    isar_try! {
+        builder.set_offset_limit(offset, limit)?;
+    }
 }
 
 #[no_mangle]

@@ -57,7 +57,7 @@ impl<'a> QueryBuilder<'a> {
         self.sort.push((property, sort))
     }
 
-    pub fn add_offset_limit(&mut self, offset: Option<usize>, limit: Option<usize>) -> Result<()> {
+    pub fn set_offset_limit(&mut self, offset: Option<usize>, limit: Option<usize>) -> Result<()> {
         let offset = offset.unwrap_or(0);
         let limit = limit.unwrap_or(usize::MAX);
 

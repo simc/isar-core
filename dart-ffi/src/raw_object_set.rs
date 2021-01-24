@@ -34,8 +34,14 @@ impl RawObject {
 
     pub fn set_object_id(&mut self, oid: ObjectId) {
         self.oid_time = oid.get_time();
-        self.oid_counter = oid.get_time();
+        self.oid_counter = oid.get_counter();
         self.oid_rand = oid.get_rand();
+    }
+
+    pub fn reset_object_id(&mut self) {
+        self.oid_time = 0;
+        self.oid_counter = 0;
+        self.oid_rand = 0;
     }
 
     pub fn set_object(&mut self, object: &[u8]) {
@@ -101,7 +107,8 @@ impl RawObjectSet {
 #[no_mangle]
 pub extern "C" fn isar_alloc_raw_obj_buffer(object: &mut RawObject, size: u32) {
     assert_eq!((size as usize + ObjectId::get_size()) % 8, 0);
-    let buffer = Vec::with_capacity_in(size as usize, IsarObjectAllocator {});
+    let mut buffer = Vec::with_capacity_in(size as usize, IsarObjectAllocator {});
+    buffer.resize(size as usize, 0);
     let ptr = buffer.as_ptr();
     let capactity = buffer.capacity();
     std::mem::forget(buffer);
@@ -112,28 +119,29 @@ pub extern "C" fn isar_alloc_raw_obj_buffer(object: &mut RawObject, size: u32) {
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_free_raw_obj_buffer(object: &mut RawObject) {
-    let object = Box::from_raw(object);
-    Vec::from_raw_parts(
+    Vec::from_raw_parts_in(
         object.data as *mut u8,
         object.data_length as usize,
         object.data_capacity as usize,
+        IsarObjectAllocator {},
     );
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_alloc_raw_obj_list(ros: &mut RawObjectSet, size: u32) {
-    let mut ros = Box::from_raw(ros);
     let mut objects = Vec::with_capacity(size as usize);
     ros.objects = objects.as_mut_ptr();
-    ros.length = objects.len() as u32;
+    ros.length = size;
     std::mem::forget(objects);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_free_raw_obj_list(ros: &mut RawObjectSet) {
-    let mut ros = Box::from_raw(ros);
     let mut objects = Vec::from_raw_parts(ros.objects, ros.length as usize, ros.length as usize);
     for object in &mut objects {
+        if object.data_capacity == 0 {
+            break;
+        }
         isar_free_raw_obj_buffer(object)
     }
     ros.objects = ptr::null_mut();

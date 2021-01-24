@@ -51,30 +51,30 @@ macro_rules! filter_between_ffi {
         pub unsafe extern "C" fn $function_name(
             collection: &IsarCollection,
             filter: *mut *const Filter,
-            mut lower: $type,
+            lower: $type,
             include_lower: bool,
-            mut upper: $type,
+            upper: $type,
             include_upper: bool,
             property_index: u32,
         ) -> i32 {
             let property = collection.get_properties().get(property_index as usize);
+            let lower = if !include_lower {
+                $next(lower)
+            } else {
+                Some(lower)
+            };
+            let upper = if !include_upper {
+                $prev(upper)
+            } else {
+                Some(upper)
+            };
             isar_try! {
-                if !include_lower {
-                    if let Some(new_lower) = $next(lower) {
-                        lower = new_lower;
-                    } else {
-                        illegal_arg("Invalid bounds")?;
-                    }
-                }
-                if !include_upper {
-                    if let Some(new_upper) = $prev(upper) {
-                        upper = new_upper;
-                    } else {
-                        illegal_arg("Invalid bounds")?;
-                    }
-                }
                 if let Some((_, property)) = property {
-                    let query_filter = isar_core::query::filter::$filter_name::filter(*property, lower, upper)?;
+                    let query_filter = if let (Some(lower), Some(upper)) = (lower, upper) {
+                        isar_core::query::filter::$filter_name::filter(*property, lower, upper)?
+                    } else {
+                        isar_core::query::filter::Never::filter()
+                    };
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
                 } else {
@@ -82,7 +82,7 @@ macro_rules! filter_between_ffi {
                 }
             }
         }
-    }
+    };
 }
 
 fn next_byte(value: u8) -> Option<u8> {
