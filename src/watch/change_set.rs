@@ -1,3 +1,4 @@
+use crate::object::isar_object::IsarObject;
 use crate::object::object_id::ObjectId;
 use crate::watch::isar_watchers::IsarWatchers;
 use crate::watch::watcher::Watcher;
@@ -17,8 +18,7 @@ impl<'a> ChangeSet<'a> {
         }
     }
 
-    pub fn register_change(&mut self, oid: ObjectId, object: &[u8]) {
-        let col_id = oid.get_prefix();
+    pub fn register_change(&mut self, col_id: u16, oid: &ObjectId, object: IsarObject) {
         let cw = self.watchers.get_col_watchers(col_id);
         for w in &cw.watchers {
             if self
@@ -29,7 +29,7 @@ impl<'a> ChangeSet<'a> {
                 break;
             }
         }
-        if let Some(object_watchers) = cw.object_watchers.get(&oid) {
+        if let Some(object_watchers) = cw.object_watchers.get(oid.as_bytes()) {
             for w in object_watchers {
                 if self
                     .changed_watchers

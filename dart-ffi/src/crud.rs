@@ -3,6 +3,7 @@ use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSet
 use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
+use isar_core::object::isar_object::IsarObject;
 use isar_core::object::object_id::ObjectId;
 use isar_core::txn::IsarTxn;
 use serde_json::Value;
@@ -14,8 +15,8 @@ pub unsafe extern "C" fn isar_get(
     object: &mut RawObject,
 ) -> i32 {
     isar_try! {
-        let object_id = object.get_object_id().unwrap();
-        let result = collection.get(txn, object_id)?;
+        let object_id = object.get_object_id(collection).unwrap();
+        let result = collection.get(txn, &object_id)?;
         if let Some(result) = result {
             object.set_object(result);
         } else {
@@ -31,9 +32,9 @@ pub unsafe extern "C" fn isar_get_async(
     object: &'static mut RawObject,
 ) {
     let object = RawObjectSend(object);
-    let oid = object.0.get_object_id().unwrap();
+    let oid = object.0.get_object_id(collection).unwrap().to_owned();
     txn.exec(move |txn| -> Result<()> {
-        let result = collection.get(txn, oid)?;
+        let result = collection.get(txn, &oid)?;
         if let Some(result) = result {
             object.0.set_object(result);
         } else {
@@ -50,9 +51,9 @@ pub unsafe extern "C" fn isar_put(
     object: &mut RawObject,
 ) -> i32 {
     isar_try! {
-        let oid = object.get_object_id();
-        let data = object.object_as_slice();
-        let oid = collection.put(txn, oid, data)?;
+        let oid = object.get_object_id(collection);
+        let data = object.get_object();
+        let oid = collection.put(txn, oid, data)?.to_owned();
         object.set_object_id(oid);
     }
 }
@@ -65,9 +66,9 @@ pub unsafe extern "C" fn isar_put_async(
 ) {
     let object = RawObjectSend(object);
     txn.exec(move |txn| -> Result<()> {
-        let oid = object.0.get_object_id();
-        let data = object.0.object_as_slice();
-        let oid = collection.put(txn, oid, data)?;
+        let oid = object.0.get_object_id(collection);
+        let data = object.0.get_object();
+        let oid = collection.put(txn, oid, data)?.to_owned();
         object.0.set_object_id(oid);
         Ok(())
     });
@@ -79,14 +80,14 @@ pub unsafe extern "C" fn isar_put_all(
     txn: &mut IsarTxn,
     objects: &mut RawObjectSet,
 ) -> i32 {
-    let oids_objecs: Vec<(Option<ObjectId>, &[u8])> = objects
+    let oids_objecs: Vec<(Option<ObjectId>, IsarObject)> = objects
         .get_objects()
         .iter()
-        .map(|o| (o.get_object_id(), o.object_as_slice()))
+        .map(|o| (o.get_object_id(collection), o.get_object()))
         .collect();
 
     isar_try! {
-        let oids = collection.put_all(txn, &oids_objecs)?;
+        let oids = collection.put_all(txn, oids_objecs)?;
         for (oid, obj) in oids.into_iter().zip(objects.get_objects().iter_mut()) {
             obj.set_object_id(oid);
         }
@@ -101,13 +102,13 @@ pub unsafe extern "C" fn isar_put_all_async(
 ) {
     let objects = RawObjectSetSend(objects);
     txn.exec(move |txn| -> Result<()> {
-        let oids_objecs: Vec<(Option<ObjectId>, &[u8])> = objects
+        let entries: Vec<(Option<ObjectId>, IsarObject)> = objects
             .0
             .get_objects()
             .iter()
-            .map(|o| (o.get_object_id(), o.object_as_slice()))
+            .map(|o| (o.get_object_id(collection), o.get_object()))
             .collect();
-        let oids = collection.put_all(txn, &oids_objecs)?;
+        let oids = collection.put_all(txn, entries)?;
         for (oid, obj) in oids.into_iter().zip(objects.0.get_objects().iter_mut()) {
             obj.set_object_id(oid);
         }
@@ -123,8 +124,8 @@ pub unsafe extern "C" fn isar_delete(
     deleted: &mut bool,
 ) -> i32 {
     isar_try! {
-    let oid = object.get_object_id().unwrap();
-        *deleted = collection.delete(txn, oid)?;
+    let oid = object.get_object_id(collection).unwrap();
+        *deleted = collection.delete(txn, &oid)?;
     }
 }
 
@@ -135,10 +136,10 @@ pub unsafe extern "C" fn isar_delete_async(
     object: &RawObject,
     deleted: &'static mut bool,
 ) {
-    let oid = object.get_object_id().unwrap();
+    let oid = object.get_object_id(collection).unwrap().to_owned();
     let deleted = BoolSend(deleted);
     txn.exec(move |txn| {
-        *deleted.0 = collection.delete(txn, oid)?;
+        *deleted.0 = collection.delete(txn, &oid)?;
         Ok(())
     });
 }

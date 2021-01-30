@@ -1,30 +1,31 @@
 use crate::collection::IsarCollection;
 use crate::error::{illegal_arg, Result};
-use crate::index::Index;
+use crate::index::{Index, IndexProperty, StringIndexType};
 use crate::object::data_type::DataType;
-use crate::object::object_id::ObjectId;
+use crate::object::isar_object::Property;
 use crate::object::object_info::ObjectInfo;
-use crate::object::property::Property;
-use crate::schema::index_schema::IndexSchema;
+use crate::schema::index_schema::{IndexPropertySchema, IndexSchema};
 use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::cmp;
-use std::cmp::Ordering;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CollectionSchema {
     pub(crate) id: Option<u16>,
     pub(crate) name: String,
+    pub(crate) oid_name: String,
+    pub(crate) oid_type: DataType,
     pub(crate) properties: Vec<PropertySchema>,
     pub(crate) indexes: Vec<IndexSchema>,
 }
 
 impl CollectionSchema {
-    pub fn new(name: &str) -> CollectionSchema {
+    pub fn new(name: &str, oid_name: &str, oid_type: DataType) -> CollectionSchema {
         CollectionSchema {
             id: None,
             name: name.to_string(),
+            oid_name: oid_name.to_string(),
+            oid_type,
             properties: vec![],
             indexes: vec![],
         }
@@ -39,18 +40,6 @@ impl CollectionSchema {
             illegal_arg("Property already exists")?;
         }
 
-        if let Some(previous) = self.properties.last() {
-            match data_type.cmp(&previous.data_type) {
-                Ordering::Equal => {
-                    if name < &previous.name {
-                        illegal_arg("Propertys with same type need to be ordered alphabetically")?;
-                    }
-                }
-                Ordering::Less => illegal_arg("Propertys need to be ordered by type")?,
-                Ordering::Greater => {}
-            }
-        }
-
         self.properties.push(PropertySchema {
             name: name.to_string(),
             data_type,
@@ -61,64 +50,69 @@ impl CollectionSchema {
 
     pub fn add_index(
         &mut self,
-        property_names: &[&str],
+        properties: &[(&str, Option<StringIndexType>, bool)],
         unique: bool,
-        hash_value: bool,
     ) -> Result<()> {
-        if property_names.is_empty() {
+        if properties.is_empty() {
             illegal_arg("At least one property needs to be added to a valid index.")?;
         }
 
-        if property_names.len() > 3 {
+        if properties.len() > 3 {
             illegal_arg("No more than three properties may be used as a composite index.")?;
         }
 
-        let properties: Option<Vec<_>> = property_names
+        let properties: Result<Vec<_>> = properties
             .iter()
-            .map(|index_property| {
-                self.properties
+            .enumerate()
+            .map(|(i, (property_name, string_type, string_lower_case))| {
+                let property = self.properties
                     .iter()
-                    .find(|p| p.name == *index_property)
-                    .cloned()
+                    .find(|p| p.name == *property_name)
+                    .cloned();
+                if property.is_none() {
+                    illegal_arg("Index property does not exist.")?;
+                }
+                let property = property.unwrap();
+
+                if property.data_type.is_dynamic() && property.data_type != DataType::String{
+                    illegal_arg("Illegal index data type.")?;
+                }
+
+                if (property.data_type == DataType::String) != string_type.is_some() {
+                    illegal_arg("String indexes must have a StringIndexType.")?;
+                }
+
+                match string_type {
+                    Some(StringIndexType::Value) => {
+                        if i != properties.len() -1 {
+                            illegal_arg(
+                                "Value string indexes must only be at the end of a composite index.",
+                            )?;
+                        }
+                    }
+                    Some(StringIndexType::Words) => {
+                        if properties.len() > 1 {
+                            illegal_arg("Word indexes require a single property")?;
+                        }
+                    }
+                    _ => {}
+                }
+
+                Ok(IndexPropertySchema {
+                    property,
+                    string_type:string_type.clone(),
+                    string_lower_case:*string_lower_case,
+                })
             })
             .collect();
-        if properties.is_none() {
-            illegal_arg("Index property does not exist.")?;
-        }
-        let properties = properties.unwrap();
+        let properties = properties?;
 
-        let duplicate = self.indexes.iter().any(|i| {
-            let min_len = cmp::min(i.properties.len(), properties.len());
-            i.properties[..min_len] == properties[..min_len]
-        });
+        let duplicate = self.indexes.iter().any(|i| i.properties == properties);
         if duplicate {
             illegal_arg("Index already exists.")?;
         }
 
-        let illegal_data_type = properties
-            .iter()
-            .any(|p| p.data_type.is_dynamic() && p.data_type != DataType::String);
-        if illegal_data_type {
-            illegal_arg("Illegal index data type.")?;
-        }
-
-        let has_string_properties = properties.iter().any(|p| p.data_type == DataType::String);
-        if !has_string_properties && hash_value {
-            illegal_arg("Only string indexes can be hashed.")?;
-        }
-
-        if !hash_value {
-            for (index, property) in properties.iter().enumerate() {
-                if property.data_type == DataType::String && index < properties.len() - 1 {
-                    illegal_arg(
-                        "Non-hashed string indexes must only be at the end of a composite index.",
-                    )?;
-                }
-            }
-        }
-
-        self.indexes
-            .push(IndexSchema::new(properties, unique, hash_value));
+        self.indexes.push(IndexSchema::new(properties, unique));
 
         Ok(())
     }
@@ -126,26 +120,18 @@ impl CollectionSchema {
     pub(super) fn get_isar_collection(&self) -> IsarCollection {
         let properties = self.get_properties();
         let indexes = self.get_indexes(&properties);
-        let object_info = ObjectInfo::new(properties);
+        let object_info = ObjectInfo::new(self.oid_name.clone(), self.oid_type, properties);
         IsarCollection::new(self.id.unwrap(), self.name.clone(), object_info, indexes)
     }
 
     fn get_properties(&self) -> Vec<(String, Property)> {
-        let oid_offset = ObjectId::get_size();
-        let mut offset = oid_offset;
+        let mut offset = 2;
 
         self.properties
             .iter()
             .map(|f| {
-                let size = f.data_type.get_static_size();
-
-                if offset % size != 0 {
-                    offset += size - offset % size;
-                }
-                // padding to align data
-                let property = Property::new(f.data_type, offset - oid_offset);
-                offset += size;
-
+                let property = Property::new(f.data_type, offset);
+                offset += f.data_type.get_static_size();
                 (f.name.clone(), property)
             })
             .collect()
@@ -158,20 +144,22 @@ impl CollectionSchema {
                 let properties = index
                     .properties
                     .iter()
-                    .map(|property| {
-                        let pos = self.properties.iter().position(|p| property == p).unwrap();
+                    .map(|ips| {
+                        let pos = self
+                            .properties
+                            .iter()
+                            .position(|p| p == &ips.property)
+                            .unwrap();
                         let (_, property) = properties.get(pos).unwrap();
-                        property
+                        IndexProperty::new(
+                            *property,
+                            ips.string_type.clone(),
+                            ips.string_lower_case,
+                        )
                     })
-                    .cloned()
                     .collect_vec();
 
-                Index::new(
-                    index.id.unwrap(),
-                    properties,
-                    index.unique,
-                    index.hash_value,
-                )
+                Index::new(index.id.unwrap(), properties, index.unique)
             })
             .collect()
     }
@@ -193,7 +181,7 @@ impl CollectionSchema {
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -254,12 +242,13 @@ mod tests {
         col.add_property("byteList", DataType::ByteList).unwrap();
         col.add_property("intList", DataType::IntList).unwrap();
 
-        col.add_index(&["byte"], false, false).unwrap();
-        col.add_index(&["int"], false, false).unwrap();
-        col.add_index(&["float"], false, false).unwrap();
-        col.add_index(&["long"], false, false).unwrap();
-        col.add_index(&["double"], false, false).unwrap();
-        col.add_index(&["str"], false, false).unwrap();
+        col.add_index(&["byte"], false, None, false).unwrap();
+        col.add_index(&["int"], false, None, false).unwrap();
+        col.add_index(&["float"], false, None, false).unwrap();
+        col.add_index(&["long"], false, None, false).unwrap();
+        col.add_index(&["double"], false, None, false).unwrap();
+        col.add_index(&["str"], false, Some(StringIndexType::Value), false)
+            .unwrap();
         assert!(col.add_index(&["byteList"], false, false).is_err());
         assert!(col.add_index(&["intList"], false, false).is_err());
     }
@@ -390,3 +379,4 @@ mod tests {
         assert_eq!(col3.id, Some(5));
     }
 }
+*/

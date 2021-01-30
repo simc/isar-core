@@ -89,7 +89,7 @@ impl Schema {
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use super::*;
     use crate::object::data_type::DataType;
@@ -167,3 +167,4 @@ mod tests {
         Ok(())
     }
 }
+*/

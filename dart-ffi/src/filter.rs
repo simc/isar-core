@@ -1,7 +1,9 @@
+use crate::from_c_str;
 use float_next_after::NextAfter;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::query::filter::{And, Filter, IsNull, Or};
+use std::os::raw::c_char;
 use std::slice;
 
 #[no_mangle]
@@ -73,7 +75,7 @@ macro_rules! filter_between_ffi {
                     let query_filter = if let (Some(lower), Some(upper)) = (lower, upper) {
                         isar_core::query::filter::$filter_name::filter(*property, lower, upper)?
                     } else {
-                        isar_core::query::filter::Never::filter()
+                        isar_core::query::filter::Static::filter(false)
                     };
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
@@ -184,7 +186,7 @@ filter_between_ffi!(
 );
 
 #[macro_export]
-macro_rules! filter_not_equal_to_ffi {
+macro_rules! filter_single_value_ffi {
     ($filter_name:ident, $function_name:ident, $type:ty) => {
         #[no_mangle]
         pub unsafe extern "C" fn $function_name(
@@ -207,6 +209,46 @@ macro_rules! filter_not_equal_to_ffi {
     }
 }
 
-filter_not_equal_to_ffi!(ByteNotEqual, isar_filter_byte_not_equal, u8);
-filter_not_equal_to_ffi!(IntNotEqual, isar_filter_int_not_equal, i32);
-filter_not_equal_to_ffi!(LongNotEqual, isar_filter_long_not_equal, i64);
+filter_single_value_ffi!(ByteNotEqual, isar_filter_byte_not_equal, u8);
+filter_single_value_ffi!(IntNotEqual, isar_filter_int_not_equal, i32);
+filter_single_value_ffi!(LongNotEqual, isar_filter_long_not_equal, i64);
+
+filter_single_value_ffi!(ByteListContains, isar_filter_byte_list_contains, u8);
+filter_single_value_ffi!(IntListContains, isar_filter_int_list_contains, i32);
+filter_single_value_ffi!(LongListContains, isar_filter_long_list_contains, i64);
+
+#[macro_export]
+macro_rules! filter_string_ffi {
+    ($filter_name:ident, $function_name:ident) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $function_name(
+            collection: &IsarCollection,
+            filter: *mut *const Filter,
+            value: *const c_char,
+            ignore_case: bool,
+            property_index: u32,
+        ) -> i32 {
+            let property = collection.get_properties().get(property_index as usize);
+            isar_try! {
+                if let Some((_, property)) = property {
+                    let str = if !value.is_null() {
+                        Some(from_c_str(value)?)
+                    } else {
+                        None
+                    };
+                    let query_filter = isar_core::query::filter::$filter_name::filter(*property, str, ignore_case)?;
+                    let ptr = Box::into_raw(Box::new(query_filter));
+                    filter.write(ptr);
+                } else {
+                    illegal_arg("Property does not exist.")?;
+                }
+            }
+        }
+    }
+}
+
+filter_string_ffi!(StringEqual, isar_filter_string_equal);
+filter_string_ffi!(StringStartsWith, isar_filter_string_starts_with);
+filter_string_ffi!(StringEndsWith, isar_filter_string_ends_with);
+filter_string_ffi!(StringContains, isar_filter_string_contains);
+filter_string_ffi!(StringListContains, isar_filter_string_list_contains);

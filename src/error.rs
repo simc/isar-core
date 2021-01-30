@@ -21,7 +21,10 @@ pub enum IsarError {
     #[error("Write transaction required.")]
     WriteTxnRequired {},
 
-    #[error("The provided ObjectId is invalid.")]
+    #[error("Auto increment id cannot be generated because the limit is reached.")]
+    AutoIncrementOverflow {},
+
+    #[error("The provided ObjectId does not match the collection.")]
     InvalidObjectId {},
 
     #[error("The provided object is invalid.")]

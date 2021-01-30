@@ -7,7 +7,7 @@ use core::ptr;
 use lmdb_sys as ffi;
 use std::marker::PhantomData;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct Cursor<'txn> {
     cursor: *mut ffi::MDB_cursor,
     write: bool,
@@ -15,7 +15,7 @@ pub struct Cursor<'txn> {
 }
 
 impl<'txn> Cursor<'txn> {
-    pub(crate) fn open(txn: &Txn, db: &Db) -> Result<Cursor<'txn>> {
+    pub(crate) fn open(txn: &'txn Txn, db: &Db) -> Result<Cursor<'txn>> {
         let mut cursor: *mut ffi::MDB_cursor = ptr::null_mut();
 
         unsafe { lmdb_result(ffi::mdb_cursor_open(txn.txn, db.dbi, &mut cursor))? }
@@ -69,6 +69,14 @@ impl<'txn> Cursor<'txn> {
 
     pub fn move_to_next_key(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDB_NEXT_NODUP, None, None)
+    }
+
+    pub fn move_to_prev_key(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDB_PREV_NODUP, None, None)
+    }
+
+    pub fn move_to_last(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDB_LAST, None, None)
     }
 
     pub fn put(&self, key: &[u8], data: &[u8]) -> Result<()> {
@@ -142,15 +150,6 @@ impl<'txn> Cursor<'txn> {
             }
         }
         Ok(true)
-    }
-
-    pub fn iter_prefix(
-        &mut self,
-        prefix: &[u8],
-        skip_duplicates: bool,
-        callback: impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
-    ) -> Result<bool> {
-        self.iter_between(prefix, prefix, skip_duplicates, callback)
     }
 }
 

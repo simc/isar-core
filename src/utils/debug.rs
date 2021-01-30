@@ -2,7 +2,7 @@
 
 use crate::collection::IsarCollection;
 use crate::lmdb::cursor::Cursor;
-use crate::object::object_builder::IsarObjectAllocator;
+use crate::object::isar_object::IsarObject;
 use crate::object::object_id::ObjectId;
 use crate::txn::IsarTxn;
 use hashbrown::{HashMap, HashSet};
@@ -39,7 +39,7 @@ macro_rules! isar (
             let col = $schema;
             schema.add_collection(col).unwrap();
         )+
-        let $isar = crate::instance::IsarInstance::create($path, 10000000, schema).unwrap();
+        let $isar = crate::instance::IsarInstance::open($path, 10000000, schema).unwrap();
         $(
             let col = $schema;
             let $col = $isar.get_collection_by_name(&col.name).unwrap();
@@ -55,33 +55,29 @@ macro_rules! isar (
 
 #[macro_export]
 macro_rules! col (
-    ($($field:expr => $type:ident),+) => {
+    ($($field:expr => $type:path),+) => {
         col!($($field => $type),+;);
     };
 
-    ($($field:expr => $type:ident),+; $($index:expr),*) => {
-        {
-            let mut collection = crate::schema::collection_schema::CollectionSchema::new(stringify!($($field)+));
-            $(collection.add_property(stringify!($field), crate::object::data_type::DataType::$type).unwrap();)+
-            $(
-                let (fields, unique, hash) = $index;
-                collection.add_index(fields, unique, hash).unwrap();
-            )*
-            collection
-        }
+    ($($field:expr => $type:path),+; $($index:expr),*) => {
+        col!(stringify!($($field)+), $($field => $type),+; $($index),*)
     };
 
-    ($name:expr, $($field:expr => $type:ident),+) => {
+    ($name:expr, $($field:expr => $type:path),+) => {
         col!($name, $($field => $type),+;);
     };
 
-    ($name:expr, $($field:expr => $type:ident),+; $($index:expr),*) => {
+    ($name:expr, $($field:expr => $type:path),+; $($index:expr),*) => {
+        col!($name, crate::object::data_type::DataType::Long, $($field => $type),+; $($index),*);
+    };
+
+    ($name:expr, $oid_type:path, $($field:expr => $type:path),+; $($index:expr),*) => {
         {
-            let mut collection = crate::schema::collection_schema::CollectionSchema::new($name);
-            $(collection.add_property(stringify!($field), crate::object::data_type::DataType::$type).unwrap();)+
+            let mut collection = crate::schema::collection_schema::CollectionSchema::new($name, "id", $oid_type);
+            $(collection.add_property(stringify!($field), $type).unwrap();)+
             $(
-                let (fields, unique, hash) = $index;
-                collection.add_index(fields, unique, hash).unwrap();
+                let (fields, unique) = $index;
+                collection.add_index(fields, unique).unwrap();
             )*
             collection
         }
@@ -91,26 +87,30 @@ macro_rules! col (
 #[macro_export]
 macro_rules! ind (
     ($($index:expr),+) => {
-        ind!($($index),+; false, false);
+        ind!($($index),+; false);
     };
 
     ($($index:expr),+; $unique:expr) => {
-        ind!($($index),+; $unique, false);
+        (&[$((stringify!($index), None, false)),+], $unique);
     };
 
-    ($($index:expr),+; $unique:expr, $hash:expr) => {
-        (&[$(stringify!($index)),+], $unique, $hash)
+    (str $($index:expr, $str_type:expr, $str_lc:expr),+) => {
+        ind!(str $($index, $str_type, $str_lc),+; false);
+    };
+
+    (str $($index:expr, $str_type:expr, $str_lc:expr),+; $unique:expr) => {
+        (&[$((stringify!($index), $str_type, $str_lc)),+], $unique);
     };
 );
 
 pub fn fill_db(
     col: &IsarCollection,
     txn: &mut IsarTxn,
-    data: &[(Option<ObjectId>, Vec<u8, IsarObjectAllocator>)],
+    data: &[(Option<ObjectId>, Vec<u8>)],
 ) -> HashMap<Vec<u8>, Vec<u8>> {
     let mut result = HashMap::new();
     for (oid, object) in data {
-        let oid = col.put(txn, *oid, &object).unwrap();
+        let oid = col.put(txn, oid.clone(), IsarObject::new(object)).unwrap();
         result.insert(oid.as_bytes().to_vec(), object.to_vec());
     }
     result
@@ -124,10 +124,15 @@ pub fn dump_db(cursor: &mut Cursor, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, 
     let mut set = HashSet::new();
 
     cursor
-        .iter_prefix(prefix.unwrap_or(&[]), false, |_, k, v| {
-            set.insert((k.to_vec(), v.to_vec()));
-            Ok(true)
-        })
+        .iter_between(
+            prefix.unwrap_or(&[]),
+            prefix.unwrap_or(&[]),
+            false,
+            |_, k, v| {
+                set.insert((k.to_vec(), v.to_vec()));
+                Ok(true)
+            },
+        )
         .unwrap();
 
     set

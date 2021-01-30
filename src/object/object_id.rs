@@ -1,113 +1,97 @@
-use crate::error::{IsarError, Result};
+use crate::index::Index;
+use crate::object::data_type::DataType;
+use byteorder::{BigEndian, ByteOrder};
+use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
-use std::mem;
-use std::str::FromStr;
 
-#[derive(Copy, Clone, Debug)]
-#[repr(packed)]
-pub struct ObjectId {
-    prefix: u16,
-    time: u32,    // big endian
-    counter: u32, // big endian
-    rand: u32,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectId<'a> {
+    oid_type: DataType,
+    bytes: Cow<'a, [u8]>,
 }
 
-impl ObjectId {
-    pub const fn get_size() -> usize {
-        mem::size_of::<ObjectId>()
-    }
-
-    pub fn new(time: u32, counter: u32, rand: u32) -> Self {
+impl<'a> ObjectId<'a> {
+    pub(crate) fn from_int(col_id: u16, int: i32) -> Self {
+        let mut bytes = col_id.to_be_bytes().to_vec();
+        bytes.extend_from_slice(&Index::create_int_key(int));
         ObjectId {
-            prefix: 0,
-            time: time.to_be(),
-            counter: counter.to_be(),
-            rand,
+            oid_type: DataType::Int,
+            bytes: Cow::Owned(bytes),
         }
     }
 
-    pub(crate) fn from_bytes(bytes: &[u8]) -> &Self {
-        let (_, body, _) = unsafe { bytes.align_to::<Self>() };
-        &body[0]
+    pub(crate) fn from_long(col_id: u16, long: i64) -> Self {
+        let mut bytes = col_id.to_be_bytes().to_vec();
+        bytes.extend_from_slice(&Index::create_long_key(long));
+        ObjectId {
+            oid_type: DataType::Long,
+            bytes: Cow::from(bytes),
+        }
     }
 
-    pub(crate) fn get_prefix(&self) -> u16 {
-        let prefix = self.prefix;
-        assert_ne!(prefix, 0);
-        prefix
+    pub(crate) fn from_str(col_id: u16, str: &str) -> Self {
+        let mut bytes = col_id.to_be_bytes().to_vec();
+        bytes.extend_from_slice(str.as_bytes());
+        ObjectId {
+            oid_type: DataType::String,
+            bytes: Cow::from(bytes),
+        }
     }
 
-    pub(crate) fn set_prefix(&mut self, prefix: u16) {
-        assert_ne!(prefix, 0);
-        self.prefix = prefix;
+    pub(crate) fn from_bytes(oid_type: DataType, bytes: &'a [u8]) -> Self {
+        ObjectId {
+            oid_type,
+            bytes: Cow::from(bytes),
+        }
     }
 
-    pub fn get_time(&self) -> u32 {
-        self.time.to_be()
+    pub(crate) fn get_col_id(&self) -> u16 {
+        BigEndian::read_u16(self.as_bytes())
     }
 
-    pub fn get_counter(&self) -> u32 {
-        self.counter.to_be()
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.bytes
     }
 
-    pub fn get_rand(&self) -> u32 {
-        self.rand
+    pub fn get_type(&self) -> DataType {
+        self.oid_type
     }
 
-    #[inline]
-    fn as_bytes_internal(&self) -> &[u8] {
-        let bytes = unsafe {
-            ::std::slice::from_raw_parts(
-                (self as *const Self) as *const u8,
-                ::std::mem::size_of::<Self>(),
-            )
-        };
-        &bytes
+    pub fn get_int(&self) -> Option<i32> {
+        if self.oid_type == DataType::Int {
+            Some(Index::get_int_from_key(&self.bytes[2..]))
+        } else {
+            None
+        }
     }
 
-    #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
-        let prefix = self.prefix;
-        assert_ne!(prefix, 0);
-        self.as_bytes_internal()
+    pub fn get_long(&self) -> Option<i64> {
+        if self.oid_type == DataType::Long {
+            Some(Index::get_long_from_key(&self.bytes[2..]))
+        } else {
+            None
+        }
     }
 
-    #[inline]
-    pub(crate) fn as_bytes_without_prefix(&self) -> &[u8] {
-        &self.as_bytes_internal()[2..]
+    pub fn get_string(&self) -> Option<&str> {
+        if self.oid_type == DataType::String {
+            Some(std::str::from_utf8(&self.bytes[2..]).unwrap())
+        } else {
+            None
+        }
+    }
+
+    pub fn to_owned(&self) -> ObjectId<'static> {
+        ObjectId {
+            oid_type: self.oid_type,
+            bytes: Cow::from(self.as_bytes().to_vec()),
+        }
     }
 }
 
-impl PartialEq for ObjectId {
-    fn eq(&self, other: &Self) -> bool {
-        self.time == other.time && self.counter == other.counter && self.rand == other.rand
-    }
-}
-
-impl Eq for ObjectId {}
-
-impl Hash for ObjectId {
+impl<'a> Hash for ObjectId<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u32(self.time);
-        state.write_u32(self.counter);
-        state.write_u32(self.rand);
-    }
-}
-
-impl ToString for ObjectId {
-    fn to_string(&self) -> String {
-        hex::encode(self.as_bytes_without_prefix())
-    }
-}
-
-impl FromStr for ObjectId {
-    type Err = IsarError;
-
-    fn from_str(s: &str) -> Result<Self> {
-        let mut bytes = vec![0; ObjectId::get_size()];
-        hex::decode_to_slice(s, &mut bytes[2..]).map_err(|_| IsarError::InvalidObjectId {})?;
-        let oid = ObjectId::from_bytes(&bytes);
-        Ok(*oid)
+        state.write(self.as_bytes())
     }
 }
 

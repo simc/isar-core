@@ -1,37 +1,39 @@
 use crate::error::Result;
 use crate::index::Index;
 use crate::lmdb::check_below_upper_key;
-use crate::lmdb::cursor::Cursor;
+use crate::object::isar_object::IsarObject;
 use crate::object::object_id::ObjectId;
+use crate::txn::Cursors;
 use std::convert::TryInto;
+use std::mem::ManuallyDrop;
 
 #[derive(Clone)]
 pub struct WhereClause {
     lower_key: Vec<u8>,
     upper_key: Vec<u8>,
-    index: Option<Index>,
+    pub(crate) index: Option<Index>,
     skip_duplicates: bool,
 }
 
 impl WhereClause {
     const PREFIX_LEN: usize = 2;
 
-    pub(crate) fn new_primary(collection_id: u16) -> Self {
+    pub(crate) fn new_primary(prefix: &[u8]) -> Self {
         WhereClause {
-            lower_key: collection_id.to_le_bytes().to_vec(),
-            upper_key: collection_id.to_le_bytes().to_vec(),
+            lower_key: prefix.to_vec(),
+            upper_key: prefix.to_vec(),
             index: None,
             skip_duplicates: false,
         }
     }
 
-    pub(crate) fn new_secondary(index: Index, mut skip_duplicates: bool) -> Self {
+    pub(crate) fn new_secondary(prefix: &[u8], index: Index, mut skip_duplicates: bool) -> Self {
         if index.is_unique() {
             skip_duplicates = false;
         }
         WhereClause {
-            lower_key: index.get_id().to_le_bytes().to_vec(),
-            upper_key: index.get_id().to_le_bytes().to_vec(),
+            lower_key: prefix.to_vec(),
+            upper_key: prefix.to_vec(),
             index: Some(index),
             skip_duplicates,
         }
@@ -66,24 +68,44 @@ impl WhereClause {
         }
     }
 
-    pub(crate) fn object_matches(&self, oid: &[u8], object: &[u8]) -> bool {
+    pub(crate) fn object_matches(&self, oid: &[u8], object: IsarObject) -> bool {
         if let Some(index) = &self.index {
-            let index_key = index.create_key(object);
-            self.lower_key <= index_key && check_below_upper_key(&index_key, &self.upper_key)
+            let mut key_matches = false;
+            index
+                .create_keys(object, |key| {
+                    key_matches = self.lower_key.as_slice() <= key
+                        && check_below_upper_key(key, &self.upper_key);
+                    Ok(!key_matches)
+                })
+                .unwrap();
+            key_matches
         } else {
             &self.lower_key[..] <= oid && check_below_upper_key(oid, &self.upper_key)
         }
     }
 
-    pub(crate) fn iter<'txn, F>(&self, cursor: &mut Cursor<'txn>, callback: F) -> Result<bool>
+    pub(crate) fn iter<'txn, F>(&self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<bool>
     where
-        F: FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
     {
+        let mut cursors_clone = ManuallyDrop::new(cursors.clone());
+        let primary = &mut cursors.primary;
+        let secondary = &mut cursors.secondary;
+        let secondary_dup = &mut cursors.secondary_dup;
+
+        let cursor = if self.is_primary() {
+            primary
+        } else if self.is_unique() {
+            secondary
+        } else {
+            secondary_dup
+        };
+
         cursor.iter_between(
             &self.lower_key,
             &self.upper_key,
             self.skip_duplicates,
-            callback,
+            |_, oid, object| callback(&mut cursors_clone, oid, object),
         )
     }
 
@@ -121,65 +143,66 @@ impl WhereClause {
         unimplemented!()
     }*/
 
-    pub fn add_oid(&mut self, oid: ObjectId) {
-        let bytes = oid.as_bytes_without_prefix();
-        self.lower_key.extend_from_slice(bytes);
-        self.upper_key.extend_from_slice(bytes);
-    }
-
-    pub fn add_oid_time(&mut self, lower: u32, upper: u32) {
-        self.lower_key.extend_from_slice(&lower.to_be_bytes());
-        self.upper_key.extend_from_slice(&upper.to_be_bytes());
-    }
-
     pub fn add_byte(&mut self, lower: u8, upper: u8) {
         self.lower_key
-            .extend_from_slice(&Index::get_byte_key(lower));
+            .extend_from_slice(&Index::create_byte_key(lower));
         self.upper_key
-            .extend_from_slice(&Index::get_byte_key(upper));
+            .extend_from_slice(&Index::create_byte_key(upper));
     }
 
     pub fn add_int(&mut self, lower: i32, upper: i32) {
-        self.lower_key.extend_from_slice(&Index::get_int_key(lower));
-        self.upper_key.extend_from_slice(&Index::get_int_key(upper));
+        self.lower_key
+            .extend_from_slice(&Index::create_int_key(lower));
+        self.upper_key
+            .extend_from_slice(&Index::create_int_key(upper));
     }
 
     pub fn add_float(&mut self, lower: f32, upper: f32) {
         self.lower_key
-            .extend_from_slice(&Index::get_float_key(lower));
+            .extend_from_slice(&Index::create_float_key(lower));
         self.upper_key
-            .extend_from_slice(&Index::get_float_key(upper));
+            .extend_from_slice(&Index::create_float_key(upper));
     }
 
     pub fn add_long(&mut self, lower: i64, upper: i64) {
         self.lower_key
-            .extend_from_slice(&Index::get_long_key(lower));
+            .extend_from_slice(&Index::create_long_key(lower));
         self.upper_key
-            .extend_from_slice(&Index::get_long_key(upper));
+            .extend_from_slice(&Index::create_long_key(upper));
     }
 
     pub fn add_double(&mut self, lower: f64, upper: f64) {
         self.lower_key
-            .extend_from_slice(&Index::get_double_key(lower));
+            .extend_from_slice(&Index::create_double_key(lower));
         self.upper_key
-            .extend_from_slice(&Index::get_double_key(upper));
+            .extend_from_slice(&Index::create_double_key(upper));
     }
 
     pub fn add_string_hash(&mut self, value: Option<&str>) {
-        let hash = Index::get_string_hash_key(value);
+        let hash = Index::create_string_hash_key(value);
         self.lower_key.extend_from_slice(&hash);
         self.upper_key.extend_from_slice(&hash);
     }
 
     pub fn add_string_value(&mut self, lower: Option<&str>, upper: Option<&str>) {
         self.lower_key
-            .extend_from_slice(&Index::get_string_value_key(lower));
+            .extend_from_slice(&Index::create_string_value_key(lower));
         self.upper_key
-            .extend_from_slice(&Index::get_string_value_key(upper));
+            .extend_from_slice(&Index::create_string_value_key(upper));
+    }
+
+    pub fn add_string_word(&mut self, lower: &str, upper: &str) {
+        self.lower_key.extend_from_slice(lower.as_bytes());
+        self.upper_key.extend_from_slice(upper.as_bytes());
+    }
+
+    pub fn add_oid_string(&mut self, lower: &str, upper: &str) {
+        self.lower_key.extend_from_slice(lower.as_bytes());
+        self.upper_key.extend_from_slice(upper.as_bytes());
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     //use super::*;
     //use itertools::Itertools;
@@ -245,3 +268,4 @@ mod tests {
     #[test]
     fn test_add_upper_oid() {}
 }
+*/

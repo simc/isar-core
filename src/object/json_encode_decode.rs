@@ -1,55 +1,66 @@
 use crate::error::{IsarError, Result};
 use crate::object::data_type::DataType;
-use crate::object::object_builder::{IsarObjectAllocator, ObjectBuilder};
+use crate::object::isar_object::IsarObject;
+use crate::object::object_builder::ObjectBuilder;
 use crate::object::object_id::ObjectId;
 use crate::object::object_info::ObjectInfo;
-use crate::object::property::Property;
 use serde_json::{json, Map, Value};
 
 pub(crate) struct JsonEncodeDecode<'a> {
+    col_id: u16,
     object_info: &'a ObjectInfo,
 }
 
 impl<'a> JsonEncodeDecode<'a> {
-    pub fn new(object_info: &'a ObjectInfo) -> Self {
-        JsonEncodeDecode { object_info }
+    pub fn new(col_id: u16, object_info: &'a ObjectInfo) -> Self {
+        JsonEncodeDecode {
+            col_id,
+            object_info,
+        }
     }
 
     pub fn encode(
         &self,
         oid: ObjectId,
-        object: &[u8],
+        object: IsarObject,
         primitive_null: bool,
         byte_as_bool: bool,
     ) -> Value {
         let mut object_map = Map::new();
 
-        object_map.insert("id".to_string(), json!(oid.to_string()));
+        let oid_json = match oid.get_type() {
+            DataType::String => json!(oid.get_string().unwrap()),
+            DataType::Int => json!(oid.get_int().unwrap()),
+            DataType::Long => json!(oid.get_long().unwrap()),
+            _ => unreachable!(),
+        };
+        object_map.insert(self.object_info.get_oid_name().to_string(), oid_json);
 
         for (property_name, property) in self.object_info.get_properties() {
+            let property = *property;
             let value =
-                if primitive_null && property.data_type.is_static() && property.is_null(object) {
+                if primitive_null && property.data_type.is_static() && object.is_null(property) {
                     Value::Null
                 } else {
                     match property.data_type {
                         DataType::Byte => {
                             if byte_as_bool {
-                                json!(property.get_bool(object))
+                                json!(object.read_bool(property))
                             } else {
-                                json!(property.get_byte(object))
+                                json!(object.read_byte(property))
                             }
                         }
-                        DataType::Int => json!(property.get_int(object)),
-                        DataType::Float => json!(property.get_float(object)),
-                        DataType::Long => json!(property.get_long(object)),
-                        DataType::Double => json!(property.get_double(object)),
-                        DataType::String => json!(property.get_string(object)),
-                        DataType::ByteList => json!(property.get_byte_list(object)),
-                        DataType::IntList => json!(property.get_int_list(object)),
-                        DataType::FloatList => json!(property.get_float_list(object)),
-                        DataType::LongList => json!(property.get_float_list(object)),
-                        DataType::DoubleList => json!(property.get_double_list(object)),
-                        DataType::StringList => json!(property.get_string_list(object)),
+                        DataType::Int => json!(object.read_int(property)),
+                        DataType::Float => json!(object.read_float(property)),
+                        DataType::Long => json!(object.read_long(property)),
+                        DataType::Double => json!(object.read_double(property)),
+                        DataType::String => json!(object.read_string(property)),
+                        DataType::ByteList => json!(object.read_byte_list(property)),
+                        DataType::IntList => json!(object.read_int_list(property)),
+                        DataType::FloatList => json!(object.read_float_list(property)),
+                        DataType::LongList => json!(object.read_float_list(property)),
+                        DataType::DoubleList => json!(object.read_double_list(property)),
+                        DataType::StringList => json!(object.read_string_list(property)),
                     }
                 };
             object_map.insert(property_name.clone(), value);
@@ -60,14 +71,34 @@ impl<'a> JsonEncodeDecode<'a> {
     pub fn decode(
         &self,
         json: &Value,
-        buffer: Option<Vec<u8, IsarObjectAllocator>>,
-    ) -> Result<(Option<ObjectId>, Vec<u8, IsarObjectAllocator>)> {
+        buffer: Option<Vec<u8>>,
+    ) -> Result<(Option<ObjectId>, ObjectBuilder)> {
         let mut ob = ObjectBuilder::new(self.object_info, buffer);
-
         let object = json.as_object().ok_or(IsarError::InvalidJson {})?;
-        let oid = if let Some(oid_json) = object.get("id") {
-            let oid_str = oid_json.as_str().ok_or(IsarError::InvalidJson {})?;
-            Some(oid_str.parse()?)
+        let oid = if let Some(oid_json) = object.get(self.object_info.get_oid_name()) {
+            let oid = match (oid_json, self.object_info.get_oid_type()) {
+                (Value::String(str), DataType::String) => ObjectId::from_str(self.col_id, str),
+                (Value::Number(num), DataType::Int) => {
+                    if let Some(num) = num.as_i64() {
+                        if num <= i32::MAX as i64 {
+                            ObjectId::from_int(self.col_id, num as i32)
+                        } else {
+                            return Err(IsarError::InvalidJson {});
+                        }
+                    } else {
+                        return Err(IsarError::InvalidJson {});
+                    }
+                }
+                (Value::Number(num), DataType::Long) => {
+                    if let Some(num) = num.as_i64() {
+                        ObjectId::from_long(self.col_id, num)
+                    } else {
+                        return Err(IsarError::InvalidJson {});
+                    }
+                }
+                _ => return Err(IsarError::InvalidJson {}),
+            };
+            Some(oid)
         } else {
             None
         };
@@ -118,21 +149,21 @@ impl<'a> JsonEncodeDecode<'a> {
             }
         }
 
-        Ok((oid, ob.finish()))
+        Ok((oid, ob))
     }
 
     fn value_to_byte(value: &Value) -> Result<u8> {
         if value.is_null() {
-            return Ok(Property::NULL_BYTE);
+            return Ok(IsarObject::NULL_BYTE);
         } else if let Some(value) = value.as_i64() {
             if value >= 0 && value <= u8::MAX as i64 {
                 return Ok(value as u8);
             }
         } else if let Some(value) = value.as_bool() {
             let byte = if value {
-                Property::TRUE_BYTE
+                IsarObject::TRUE_BYTE
             } else {
-                Property::FALSE_BYTE
+                IsarObject::FALSE_BYTE
             };
             return Ok(byte);
         }
@@ -141,7 +172,7 @@ impl<'a> JsonEncodeDecode<'a> {
 
     fn value_to_int(value: &Value) -> Result<i32> {
         if value.is_null() {
-            return Ok(Property::NULL_INT);
+            return Ok(IsarObject::NULL_INT);
         } else if let Some(value) = value.as_i64() {
             if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
                 return Ok(value as i32);
@@ -152,7 +183,7 @@ impl<'a> JsonEncodeDecode<'a> {
 
     fn value_to_float(value: &Value) -> Result<f32> {
         if value.is_null() {
-            return Ok(Property::NULL_FLOAT);
+            return Ok(IsarObject::NULL_FLOAT);
         } else if let Some(value) = value.as_f64() {
             if value >= f32::MIN as f64 && value <= f32::MAX as f64 {
                 return Ok(value as f32);
@@ -163,7 +194,7 @@ impl<'a> JsonEncodeDecode<'a> {
 
     fn value_to_long(value: &Value) -> Result<i64> {
         if value.is_null() {
-            Ok(Property::NULL_LONG)
+            Ok(IsarObject::NULL_LONG)
         } else if let Some(value) = value.as_i64() {
             Ok(value)
         } else {
@@ -173,7 +204,7 @@ impl<'a> JsonEncodeDecode<'a> {
 
     fn value_to_double(value: &Value) -> Result<f64> {
         if value.is_null() {
-            Ok(Property::NULL_DOUBLE)
+            Ok(IsarObject::NULL_DOUBLE)
         } else if let Some(value) = value.as_f64() {
             Ok(value)
         } else {

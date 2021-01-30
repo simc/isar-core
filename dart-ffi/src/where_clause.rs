@@ -1,7 +1,6 @@
 use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
-use isar_core::object::object_id::ObjectId;
 use isar_core::query::where_clause::WhereClause;
 use std::os::raw::c_char;
 
@@ -26,26 +25,6 @@ pub unsafe extern "C" fn isar_wc_create(
             illegal_arg("Unknown index.")?;
         };
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_wc_add_oid(
-    where_clause: &mut WhereClause,
-    time: u32,
-    counter: u32,
-    rand: u32,
-) {
-    let oid = ObjectId::new(time, counter, rand);
-    where_clause.add_oid(oid);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_wc_add_oid_time(
-    where_clause: &mut WhereClause,
-    lower: u32,
-    upper: u32,
-) {
-    where_clause.add_oid_time(lower, upper);
 }
 
 #[no_mangle]
@@ -103,4 +82,15 @@ pub unsafe extern "C" fn isar_wc_add_string_value(
         None
     };
     where_clause.add_string_value(lower_str, upper_str);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_wc_add_oid_string(
+    where_clause: &mut WhereClause,
+    lower: *const c_char,
+    upper: *const c_char,
+) {
+    let lower_str = from_c_str(lower).unwrap();
+    let upper_str = from_c_str(upper).unwrap();
+    where_clause.add_oid_string(lower_str, upper_str);
 }

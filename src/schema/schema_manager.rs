@@ -1,6 +1,8 @@
 use crate::collection::IsarCollection;
 use crate::error::{IsarError, Result};
 use crate::lmdb::cursor::Cursor;
+use crate::object::data_type::DataType;
+use crate::object::object_id::ObjectId;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
 use crate::txn::Cursors;
@@ -15,19 +17,13 @@ const INFO_SCHEMA_KEY: &[u8] = b"schema";
 pub(crate) struct SchemaManger<'env> {
     info_cursor: Cursor<'env>,
     cursors: Cursors<'env>,
-    migration_cursors: Cursors<'env>,
 }
 
 impl<'env> SchemaManger<'env> {
-    pub fn new(
-        info_cursor: Cursor<'env>,
-        cursors: Cursors<'env>,
-        migration_cursors: Cursors<'env>,
-    ) -> Self {
+    pub fn new(info_cursor: Cursor<'env>, cursors: Cursors<'env>) -> Self {
         SchemaManger {
             info_cursor,
             cursors,
-            migration_cursors,
         }
     }
 
@@ -64,9 +60,39 @@ impl<'env> SchemaManger<'env> {
 
         self.save_schema(&schema)?;
         let collections = schema.build_collections();
+        for collection in &collections {
+            self.update_oid_counter(collection)?;
+        }
         self.perform_migration(&collections, &existing_collections)?;
 
         Ok(collections)
+    }
+
+    fn update_oid_counter(&mut self, collection: &IsarCollection) -> Result<()> {
+        if collection.get_oid_type() == DataType::String {
+            return Ok(());
+        }
+        let id = collection.get_id();
+        let next_prefix = (id + 1).to_be_bytes();
+        let next_entry = self.cursors.primary.move_to_gte(&next_prefix)?;
+        let greatest_qualifying_oid = if next_entry.is_some() {
+            self.cursors.primary.move_to_prev_key()?
+        } else {
+            self.cursors.primary.move_to_last()?
+        };
+
+        if let Some((oid, _)) = greatest_qualifying_oid {
+            let oid = ObjectId::from_bytes(collection.get_oid_type(), oid);
+            if oid.get_col_id() == id {
+                let oid_counter = match oid.get_type() {
+                    DataType::Int => oid.get_int().unwrap() as i64,
+                    DataType::Long => oid.get_long().unwrap(),
+                    _ => unreachable!(),
+                };
+                collection.update_oid_counter(oid_counter);
+            }
+        }
+        Ok(())
     }
 
     fn save_schema(&mut self, schema: &Schema) -> Result<()> {
@@ -92,7 +118,14 @@ impl<'env> SchemaManger<'env> {
             .filter(|existing| !collections.iter().any(|c| existing.get_id() == c.get_id()));
 
         for col in removed_collections {
-            col.delete_all_internal(&mut self.cursors, None)?;
+            for index in col.get_indexes() {
+                index.clear(&mut self.cursors)?;
+            }
+            col.new_primary_where_clause()
+                .iter(&mut self.cursors, |c, _, _| {
+                    c.primary.delete_current()?;
+                    Ok(true)
+                })?;
         }
 
         for col in collections {
@@ -102,7 +135,7 @@ impl<'env> SchemaManger<'env> {
 
             if let Some(existing) = existing {
                 let migrator = CollectionMigrator::create(col, existing);
-                migrator.migrate(&mut self.cursors, &mut self.migration_cursors)?;
+                migrator.migrate(&mut self.cursors)?;
             }
         }
 

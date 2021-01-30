@@ -5,7 +5,7 @@ use crate::lmdb::db::Db;
 use crate::lmdb::env::Env;
 use crate::lmdb::txn::Txn;
 use crate::object::object_id::ObjectId;
-use crate::query::query::Query;
+use crate::query::Query;
 use crate::schema::schema_manager::SchemaManger;
 use crate::schema::Schema;
 use crate::txn::{Cursors, IsarTxn};
@@ -33,19 +33,19 @@ pub struct IsarInstance {
 }
 
 impl IsarInstance {
-    pub fn create(path: &str, max_size: usize, schema: Schema) -> Result<Arc<Self>> {
+    pub fn open(path: &str, max_size: usize, schema: Schema) -> Result<Arc<Self>> {
         let mut lock = INSTANCES.write().unwrap();
         match lock.entry(path.to_string()) {
             Entry::Occupied(e) => Ok(e.get().clone()),
             Entry::Vacant(e) => {
-                let new_instance = Self::create_internal(e.key(), max_size, schema)?;
+                let new_instance = Self::open_internal(e.key(), max_size, schema)?;
                 let instance_ref = e.insert(Arc::new(new_instance));
                 Ok(instance_ref.clone())
             }
         }
     }
 
-    fn create_internal(path: &str, max_size: usize, schema: Schema) -> Result<Self> {
+    fn open_internal(path: &str, max_size: usize, schema: Schema) -> Result<Self> {
         let env = Env::create(path, 4, max_size)?;
         let dbs = IsarInstance::open_databases(&env)?;
 
@@ -53,9 +53,8 @@ impl IsarInstance {
         let collections = {
             let info_cursor = dbs.open_info_cursor(&txn)?;
             let cursors = dbs.open_cursors(&txn)?;
-            let migration_cursors = dbs.open_cursors(&txn)?;
 
-            let mut manager = SchemaManger::new(info_cursor, cursors, migration_cursors);
+            let mut manager = SchemaManger::new(info_cursor, cursors);
             manager.check_isar_version()?;
             manager.get_collections(schema)?
         };
@@ -73,7 +72,7 @@ impl IsarInstance {
         })
     }
 
-    pub fn open(path: &str) -> Option<Arc<Self>> {
+    pub fn get_instance(path: &str) -> Option<Arc<Self>> {
         INSTANCES.read().unwrap().get(path).cloned()
     }
 
@@ -92,7 +91,7 @@ impl IsarInstance {
         })
     }
 
-    pub(crate) fn open_cursors<'a>(&self, txn: &Txn<'a>) -> Result<Cursors<'a>> {
+    pub(crate) fn open_cursors<'txn>(&self, txn: &'txn Txn<'txn>) -> Result<Cursors<'txn>> {
         self.dbs.open_cursors(txn)
     }
 
@@ -108,8 +107,7 @@ impl IsarInstance {
         };
 
         let txn = self.env.txn(write)?;
-        let cursors = self.open_cursors(&txn)?;
-        Ok(IsarTxn::new(self, txn, cursors, write, change_set))
+        IsarTxn::new(self, txn, write, change_set)
     }
 
     pub fn get_collection(&self, collection_index: usize) -> Option<&IsarCollection> {
@@ -147,16 +145,17 @@ impl IsarInstance {
     pub fn watch_object(
         &self,
         collection: &IsarCollection,
-        mut oid: ObjectId,
+        oid: ObjectId,
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
         let col_id = collection.get_id();
-        oid.set_prefix(col_id);
+        let oid = oid.to_owned();
+        let oid_clone = oid.clone();
         self.watcher_modifier_sender
             .try_send(Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
-                    .add_object_watcher(watcher_id, oid, callback);
+                    .add_object_watcher(watcher_id, &oid, callback);
             }))
             .unwrap();
 
@@ -164,7 +163,7 @@ impl IsarInstance {
         WatchHandle::new(Box::new(move || {
             let _ = sender.try_send(Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
-                    .remove_object_watcher(oid, watcher_id);
+                    .remove_object_watcher(&oid_clone, watcher_id);
             }));
         }))
     }
@@ -226,7 +225,7 @@ struct DataDbs {
 }
 
 impl DataDbs {
-    fn open_cursors<'txn>(&self, txn: &Txn) -> Result<Cursors<'txn>> {
+    fn open_cursors<'txn>(&self, txn: &'txn Txn) -> Result<Cursors<'txn>> {
         Ok(Cursors {
             primary: self.primary.cursor(&txn)?,
             secondary: self.secondary.cursor(&txn)?,
@@ -241,23 +240,25 @@ impl DataDbs {
 
 #[cfg(test)]
 mod tests {
+    use crate::object::data_type::DataType;
+    use crate::object::isar_object::IsarObject;
     use crate::{col, isar};
     use tempfile::tempdir;
 
     #[test]
     fn test_open_new_instance() {
-        isar!(isar, col => col!(f1 => Int));
+        isar!(isar, col => col!(f1 => DataType::Int));
 
         let mut ob = col.new_object_builder(None);
         ob.write_int(123);
         let o = ob.finish();
 
         let mut txn = isar.begin_txn(true).unwrap();
-        let oid = col.put(&mut txn, None, o.as_ref()).unwrap();
+        let oid = col.put(&mut txn, None, o).unwrap();
         txn.commit().unwrap();
 
         let mut txn = isar.begin_txn(false).unwrap();
-        assert_eq!(col.get(&mut txn, oid).unwrap().unwrap(), &o);
+        assert_eq!(col.get(&mut txn, &oid).unwrap().unwrap(), o);
         txn.abort();
     }
 
@@ -266,24 +267,23 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        isar!(path: path, isar, col1 => col!("col1", f1 => Int));
+        isar!(path: path, isar, col1 => col!("col1", f1 => DataType::Int));
 
         let mut ob = col1.new_object_builder(None);
         ob.write_int(123);
         let object = ob.finish();
+        let object_bytes = object.as_bytes().to_vec();
 
         let mut txn = isar.begin_txn(true).unwrap();
-        let oid = col1.put(&mut txn, None, &object).unwrap();
+        let oid = col1.put(&mut txn, None, object).unwrap().to_owned();
         txn.commit().unwrap();
 
         assert!(isar.close().is_none());
 
-        isar!(path: path, isar, col1 => col!("col1", f1 => Int), col2 => col!("col2", f1 => Int));
-        let mut txn = isar.begin_txn(false).unwrap();
-        assert_eq!(
-            col1.get(&mut txn, oid).unwrap().unwrap().to_vec(),
-            object.to_vec()
-        );
+        isar!(path: path, isar2, col1 => col!("col1", f1 => DataType::Int), col2 => col!("col2", f1 => DataType::Int));
+        let mut txn = isar2.begin_txn(false).unwrap();
+        let object = IsarObject::new(&object_bytes);
+        assert_eq!(col1.get(&mut txn, &oid).unwrap(), Some(object));
         assert_eq!(col2.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();
     }
@@ -293,20 +293,20 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        isar!(path: path, isar, col1 => col!("col1", f1 => Int), _col2 => col!("col2", f1 => Int));
+        isar!(path: path, isar, col1 => col!("col1", f1 => DataType::Int), _col2 => col!("col2", f1 => DataType::Int));
         let mut ob = col1.new_object_builder(None);
         ob.write_int(123);
         let o = ob.finish();
         let mut txn = isar.begin_txn(true).unwrap();
         //col1.put(&txn, None, o.as_ref()).unwrap();
-        col1.put(&mut txn, None, o.as_ref()).unwrap();
+        col1.put(&mut txn, None, o).unwrap();
         txn.commit().unwrap();
         isar.close();
 
-        isar!(path: path, isar, _col2 => col!("col2", f1 => Int));
+        isar!(path: path, isar, _col2 => col!("col2", f1 => DataType::Int));
         isar.close();
 
-        isar!(path: path, isar, col1 => col!("col1", f1 => Int), _col2 => col!("col2", f1 => Int));
+        isar!(path: path, isar, col1 => col!("col1", f1 => DataType::Int), _col2 => col!("col2", f1 => DataType::Int));
         let mut txn = isar.begin_txn(false).unwrap();
         assert_eq!(col1.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();

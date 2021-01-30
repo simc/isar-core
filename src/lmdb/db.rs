@@ -29,7 +29,7 @@ impl Db {
         Ok(Self { dbi, dup })
     }
 
-    pub fn cursor<'txn>(&self, txn: &Txn) -> Result<Cursor<'txn>> {
+    pub fn cursor<'txn>(&self, txn: &'txn Txn) -> Result<Cursor<'txn>> {
         Cursor::open(txn, &self)
     }
 

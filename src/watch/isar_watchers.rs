@@ -1,5 +1,5 @@
 use crate::object::object_id::ObjectId;
-use crate::query::query::Query;
+use crate::query::Query;
 use crate::watch::watcher::{Watcher, WatcherCallback};
 use crossbeam_channel::Receiver;
 use hashbrown::HashMap;
@@ -39,7 +39,7 @@ impl IsarWatchers {
 
 pub struct IsarCollectionWatchers {
     pub(super) watchers: Vec<Arc<Watcher>>,
-    pub(super) object_watchers: HashMap<ObjectId, Vec<Arc<Watcher>>>,
+    pub(super) object_watchers: HashMap<Vec<u8>, Vec<Arc<Watcher>>>,
     pub(super) query_watchers: Vec<(Query, Arc<Watcher>)>,
 }
 
@@ -69,20 +69,20 @@ impl IsarCollectionWatchers {
     pub fn add_object_watcher(
         &mut self,
         watcher_id: usize,
-        oid: ObjectId,
+        oid: &ObjectId,
         callback: WatcherCallback,
     ) {
-        assert_ne!(oid.get_prefix(), 0);
         let watcher = Arc::new(Watcher::new(watcher_id, callback));
-        if let Some(object_watchers) = self.object_watchers.get_mut(&oid) {
+        if let Some(object_watchers) = self.object_watchers.get_mut(oid.as_bytes()) {
             object_watchers.push(watcher);
         } else {
-            self.object_watchers.insert(oid, vec![watcher]);
+            self.object_watchers
+                .insert(oid.as_bytes().to_vec(), vec![watcher]);
         }
     }
 
-    pub fn remove_object_watcher(&mut self, oid: ObjectId, watcher_id: usize) {
-        let watchers = self.object_watchers.get_mut(&oid).unwrap();
+    pub fn remove_object_watcher(&mut self, oid: &ObjectId, watcher_id: usize) {
+        let watchers = self.object_watchers.get_mut(oid.as_bytes()).unwrap();
         let position = watchers
             .iter()
             .position(|w| w.get_id() == watcher_id)

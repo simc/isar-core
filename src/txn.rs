@@ -5,13 +5,13 @@ use crate::lmdb::txn::Txn;
 use crate::watch::change_set::ChangeSet;
 
 pub struct IsarTxn<'a> {
-    isar: &'a IsarInstance,
     txn: Txn<'a>,
     write: bool,
     change_set: Option<ChangeSet<'a>>,
-    cursors: Cursors<'a>,
+    cursors: Option<Cursors<'a>>,
 }
 
+#[derive(Clone)]
 pub(crate) struct Cursors<'a> {
     pub(crate) primary: Cursor<'a>,
     pub(crate) secondary: Cursor<'a>,
@@ -22,19 +22,20 @@ impl<'a> IsarTxn<'a> {
     pub(crate) fn new(
         isar: &'a IsarInstance,
         txn: Txn<'a>,
-        cursors: Cursors<'a>,
         write: bool,
         change_set: Option<ChangeSet<'a>>,
-    ) -> Self {
+    ) -> Result<Self> {
         assert_eq!(write, change_set.is_some());
 
-        IsarTxn {
-            isar,
+        let cursors = isar.open_cursors(&txn)?;
+        let cursors: Cursors<'static> = unsafe { std::mem::transmute(cursors) };
+
+        Ok(IsarTxn {
             txn,
-            cursors,
             write,
             change_set,
-        }
+            cursors: Some(cursors),
+        })
     }
 
     pub(crate) fn read<T, F>(&mut self, job: F) -> Result<T>
@@ -44,7 +45,7 @@ impl<'a> IsarTxn<'a> {
         if self.write && self.change_set.is_none() {
             Err(IsarError::TransactionClosed {})
         } else {
-            job(&mut self.cursors)
+            job(self.cursors.as_mut().unwrap())
         }
     }
 
@@ -57,7 +58,7 @@ impl<'a> IsarTxn<'a> {
         }
         let change_set = self.change_set.take();
         if let Some(mut change_set) = change_set {
-            let result = job(&mut self.cursors, &mut change_set);
+            let result = job(self.cursors.as_mut().unwrap(), &mut change_set);
             if result.is_ok() {
                 self.change_set.replace(change_set);
             }
@@ -67,14 +68,11 @@ impl<'a> IsarTxn<'a> {
         }
     }
 
-    pub(crate) fn open_cursors(&self) -> Result<Cursors<'a>> {
-        self.isar.open_cursors(&self.txn)
-    }
-
-    pub fn commit(self) -> Result<()> {
+    pub fn commit(mut self) -> Result<()> {
         if self.write && self.change_set.is_none() {
             return Err(IsarError::TransactionClosed {});
         }
+        self.cursors.take(); // drop before txn
 
         if self.write {
             self.txn.commit()?;
@@ -85,7 +83,8 @@ impl<'a> IsarTxn<'a> {
         Ok(())
     }
 
-    pub fn abort(self) {
+    pub fn abort(mut self) {
+        self.cursors.take(); // drop before txn
         self.txn.abort();
     }
 }

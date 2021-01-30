@@ -25,7 +25,7 @@ pub unsafe extern "C" fn isar_create_instance(
     let path = from_c_str(path).unwrap();
     let schema = Box::from_raw(schema);
     run_async(move || {
-        let instance = IsarInstance::create(&path, max_size as usize, *schema);
+        let instance = IsarInstance::open(&path, max_size as usize, *schema);
         match instance {
             Ok(instance) => {
                 isar.0.write(instance.as_ref());

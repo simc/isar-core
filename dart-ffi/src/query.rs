@@ -3,11 +3,11 @@ use crate::async_txn::IsarAsyncTxn;
 use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
-use isar_core::object::property::Property;
+use isar_core::object::isar_object::Property;
 use isar_core::query::filter::Filter;
-use isar_core::query::query::{Query, Sort};
 use isar_core::query::query_builder::QueryBuilder;
 use isar_core::query::where_clause::WhereClause;
+use isar_core::query::{Query, Sort};
 use isar_core::txn::IsarTxn;
 
 #[no_mangle]
@@ -125,7 +125,7 @@ pub unsafe extern "C" fn isar_q_find_first(
 ) -> i32 {
     isar_try! {
         query.find_while(txn, |oid, obj| {
-            object.set_object_id(*oid);
+            object.set_object_id(oid);
             object.set_object(obj);
             false
         })?;
@@ -141,7 +141,7 @@ pub unsafe extern "C" fn isar_q_find_first_async(
     let object = RawObjectSend(object);
     txn.exec(move |txn| {
         query.find_while(txn, |oid, obj| {
-            object.0.set_object_id(*oid);
+            object.0.set_object_id(oid);
             object.0.set_object(obj);
             false
         })
