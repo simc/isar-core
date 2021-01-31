@@ -42,10 +42,6 @@ impl IsarCollection {
         self.id
     }
 
-    pub(crate) fn get_oid_type(&self) -> DataType {
-        self.object_info.get_oid_type()
-    }
-
     pub(crate) fn update_oid_counter(&self, counter: i64) {
         if counter > self.oid_counter.get() {
             self.oid_counter.set(counter);
@@ -56,15 +52,19 @@ impl IsarCollection {
         &self.name
     }
 
-    pub fn get_int_oid(&self, oid: i32) -> ObjectId<'static> {
+    pub fn get_oid_type(&self) -> DataType {
+        self.object_info.get_oid_type()
+    }
+
+    pub fn new_int_oid(&self, oid: i32) -> ObjectId<'static> {
         ObjectId::from_int(self.id, oid)
     }
 
-    pub fn get_long_oid(&self, oid: i64) -> ObjectId<'static> {
+    pub fn new_long_oid(&self, oid: i64) -> ObjectId<'static> {
         ObjectId::from_long(self.id, oid)
     }
 
-    pub fn get_string_oid(&self, oid: &str) -> ObjectId<'static> {
+    pub fn new_string_oid(&self, oid: &str) -> ObjectId<'static> {
         ObjectId::from_str(self.id, oid)
     }
 
@@ -109,15 +109,15 @@ impl IsarCollection {
     fn generate_oid(&self) -> Result<ObjectId<'static>> {
         if let Some(counter) = self.oid_counter.get().checked_add(1) {
             self.oid_counter.set(counter);
-            match self.object_info.get_oid_type() {
+            match self.get_oid_type() {
                 DataType::Int => {
                     if counter <= i32::MAX as i64 {
-                        Ok(self.get_int_oid(counter as i32))
+                        Ok(self.new_int_oid(counter as i32))
                     } else {
                         Err(IsarError::AutoIncrementOverflow {})
                     }
                 }
-                DataType::Long => Ok(self.get_long_oid(counter)),
+                DataType::Long => Ok(self.new_long_oid(counter)),
                 DataType::String => illegal_arg("ObjectId must be provided"),
                 _ => unreachable!(),
             }

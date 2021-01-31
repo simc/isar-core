@@ -9,11 +9,9 @@ use std::{ptr, slice};
 
 #[repr(C)]
 pub struct RawObject {
-    oid_type: u8,
     oid_str: *const u8,
     oid_str_len: u32,
-    oid_int: i32,
-    oid_long: i64,
+    oid_num: i64,
     data: *const u8,
     data_length: u32,
 }
@@ -26,24 +24,25 @@ unsafe impl Send for RawObjectSend {}
 impl RawObject {
     pub fn new() -> Self {
         RawObject {
-            oid_type: DataType::Long as u8,
+            oid_num: 0,
             oid_str: std::ptr::null(),
             oid_str_len: 0,
-            oid_int: 0,
-            oid_long: 0,
             data: std::ptr::null(),
             data_length: 0,
         }
     }
 
     pub fn get_object_id(&self, col: &IsarCollection) -> Option<ObjectId> {
-        let oid_type = DataType::from_ordinal(self.oid_type)?;
+        if self.oid_str_len > 0 && self.oid_num > 0 {
+            return None;
+        }
+        let oid_type = col.get_oid_type();
         let oid = match oid_type {
-            DataType::Int => col.get_int_oid(self.oid_int),
-            DataType::Long => col.get_long_oid(self.oid_long),
+            DataType::Int => col.new_int_oid(self.oid_num as i32),
+            DataType::Long => col.new_long_oid(self.oid_num),
             DataType::String => unsafe {
                 let slice = std::slice::from_raw_parts(self.oid_str, self.oid_str_len as usize);
-                col.get_string_oid(std::str::from_utf8(slice).unwrap())
+                col.new_string_oid(std::str::from_utf8(slice).unwrap())
             },
             _ => unreachable!(),
         };
@@ -51,27 +50,27 @@ impl RawObject {
     }
 
     pub fn reset_object_id(&mut self) {
-        self.oid_type = u8::MAX;
+        self.oid_num = i64::MAX;
         self.oid_str = std::ptr::null();
-        self.oid_str_len = 0;
-        self.oid_int = 0;
-        self.oid_long = 0;
+        self.oid_str_len = u32::MAX;
     }
 
     pub fn set_object_id(&mut self, oid: ObjectId) {
         self.reset_object_id();
-        self.oid_type = oid.get_type() as u8;
         match oid.get_type() {
             DataType::Int => {
-                self.oid_int = oid.get_int().unwrap();
+                self.oid_num = oid.get_int().unwrap() as i64;
+                self.oid_str_len = 0;
             }
             DataType::Long => {
-                self.oid_long = oid.get_long().unwrap();
+                self.oid_num = oid.get_long().unwrap();
+                self.oid_str_len = 0;
             }
             DataType::String => {
                 let str = oid.get_string().unwrap();
                 self.oid_str = str.as_ptr();
                 self.oid_str_len = str.len() as u32;
+                self.oid_num = 0;
             }
             _ => unreachable!(),
         }
@@ -140,7 +139,7 @@ pub unsafe extern "C" fn isar_alloc_raw_obj_list(ros: &mut RawObjectSet, size: u
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_free_raw_obj_list(ros: &mut RawObjectSet) {
-    let objects = Vec::from_raw_parts(ros.objects, ros.length as usize, ros.length as usize);
+    Vec::from_raw_parts(ros.objects, ros.length as usize, ros.length as usize);
     ros.objects = ptr::null_mut();
     ros.length = 0;
 }
