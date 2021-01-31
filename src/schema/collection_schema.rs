@@ -108,9 +108,11 @@ impl CollectionSchema {
             .collect();
         let properties = properties?;
 
-        let duplicate = self.indexes.iter().any(|i| i.properties == properties);
-        if duplicate {
-            illegal_arg("Index already exists.")?;
+        let same_property = self.indexes.iter().any(|i| {
+            i.properties.first().unwrap().property.name == properties.first().unwrap().property.name
+        });
+        if same_property {
+            illegal_arg("Another index already exists for this property.")?;
         }
 
         self.indexes.push(IndexSchema::new(properties, unique));
@@ -143,17 +145,11 @@ impl CollectionSchema {
                     .properties
                     .iter()
                     .map(|ips| {
-                        let pos = self
-                            .properties
+                        let (_, property) = properties
                             .iter()
-                            .position(|p| p == &ips.property)
+                            .find(|(name, _)| name == &ips.property.name)
                             .unwrap();
-                        let (_, property) = properties.get(pos).unwrap();
-                        IndexProperty::new(
-                            *property,
-                            ips.string_type.clone(),
-                            ips.string_lower_case,
-                        )
+                        IndexProperty::new(*property, ips.string_type, ips.string_lower_case)
                     })
                     .collect_vec();
 

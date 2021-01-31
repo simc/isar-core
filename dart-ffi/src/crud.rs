@@ -3,6 +3,7 @@ use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSet
 use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
+use isar_core::object::data_type::DataType;
 use isar_core::object::isar_object::IsarObject;
 use isar_core::object::object_id::ObjectId;
 use isar_core::txn::IsarTxn;
@@ -51,10 +52,12 @@ pub unsafe extern "C" fn isar_put(
     object: &mut RawObject,
 ) -> i32 {
     isar_try! {
-        let oid = object.get_object_id(collection);
+        let oid = object.get_object_id(collection).to_owned();
         let data = object.get_object();
-        let oid = collection.put(txn, oid, data)?.to_owned();
-        object.set_object_id(oid);
+        let oid = collection.put(txn, oid, data)?;
+        if oid.get_type() != DataType::String {
+            object.set_object_id(oid);
+        }
     }
 }
 
@@ -66,10 +69,12 @@ pub unsafe extern "C" fn isar_put_async(
 ) {
     let object = RawObjectSend(object);
     txn.exec(move |txn| -> Result<()> {
-        let oid = object.0.get_object_id(collection);
+        let oid = object.0.get_object_id(collection).to_owned();
         let data = object.0.get_object();
-        let oid = collection.put(txn, oid, data)?.to_owned();
-        object.0.set_object_id(oid);
+        let oid = collection.put(txn, oid, data)?;
+        if oid.get_type() != DataType::String {
+            object.0.set_object_id(oid);
+        }
         Ok(())
     });
 }
@@ -88,8 +93,10 @@ pub unsafe extern "C" fn isar_put_all(
 
     isar_try! {
         let oids = collection.put_all(txn, oids_objecs)?;
-        for (oid, obj) in oids.into_iter().zip(objects.get_objects().iter_mut()) {
-            obj.set_object_id(oid);
+        if collection.get_oid_type() != DataType::String {
+            for (oid, obj) in oids.into_iter().zip(objects.get_objects().iter_mut()) {
+                obj.set_object_id(oid);
+            }
         }
     }
 }
@@ -109,8 +116,10 @@ pub unsafe extern "C" fn isar_put_all_async(
             .map(|o| (o.get_object_id(collection), o.get_object()))
             .collect();
         let oids = collection.put_all(txn, entries)?;
-        for (oid, obj) in oids.into_iter().zip(objects.0.get_objects().iter_mut()) {
-            obj.set_object_id(oid);
+        if collection.get_oid_type() != DataType::String {
+            for (oid, obj) in oids.into_iter().zip(objects.0.get_objects().iter_mut()) {
+                obj.set_object_id(oid);
+            }
         }
         Ok(())
     });

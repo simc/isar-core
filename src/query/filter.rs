@@ -8,11 +8,8 @@ pub enum Filter {
     IsNull(IsNull),
 
     ByteBetween(ByteBetween),
-    ByteNotEqual(ByteNotEqual),
     IntBetween(IntBetween),
-    IntNotEqual(IntNotEqual),
     LongBetween(LongBetween),
-    LongNotEqual(LongNotEqual),
     FloatBetween(FloatBetween),
     DoubleBetween(DoubleBetween),
 
@@ -41,18 +38,17 @@ pub trait Condition {
 #[derive(Clone)]
 pub struct IsNull {
     property: Property,
-    is_null: bool,
 }
 
 impl Condition for IsNull {
     fn evaluate(&self, object: IsarObject) -> bool {
-        object.is_null(self.property) == self.is_null
+        object.is_null(self.property)
     }
 }
 
 impl IsNull {
-    pub fn filter(property: Property, is_null: bool) -> Filter {
-        Filter::IsNull(Self { property, is_null })
+    pub fn filter(property: Property) -> Filter {
+        Filter::IsNull(Self { property })
     }
 }
 
@@ -144,20 +140,6 @@ macro_rules! filter_not_equal_struct {
 }
 
 #[macro_export]
-macro_rules! primitive_filter_not_equal {
-    ($not_equal_name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
-        filter_not_equal_struct!($not_equal_name, $data_type, $type);
-
-        impl Condition for $not_equal_name {
-            fn evaluate(&self, object: IsarObject) -> bool {
-                let val = object.$prop_accessor(self.property);
-                self.value != val
-            }
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! primitive_list_filter {
     ($name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
         filter_not_equal_struct!($name, $data_type, $type);
@@ -175,10 +157,6 @@ macro_rules! primitive_list_filter {
     };
 }
 
-primitive_filter_not_equal!(ByteNotEqual, Byte, u8, read_byte);
-primitive_filter_not_equal!(IntNotEqual, Int, i32, read_int);
-primitive_filter_not_equal!(LongNotEqual, Long, i64, read_long);
-
 primitive_list_filter!(ByteListContains, Byte, u8, read_byte_list);
 primitive_list_filter!(IntListContains, Int, i32, read_int_list);
 primitive_list_filter!(LongListContains, Long, i64, read_long_list);
@@ -190,25 +168,25 @@ macro_rules! string_filter_struct {
         pub struct $name {
             property: Property,
             value: Option<String>,
-            ignore_case: bool,
+            case_sensitive: bool,
         }
 
         impl $name {
             pub fn filter(
                 property: Property,
                 value: Option<&str>,
-                ignore_case: bool,
+                case_sensitive: bool,
             ) -> Result<Filter> {
-                let value = if ignore_case {
-                    value.map(|s| s.to_lowercase())
-                } else {
+                let value = if case_sensitive {
                     value.map(|s| s.to_string())
+                } else {
+                    value.map(|s| s.to_lowercase())
                 };
                 if property.data_type == crate::object::data_type::DataType::String {
                     Ok(Filter::$name($name {
                         property,
                         value,
-                        ignore_case,
+                        case_sensitive,
                     }))
                 } else {
                     illegal_arg("Property does not support this filter.")
@@ -227,12 +205,12 @@ macro_rules! string_filter {
             fn evaluate(&self, object: IsarObject) -> bool {
                 let other_str = object.read_string(self.property);
                 if let (Some(filter_str), Some(other_str)) = (self.value.as_ref(), other_str) {
-                    if self.ignore_case {
+                    if self.case_sensitive {
+                        string_filter!($name filter_str, other_str)
+                    } else {
                         let lowercase_string = other_str.to_lowercase();
                         let lowercase_str = &lowercase_string;
                         string_filter!($name filter_str, lowercase_str)
-                    } else {
-                        string_filter!($name filter_str, other_str)
                     }
                 } else {
                     self.value.is_none() && other_str.is_none()
@@ -243,6 +221,10 @@ macro_rules! string_filter {
 
     (StringEqual $filter_str:ident, $other_str:ident) => {
         $filter_str == $other_str
+    };
+
+    (StringNotEqual $filter_str:ident, $other_str:ident) => {
+        $filter_str != $other_str
     };
 
     (StringStartsWith $filter_str:ident, $other_str:ident) => {
@@ -327,7 +309,7 @@ pub struct Not {
 
 impl Condition for Not {
     fn evaluate(&self, object: IsarObject) -> bool {
-        self.filter.evaluate(object)
+        !self.filter.evaluate(object)
     }
 }
 

@@ -2,7 +2,7 @@ use crate::from_c_str;
 use float_next_after::NextAfter;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
-use isar_core::query::filter::{And, Filter, IsNull, Or};
+use isar_core::query::filter::{And, Filter, IsNull, Not, Or};
 use std::os::raw::c_char;
 use std::slice;
 
@@ -28,16 +28,24 @@ pub unsafe extern "C" fn isar_filter_and_or(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_filter_not(filter: *mut *const Filter, condition: *mut Filter) -> u8 {
+    let condition = *Box::from_raw(condition);
+    let not = Not::filter(condition);
+    let ptr = Box::into_raw(Box::new(not));
+    filter.write(ptr);
+    0
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_filter_is_null(
     collection: &IsarCollection,
     filter: *mut *const Filter,
-    is_null: bool,
     property_index: u32,
 ) -> i32 {
     let property = collection.get_properties().get(property_index as usize);
     isar_try! {
         if let Some((_,property)) = property {
-            let query_filter = IsNull::filter(*property, is_null);
+            let query_filter = IsNull::filter(*property);
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
         } else {
@@ -209,10 +217,6 @@ macro_rules! filter_single_value_ffi {
     }
 }
 
-filter_single_value_ffi!(ByteNotEqual, isar_filter_byte_not_equal, u8);
-filter_single_value_ffi!(IntNotEqual, isar_filter_int_not_equal, i32);
-filter_single_value_ffi!(LongNotEqual, isar_filter_long_not_equal, i64);
-
 filter_single_value_ffi!(ByteListContains, isar_filter_byte_list_contains, u8);
 filter_single_value_ffi!(IntListContains, isar_filter_int_list_contains, i32);
 filter_single_value_ffi!(LongListContains, isar_filter_long_list_contains, i64);
@@ -225,7 +229,7 @@ macro_rules! filter_string_ffi {
             collection: &IsarCollection,
             filter: *mut *const Filter,
             value: *const c_char,
-            ignore_case: bool,
+            case_sensitive: bool,
             property_index: u32,
         ) -> i32 {
             let property = collection.get_properties().get(property_index as usize);
@@ -236,7 +240,7 @@ macro_rules! filter_string_ffi {
                     } else {
                         None
                     };
-                    let query_filter = isar_core::query::filter::$filter_name::filter(*property, str, ignore_case)?;
+                    let query_filter = isar_core::query::filter::$filter_name::filter(*property, str, case_sensitive)?;
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
                 } else {

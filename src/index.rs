@@ -35,27 +35,27 @@ pub enum StringIndexType {
 pub struct IndexProperty {
     property: Property,
     string_type: Option<StringIndexType>,
-    string_lower_case: bool,
+    string_case_sensitive: bool,
 }
 
 impl IndexProperty {
     pub(crate) fn new(
         property: Property,
         string_type: Option<StringIndexType>,
-        string_lower_case: bool,
+        string_case_sensitive: bool,
     ) -> Self {
         IndexProperty {
             property,
             string_type,
-            string_lower_case,
+            string_case_sensitive,
         }
     }
     pub fn get_string_with_case(&self, object: IsarObject) -> Option<String> {
         object.read_string(self.property).map(|str| {
-            if self.string_lower_case {
-                str.to_lowercase()
-            } else {
+            if self.string_case_sensitive {
                 str.to_string()
+            } else {
+                str.to_lowercase()
             }
         })
     }

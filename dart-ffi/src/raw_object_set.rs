@@ -130,14 +130,6 @@ impl RawObjectSet {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_alloc_raw_obj_list(ros: &mut RawObjectSet, size: u32) {
-    let mut objects = Vec::with_capacity(size as usize);
-    ros.objects = objects.as_mut_ptr();
-    ros.length = size;
-    std::mem::forget(objects);
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn isar_free_raw_obj_list(ros: &mut RawObjectSet) {
     Vec::from_raw_parts(ros.objects, ros.length as usize, ros.length as usize);
     ros.objects = ptr::null_mut();

@@ -2,7 +2,7 @@ use crate::index::StringIndexType;
 use crate::schema::property_schema::PropertySchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct IndexPropertySchema {
     pub(crate) property: PropertySchema,
     #[serde(rename = "stringType")]
@@ -11,7 +11,7 @@ pub struct IndexPropertySchema {
     pub(crate) string_lower_case: bool,
 }
 
-#[derive(PartialEq, Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct IndexSchema {
     pub(crate) id: Option<u16>,
     pub(crate) properties: Vec<IndexPropertySchema>,
@@ -34,9 +34,19 @@ impl IndexSchema {
     ) where
         F: FnMut() -> u16,
     {
-        let existing_index = existing_indexes
-            .iter()
-            .find(|i| i.properties == self.properties && i.unique == self.unique);
+        let existing_index = existing_indexes.iter().find(|i| {
+            let index_properties_equal =
+                i.properties
+                    .iter()
+                    .zip(self.properties.iter())
+                    .all(|(p1, p2)| {
+                        p1.property.name == p2.property.name
+                            && p1.property.data_type == p2.property.data_type
+                            && p1.string_type == p2.string_type
+                            && p1.string_lower_case == p2.string_lower_case
+                    });
+            index_properties_equal && i.unique == self.unique
+        });
         if let Some(existing_index) = existing_index {
             self.id = existing_index.id;
         } else {
