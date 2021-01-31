@@ -33,7 +33,7 @@ impl CollectionSchema {
 
     pub fn add_property(&mut self, name: &str, data_type: DataType) -> Result<()> {
         if name.is_empty() {
-            illegal_arg("Empty properties are not allowed")?;
+            illegal_arg("Empty property names are not allowed")?;
         }
 
         if self.properties.iter().any(|f| f.name == name) {
@@ -43,6 +43,7 @@ impl CollectionSchema {
         self.properties.push(PropertySchema {
             name: name.to_string(),
             data_type,
+            offset: None,
         });
 
         Ok(())
@@ -125,13 +126,10 @@ impl CollectionSchema {
     }
 
     fn get_properties(&self) -> Vec<(String, Property)> {
-        let mut offset = 2;
-
         self.properties
             .iter()
             .map(|f| {
-                let property = Property::new(f.data_type, offset);
-                offset += f.data_type.get_static_size();
+                let property = Property::new(f.data_type, f.offset.unwrap());
                 (f.name.clone(), property)
             })
             .collect()
@@ -173,6 +171,21 @@ impl CollectionSchema {
 
         let id = existing_collection.map_or_else(|| get_id(), |e| e.id.unwrap());
         self.id = Some(id);
+
+        let existing_properties: &[PropertySchema] =
+            existing_collection.map_or(&[], |e| &e.properties);
+        let mut existing_offset = existing_properties
+            .iter()
+            .map(|p| p.offset.unwrap() + p.data_type.get_static_size())
+            .max()
+            .unwrap_or(2);
+        for property in &mut self.properties {
+            let offset =
+                property.update_with_existing_properties(existing_properties, existing_offset);
+            if offset > existing_offset {
+                existing_offset = offset;
+            }
+        }
 
         let existing_indexes: &[IndexSchema] = existing_collection.map_or(&[], |e| &e.indexes);
         for index in &mut self.indexes {

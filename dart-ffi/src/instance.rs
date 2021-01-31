@@ -53,3 +53,16 @@ pub unsafe extern "C" fn isar_get_collection<'a>(
         }
     }
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_get_property_offset<'a>(
+    collection: &IsarCollection,
+    property_index: u32,
+) -> i32 {
+    let property = collection.get_properties().get(property_index as usize);
+    if let Some(property) = property {
+        property.offset
+    } else {
+        -1
+    }
+}
