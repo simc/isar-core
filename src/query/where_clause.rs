@@ -2,7 +2,6 @@ use crate::error::Result;
 use crate::index::Index;
 use crate::lmdb::check_below_upper_key;
 use crate::object::isar_object::IsarObject;
-use crate::object::object_id::ObjectId;
 use crate::txn::Cursors;
 use std::convert::TryInto;
 use std::mem::ManuallyDrop;

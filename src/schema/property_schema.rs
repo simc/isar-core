@@ -29,6 +29,6 @@ impl PropertySchema {
         } else {
             self.offset = Some(existing_offset);
         }
-        self.offset + self.data_type.get_static_size()
+        self.offset.unwrap() + self.data_type.get_static_size()
     }
 }
