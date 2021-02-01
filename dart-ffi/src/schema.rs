@@ -58,19 +58,19 @@ pub unsafe extern "C" fn isar_schema_add_index(
     collection_schema: &mut CollectionSchema,
     property_names: *const *const c_char,
     string_types: *const u8,
-    strings_lower_case: *const bool,
+    strings_case_sensitive: *const bool,
     properties_length: u32,
     unique: bool,
 ) -> i32 {
     let properties_length = properties_length as usize;
     let property_names = slice::from_raw_parts(property_names, properties_length);
     let string_types = slice::from_raw_parts(string_types, properties_length);
-    let strings_lower_case = slice::from_raw_parts(strings_lower_case, properties_length);
+    let strings_case_sensitive = slice::from_raw_parts(strings_case_sensitive, properties_length);
 
     let properties: Vec<(&str, Option<StringIndexType>, bool)> = property_names
         .iter()
         .zip(string_types)
-        .zip(strings_lower_case)
+        .zip(strings_case_sensitive)
         .map(|((p_name, string_type), string_lower_case)| {
             let p_name = CStr::from_ptr(*p_name).to_str().unwrap();
             let string_type = StringIndexType::from_ordinal(*string_type);

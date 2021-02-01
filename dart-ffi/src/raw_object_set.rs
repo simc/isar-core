@@ -32,7 +32,7 @@ impl RawObject {
         }
     }
 
-    pub fn get_object_id(&self, col: &IsarCollection) -> Option<ObjectId> {
+    pub fn get_object_id(&self, col: &IsarCollection) -> Option<ObjectId<'static>> {
         if self.oid_str_len > 0 && self.oid_num > 0 {
             return None;
         }

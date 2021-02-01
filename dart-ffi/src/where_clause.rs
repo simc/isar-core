@@ -56,13 +56,14 @@ pub extern "C" fn isar_wc_add_double(where_clause: &mut WhereClause, lower: f64,
 pub unsafe extern "C" fn isar_wc_add_string_hash(
     where_clause: &mut WhereClause,
     value: *const c_char,
+    case_sensitive: bool,
 ) {
     let str = if !value.is_null() {
         Some(from_c_str(value).unwrap())
     } else {
         None
     };
-    where_clause.add_string_hash(str);
+    where_clause.add_string_hash(str, case_sensitive);
 }
 
 #[no_mangle]
@@ -70,6 +71,7 @@ pub unsafe extern "C" fn isar_wc_add_string_value(
     where_clause: &mut WhereClause,
     lower: *const c_char,
     upper: *const c_char,
+    case_sensitive: bool,
 ) {
     let lower_str = if !lower.is_null() {
         Some(from_c_str(lower).unwrap())
@@ -81,7 +83,19 @@ pub unsafe extern "C" fn isar_wc_add_string_value(
     } else {
         None
     };
-    where_clause.add_string_value(lower_str, upper_str);
+    where_clause.add_string_value(lower_str, upper_str, case_sensitive);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_wc_add_string_word(
+    where_clause: &mut WhereClause,
+    lower: *const c_char,
+    upper: *const c_char,
+    case_sensitive: bool,
+) {
+    let lower_str = from_c_str(lower).unwrap();
+    let upper_str = from_c_str(upper).unwrap();
+    where_clause.add_string_word(lower_str, upper_str, case_sensitive);
 }
 
 #[no_mangle]

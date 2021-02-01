@@ -65,7 +65,7 @@ impl CollectionSchema {
         let properties: Result<Vec<_>> = properties
             .iter()
             .enumerate()
-            .map(|(i, (property_name, string_type, string_lower_case))| {
+            .map(|(i, (property_name, string_type, string_case_sensitive))| {
                 let property = self.properties
                     .iter()
                     .find(|p| p.name == *property_name)
@@ -101,8 +101,8 @@ impl CollectionSchema {
 
                 Ok(IndexPropertySchema {
                     property,
-                    string_type:string_type.clone(),
-                    string_lower_case:*string_lower_case,
+                    string_type: *string_type,
+                    string_case_sensitive: *string_case_sensitive,
                 })
             })
             .collect();
@@ -149,7 +149,7 @@ impl CollectionSchema {
                             .iter()
                             .find(|(name, _)| name == &ips.property.name)
                             .unwrap();
-                        IndexProperty::new(*property, ips.string_type, ips.string_lower_case)
+                        IndexProperty::new(*property, ips.string_type, ips.string_case_sensitive)
                     })
                     .collect_vec();
 

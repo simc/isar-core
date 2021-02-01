@@ -177,20 +177,45 @@ impl WhereClause {
             .extend_from_slice(&Index::create_double_key(upper));
     }
 
-    pub fn add_string_hash(&mut self, value: Option<&str>) {
-        let hash = Index::create_string_hash_key(value);
+    pub fn add_string_hash(&mut self, value: Option<&str>, case_sensitive: bool) {
+        let value = if case_sensitive {
+            value.map(|s| s.to_string())
+        } else {
+            value.map(|s| s.to_lowercase())
+        };
+        let hash = Index::create_string_hash_key(value.as_deref());
         self.lower_key.extend_from_slice(&hash);
         self.upper_key.extend_from_slice(&hash);
     }
 
-    pub fn add_string_value(&mut self, lower: Option<&str>, upper: Option<&str>) {
+    pub fn add_string_value(
+        &mut self,
+        lower: Option<&str>,
+        upper: Option<&str>,
+        case_sensitive: bool,
+    ) {
+        let lower = if case_sensitive {
+            lower.map(|s| s.to_string())
+        } else {
+            lower.map(|s| s.to_lowercase())
+        };
+        let upper = if case_sensitive {
+            upper.map(|s| s.to_string())
+        } else {
+            upper.map(|s| s.to_lowercase())
+        };
         self.lower_key
-            .extend_from_slice(&Index::create_string_value_key(lower));
+            .extend_from_slice(&Index::create_string_value_key(lower.as_deref()));
         self.upper_key
-            .extend_from_slice(&Index::create_string_value_key(upper));
+            .extend_from_slice(&Index::create_string_value_key(upper.as_deref()));
     }
 
-    pub fn add_string_word(&mut self, lower: &str, upper: &str) {
+    pub fn add_string_word(&mut self, lower: &str, upper: &str, case_sensitive: bool) {
+        let lower = if case_sensitive {
+            lower.to_string()
+        } else {
+            lower.to_lowercase()
+        };
         self.lower_key.extend_from_slice(lower.as_bytes());
         self.upper_key.extend_from_slice(upper.as_bytes());
     }

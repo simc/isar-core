@@ -7,8 +7,8 @@ pub struct IndexPropertySchema {
     pub(crate) property: PropertySchema,
     #[serde(rename = "stringType")]
     pub(crate) string_type: Option<StringIndexType>,
-    #[serde(rename = "stringLowerCase")]
-    pub(crate) string_lower_case: bool,
+    #[serde(rename = "stringCaseSensitive")]
+    pub(crate) string_case_sensitive: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -43,7 +43,7 @@ impl IndexSchema {
                         p1.property.name == p2.property.name
                             && p1.property.data_type == p2.property.data_type
                             && p1.string_type == p2.string_type
-                            && p1.string_lower_case == p2.string_lower_case
+                            && p1.string_case_sensitive == p2.string_case_sensitive
                     });
             index_properties_equal && i.unique == self.unique
         });

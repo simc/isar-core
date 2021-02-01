@@ -52,7 +52,7 @@ pub unsafe extern "C" fn isar_put(
     object: &mut RawObject,
 ) -> i32 {
     isar_try! {
-        let oid = object.get_object_id(collection).to_owned();
+        let oid = object.get_object_id(collection);
         let data = object.get_object();
         let oid = collection.put(txn, oid, data)?;
         if oid.get_type() != DataType::String {
@@ -69,7 +69,7 @@ pub unsafe extern "C" fn isar_put_async(
 ) {
     let object = RawObjectSend(object);
     txn.exec(move |txn| -> Result<()> {
-        let oid = object.0.get_object_id(collection).to_owned();
+        let oid = object.0.get_object_id(collection);
         let data = object.0.get_object();
         let oid = collection.put(txn, oid, data)?;
         if oid.get_type() != DataType::String {
