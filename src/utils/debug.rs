@@ -91,7 +91,7 @@ macro_rules! ind (
     };
 
     ($($index:expr),+; $unique:expr) => {
-        (&[$((stringify!($index), None, false)),+], $unique);
+        (&[$((stringify!($index), None, true)),+], $unique);
     };
 
     (str $($index:expr, $str_type:expr, $str_lc:expr),+) => {

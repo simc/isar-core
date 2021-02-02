@@ -1,33 +1,34 @@
 use crate::error::{illegal_arg, Result};
 use crate::object::isar_object::{IsarObject, Property};
 use enum_dispatch::enum_dispatch;
+use paste::paste;
 
 #[enum_dispatch]
 #[derive(Clone)]
 pub enum Filter {
-    IsNull(IsNull),
+    IsNull(IsNullCond),
 
-    ByteBetween(ByteBetween),
-    IntBetween(IntBetween),
-    LongBetween(LongBetween),
-    FloatBetween(FloatBetween),
-    DoubleBetween(DoubleBetween),
+    ByteBetween(ByteBetweenCond),
+    IntBetween(IntBetweenCond),
+    LongBetween(LongBetweenCond),
+    FloatBetween(FloatBetweenCond),
+    DoubleBetween(DoubleBetweenCond),
 
-    ByteListContains(ByteListContains),
-    IntListContains(IntListContains),
-    LongListContains(LongListContains),
+    ByteListContains(ByteListContainsCond),
+    IntListContains(IntListContainsCond),
+    LongListContains(LongListContainsCond),
 
-    StringEqual(StringEqual),
-    StringStartsWith(StringStartsWith),
-    StringEndsWith(StringEndsWith),
-    StringContains(StringContains),
+    StringEqual(StringEqualCond),
+    StringStartsWith(StringStartsWithCond),
+    StringEndsWith(StringEndsWithCond),
+    StringContains(StringContainsCond),
 
-    StringListContains(StringListContains),
+    StringListContains(StringListContainsCond),
 
-    And(And),
-    Or(Or),
-    Not(Not),
-    Static(Static),
+    And(AndCond),
+    Or(OrCond),
+    Not(NotCond),
+    Static(StaticCond),
 }
 
 #[enum_dispatch(Filter)]
@@ -36,17 +37,17 @@ pub trait Condition {
 }
 
 #[derive(Clone)]
-pub struct IsNull {
+pub struct IsNullCond {
     property: Property,
 }
 
-impl Condition for IsNull {
+impl Condition for IsNullCond {
     fn evaluate(&self, object: IsarObject) -> bool {
         object.is_null(self.property)
     }
 }
 
-impl IsNull {
+impl IsNullCond {
     pub fn filter(property: Property) -> Filter {
         Filter::IsNull(Self { property })
     }
@@ -55,23 +56,25 @@ impl IsNull {
 #[macro_export]
 macro_rules! filter_between_struct {
     ($name:ident, $data_type:ident, $type:ty) => {
-        #[derive(Clone)]
-        pub struct $name {
-            upper: $type,
-            lower: $type,
-            property: Property,
-        }
+        paste! {
+            #[derive(Clone)]
+            pub struct [<$name Cond>] {
+                upper: $type,
+                lower: $type,
+                property: Property,
+            }
 
-        impl $name {
-            pub fn filter(property: Property, lower: $type, upper: $type) -> Result<Filter> {
-                if property.data_type == crate::object::data_type::DataType::$data_type {
-                    Ok(Filter::$name(Self {
-                        property,
-                        lower,
-                        upper,
-                    }))
-                } else {
-                    illegal_arg("Property does not support this filter.")
+            impl [<$name Cond>] {
+                pub fn filter(property: Property, lower: $type, upper: $type) -> Result<Filter> {
+                    if property.data_type == crate::object::data_type::DataType::$data_type {
+                        Ok(Filter::$name(Self {
+                            property,
+                            lower,
+                            upper,
+                        }))
+                    } else {
+                        illegal_arg("Property does not support this filter.")
+                    }
                 }
             }
         }
@@ -82,11 +85,12 @@ macro_rules! filter_between_struct {
 macro_rules! primitive_filter_between {
     ($name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
         filter_between_struct!($name, $data_type, $type);
-
-        impl Condition for $name {
-            fn evaluate(&self, object: IsarObject) -> bool {
-                let val = object.$prop_accessor(self.property);
-                self.lower <= val && self.upper >= val
+        paste! {
+            impl Condition for [<$name Cond>] {
+                fn evaluate(&self, object: IsarObject) -> bool {
+                    let val = object.$prop_accessor(self.property);
+                    self.lower <= val && self.upper >= val
+                }
             }
         }
     };
@@ -96,16 +100,17 @@ macro_rules! primitive_filter_between {
 macro_rules! float_filter_between {
     ($name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
         filter_between_struct!($name, $data_type, $type);
-
-        impl Condition for $name {
-            fn evaluate(&self, object: IsarObject) -> bool {
-                let val = object.$prop_accessor(self.property);
-                if self.upper.is_nan() {
-                    self.lower.is_nan() && val.is_nan()
-                } else if self.lower.is_nan() {
-                    self.upper >= val || val.is_nan()
-                } else {
-                    self.lower <= val && self.upper >= val
+        paste! {
+            impl Condition for [<$name Cond>] {
+                fn evaluate(&self, object: IsarObject) -> bool {
+                    let val = object.$prop_accessor(self.property);
+                    if self.upper.is_nan() {
+                        self.lower.is_nan() && val.is_nan()
+                    } else if self.lower.is_nan() {
+                        self.upper >= val || val.is_nan()
+                    } else {
+                        self.lower <= val && self.upper >= val
+                    }
                 }
             }
         }
@@ -121,18 +126,20 @@ float_filter_between!(DoubleBetween, Double, f64, read_double);
 #[macro_export]
 macro_rules! filter_not_equal_struct {
     ($name:ident, $data_type:ident, $type:ty) => {
-        #[derive(Clone)]
-        pub struct $name {
-            value: $type,
-            property: Property,
-        }
+        paste! {
+            #[derive(Clone)]
+            pub struct [<$name Cond>] {
+                value: $type,
+                property: Property,
+            }
 
-        impl $name {
-            pub fn filter(property: Property, value: $type) -> Result<Filter> {
-                if property.data_type == crate::object::data_type::DataType::$data_type {
-                    Ok(Filter::$name(Self { property, value }))
-                } else {
-                    illegal_arg("Property does not support this filter.")
+            impl [<$name Cond>] {
+                pub fn filter(property: Property, value: $type) -> Result<Filter> {
+                    if property.data_type == crate::object::data_type::DataType::$data_type {
+                        Ok(Filter::$name(Self { property, value }))
+                    } else {
+                        illegal_arg("Property does not support this filter.")
+                    }
                 }
             }
         }
@@ -143,14 +150,15 @@ macro_rules! filter_not_equal_struct {
 macro_rules! primitive_list_filter {
     ($name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
         filter_not_equal_struct!($name, $data_type, $type);
-
-        impl Condition for $name {
-            fn evaluate(&self, object: IsarObject) -> bool {
-                let list = object.$prop_accessor(self.property);
-                if let Some(list) = list {
-                    list.contains(&self.value)
-                } else {
-                    false
+        paste! {
+            impl Condition for [<$name Cond>] {
+                fn evaluate(&self, object: IsarObject) -> bool {
+                    let list = object.$prop_accessor(self.property);
+                    if let Some(list) = list {
+                        list.contains(&self.value)
+                    } else {
+                        false
+                    }
                 }
             }
         }
@@ -164,32 +172,34 @@ primitive_list_filter!(LongListContains, Long, i64, read_long_list);
 #[macro_export]
 macro_rules! string_filter_struct {
     ($name:ident) => {
-        #[derive(Clone)]
-        pub struct $name {
-            property: Property,
-            value: Option<String>,
-            case_sensitive: bool,
-        }
-
-        impl $name {
-            pub fn filter(
+        paste! {
+            #[derive(Clone)]
+            pub struct [<$name Cond>] {
                 property: Property,
-                value: Option<&str>,
+                value: Option<String>,
                 case_sensitive: bool,
-            ) -> Result<Filter> {
-                let value = if case_sensitive {
-                    value.map(|s| s.to_string())
-                } else {
-                    value.map(|s| s.to_lowercase())
-                };
-                if property.data_type == crate::object::data_type::DataType::String {
-                    Ok(Filter::$name($name {
-                        property,
-                        value,
-                        case_sensitive,
-                    }))
-                } else {
-                    illegal_arg("Property does not support this filter.")
+            }
+
+            impl [<$name Cond>] {
+                pub fn filter(
+                    property: Property,
+                    value: Option<&str>,
+                    case_sensitive: bool,
+                ) -> Result<Filter> {
+                    let value = if case_sensitive {
+                        value.map(|s| s.to_string())
+                    } else {
+                        value.map(|s| s.to_lowercase())
+                    };
+                    if property.data_type == crate::object::data_type::DataType::String {
+                        Ok(Filter::$name([<$name Cond>] {
+                            property,
+                            value,
+                            case_sensitive,
+                        }))
+                    } else {
+                        illegal_arg("Property does not support this filter.")
+                    }
                 }
             }
         }
@@ -200,20 +210,21 @@ macro_rules! string_filter_struct {
 macro_rules! string_filter {
     ($name:ident) => {
         string_filter_struct!($name);
-
-        impl Condition for $name {
-            fn evaluate(&self, object: IsarObject) -> bool {
-                let other_str = object.read_string(self.property);
-                if let (Some(filter_str), Some(other_str)) = (self.value.as_ref(), other_str) {
-                    if self.case_sensitive {
-                        string_filter!($name filter_str, other_str)
+        paste! {
+            impl Condition for [<$name Cond>] {
+                fn evaluate(&self, object: IsarObject) -> bool {
+                    let other_str = object.read_string(self.property);
+                    if let (Some(filter_str), Some(other_str)) = (self.value.as_ref(), other_str) {
+                        if self.case_sensitive {
+                            string_filter!($name filter_str, other_str)
+                        } else {
+                            let lowercase_string = other_str.to_lowercase();
+                            let lowercase_str = &lowercase_string;
+                            string_filter!($name filter_str, lowercase_str)
+                        }
                     } else {
-                        let lowercase_string = other_str.to_lowercase();
-                        let lowercase_str = &lowercase_string;
-                        string_filter!($name filter_str, lowercase_str)
+                        self.value.is_none() && other_str.is_none()
                     }
-                } else {
-                    self.value.is_none() && other_str.is_none()
                 }
             }
         }
@@ -247,7 +258,7 @@ string_filter!(StringContains);
 
 string_filter_struct!(StringListContains);
 
-impl Condition for StringListContains {
+impl Condition for StringListContainsCond {
     fn evaluate(&self, object: IsarObject) -> bool {
         let list = object.read_string_list(self.property);
         if let Some(list) = list {
@@ -259,11 +270,11 @@ impl Condition for StringListContains {
 }
 
 #[derive(Clone)]
-pub struct And {
+pub struct AndCond {
     filters: Vec<Filter>,
 }
 
-impl Condition for And {
+impl Condition for AndCond {
     fn evaluate(&self, object: IsarObject) -> bool {
         for filter in &self.filters {
             if !filter.evaluate(object) {
@@ -274,18 +285,18 @@ impl Condition for And {
     }
 }
 
-impl And {
+impl AndCond {
     pub fn filter(filters: Vec<Filter>) -> Filter {
-        Filter::And(And { filters })
+        Filter::And(AndCond { filters })
     }
 }
 
 #[derive(Clone)]
-pub struct Or {
+pub struct OrCond {
     filters: Vec<Filter>,
 }
 
-impl Condition for Or {
+impl Condition for OrCond {
     fn evaluate(&self, object: IsarObject) -> bool {
         for filter in &self.filters {
             if filter.evaluate(object) {
@@ -296,44 +307,44 @@ impl Condition for Or {
     }
 }
 
-impl Or {
+impl OrCond {
     pub fn filter(filters: Vec<Filter>) -> Filter {
-        Filter::Or(Or { filters })
+        Filter::Or(OrCond { filters })
     }
 }
 
 #[derive(Clone)]
-pub struct Not {
+pub struct NotCond {
     filter: Box<Filter>,
 }
 
-impl Condition for Not {
+impl Condition for NotCond {
     fn evaluate(&self, object: IsarObject) -> bool {
         !self.filter.evaluate(object)
     }
 }
 
-impl Not {
+impl NotCond {
     pub fn filter(filter: Filter) -> Filter {
-        Filter::Not(Not {
+        Filter::Not(NotCond {
             filter: Box::new(filter),
         })
     }
 }
 
 #[derive(Clone)]
-pub struct Static {
+pub struct StaticCond {
     value: bool,
 }
 
-impl Condition for Static {
+impl Condition for StaticCond {
     fn evaluate(&self, _: IsarObject) -> bool {
         self.value
     }
 }
 
-impl Static {
+impl StaticCond {
     pub fn filter(value: bool) -> Filter {
-        Filter::Static(Static { value })
+        Filter::Static(StaticCond { value })
     }
 }

@@ -2,7 +2,7 @@ use crate::from_c_str;
 use float_next_after::NextAfter;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
-use isar_core::query::filter::{And, Filter, IsNull, Not, Or};
+use isar_core::query::filter::*;
 use std::os::raw::c_char;
 use std::slice;
 
@@ -18,9 +18,9 @@ pub unsafe extern "C" fn isar_filter_and_or(
         .map(|f| *Box::from_raw(*f))
         .collect();
     let and_or = if and {
-        And::filter(filters)
+        AndCond::filter(filters)
     } else {
-        Or::filter(filters)
+        OrCond::filter(filters)
     };
     let ptr = Box::into_raw(Box::new(and_or));
     filter.write(ptr);
@@ -30,7 +30,7 @@ pub unsafe extern "C" fn isar_filter_and_or(
 #[no_mangle]
 pub unsafe extern "C" fn isar_filter_not(filter: *mut *const Filter, condition: *mut Filter) -> u8 {
     let condition = *Box::from_raw(condition);
-    let not = Not::filter(condition);
+    let not = NotCond::filter(condition);
     let ptr = Box::into_raw(Box::new(not));
     filter.write(ptr);
     0
@@ -45,7 +45,7 @@ pub unsafe extern "C" fn isar_filter_is_null(
     let property = collection.get_properties().get(property_index as usize);
     isar_try! {
         if let Some((_,property)) = property {
-            let query_filter = IsNull::filter(*property);
+            let query_filter = IsNullCond::filter(*property);
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
         } else {
@@ -81,9 +81,9 @@ macro_rules! filter_between_ffi {
             isar_try! {
                 if let Some((_, property)) = property {
                     let query_filter = if let (Some(lower), Some(upper)) = (lower, upper) {
-                        isar_core::query::filter::$filter_name::filter(*property, lower, upper)?
+                        $filter_name::filter(*property, lower, upper)?
                     } else {
-                        isar_core::query::filter::Static::filter(false)
+                        StaticCond::filter(false)
                     };
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
@@ -164,29 +164,35 @@ fn prev_double(value: f64) -> Option<f64> {
 }
 
 filter_between_ffi!(
-    ByteBetween,
+    ByteBetweenCond,
     isar_filter_byte_between,
     next_byte,
     prev_byte,
     u8
 );
-filter_between_ffi!(IntBetween, isar_filter_int_between, next_int, prev_int, i32);
 filter_between_ffi!(
-    FloatBetween,
+    IntBetweenCond,
+    isar_filter_int_between,
+    next_int,
+    prev_int,
+    i32
+);
+filter_between_ffi!(
+    FloatBetweenCond,
     isar_filter_float_between,
     next_float,
     prev_float,
     f32
 );
 filter_between_ffi!(
-    LongBetween,
+    LongBetweenCond,
     isar_filter_long_between,
     next_long,
     prev_long,
     i64
 );
 filter_between_ffi!(
-    DoubleBetween,
+    DoubleBetweenCond,
     isar_filter_double_between,
     next_double,
     prev_double,
@@ -217,9 +223,9 @@ macro_rules! filter_single_value_ffi {
     }
 }
 
-filter_single_value_ffi!(ByteListContains, isar_filter_byte_list_contains, u8);
-filter_single_value_ffi!(IntListContains, isar_filter_int_list_contains, i32);
-filter_single_value_ffi!(LongListContains, isar_filter_long_list_contains, i64);
+filter_single_value_ffi!(ByteListContainsCond, isar_filter_byte_list_contains, u8);
+filter_single_value_ffi!(IntListContainsCond, isar_filter_int_list_contains, i32);
+filter_single_value_ffi!(LongListContainsCond, isar_filter_long_list_contains, i64);
 
 #[macro_export]
 macro_rules! filter_string_ffi {
@@ -251,8 +257,8 @@ macro_rules! filter_string_ffi {
     }
 }
 
-filter_string_ffi!(StringEqual, isar_filter_string_equal);
-filter_string_ffi!(StringStartsWith, isar_filter_string_starts_with);
-filter_string_ffi!(StringEndsWith, isar_filter_string_ends_with);
-filter_string_ffi!(StringContains, isar_filter_string_contains);
-filter_string_ffi!(StringListContains, isar_filter_string_list_contains);
+filter_string_ffi!(StringEqualCond, isar_filter_string_equal);
+filter_string_ffi!(StringStartsWithCond, isar_filter_string_starts_with);
+filter_string_ffi!(StringEndsWithCond, isar_filter_string_ends_with);
+filter_string_ffi!(StringContainsCond, isar_filter_string_contains);
+filter_string_ffi!(StringListContainsCond, isar_filter_string_list_contains);

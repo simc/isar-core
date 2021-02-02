@@ -63,7 +63,7 @@ impl WhereClause {
         if self.lower_key.len() < 2 {
             0 // empty
         } else {
-            u16::from_le_bytes(self.lower_key[0..2].try_into().unwrap())
+            u16::from_be_bytes(self.lower_key[0..2].try_into().unwrap())
         }
     }
 

@@ -306,7 +306,7 @@ impl IsarCollection {
 mod tests {
     use crate::object::data_type::DataType;
     use crate::object::object_id::ObjectId;
-    use crate::query::filter::IntBetween;
+    use crate::query::filter::IntBetweenCond;
     use crate::{col, ind, isar, map, set};
     use crossbeam_channel::unbounded;
 
@@ -495,13 +495,14 @@ mod tests {
     #[test]
     fn test_put_calls_notifiers() {
         isar!(isar, col => col!(field1 => DataType::Int; ind!(field1)));
+        let p = col.get_properties().first().unwrap().1;
 
         let mut qb1 = col.new_query_builder();
-        qb1.set_filter(IntBetween::filter(col.get_properties().first().unwrap().1, 1, 1).unwrap());
+        qb1.set_filter(IntBetweenCond::filter(p, 1, 1).unwrap());
         let q1 = qb1.build();
 
         let mut qb2 = col.new_query_builder();
-        qb2.set_filter(IntBetween::filter(col.get_properties().first().unwrap().1, 2, 2).unwrap());
+        qb2.set_filter(IntBetweenCond::filter(p, 2, 2).unwrap());
         let q2 = qb2.build();
 
         let (tx1, rx1) = unbounded();
@@ -550,8 +551,6 @@ mod tests {
         builder.write_int(54321);
         let object2 = builder.finish();
         let oid2 = col.put(&mut txn, None, object2).unwrap();
-
-        eprintln!("{:?}", col.debug_dump(&mut txn));
 
         col.delete(&mut txn, &oid).unwrap();
 

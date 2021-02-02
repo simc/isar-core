@@ -3,7 +3,7 @@ use crate::error::Result;
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::object_id::ObjectId;
-use crate::query::filter::{Condition, Filter, Static};
+use crate::query::filter::{Condition, Filter, StaticCond};
 use crate::query::where_clause::WhereClause;
 use crate::query::where_executor::WhereExecutor;
 use crate::txn::{Cursors, IsarTxn};
@@ -70,7 +70,7 @@ impl<'txn> Query {
             self.where_clauses_overlapping,
         );
 
-        let static_filter = Static::filter(true);
+        let static_filter = StaticCond::filter(true);
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
         executor.execute(cursors, |cursors, oid, object| {
             if filter.evaluate(object) {
@@ -163,7 +163,11 @@ impl<'txn> Query {
             Ordering::Equal
         });
 
-        Ok(self.add_distinct_sorted(results))
+        if self.distinct.is_some() {
+            Ok(self.add_distinct_sorted(results))
+        } else {
+            Ok(results)
+        }
     }
 
     fn add_distinct_sorted(
@@ -288,141 +292,212 @@ impl<'txn> Query {
     }
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::instance::IsarInstance;
-    use crate::object::object_id::ObjectId;
+    use crate::query::filter::{IntBetweenCond, NotCond, OrCond};
     use crate::{col, ind, isar, set};
     use std::sync::Arc;
 
-    fn get_col(data: Vec<(i32, String)>) -> (Arc<IsarInstance>, Vec<ObjectId>) {
-        isar!(isar, col => col!(field1 => Int, field2 => String; ind!(field1, field2; true), ind!(field2)));
+    fn fill_int_col(data: Vec<i32>, unique: bool) -> Arc<IsarInstance> {
+        isar!(isar, col => col!(field => DataType::Int; ind!(field; unique)));
         let mut txn = isar.begin_txn(true).unwrap();
-        let mut ids = vec![];
-        for (f1, f2) in data {
+        for int in data {
             let mut o = col.new_object_builder(None);
-            o.write_int(f1);
-            o.write_string(Some(&f2));
-            let bytes = o.finish();
-            ids.push(col.put(&mut txn, None, bytes.as_ref()).unwrap());
+            o.write_int(int);
+            col.put(&mut txn, None, o.finish()).unwrap();
         }
         txn.commit().unwrap();
-        (isar, ids)
+        isar
     }
 
-    fn keys(result: Vec<(&ObjectId, &[u8])>) -> Vec<ObjectId> {
-        result.iter().map(|(k, _)| **k).collect()
+    fn find(txn: &mut IsarTxn, query: Query) -> Vec<(i64, i32)> {
+        query
+            .find_all_vec(txn)
+            .unwrap()
+            .iter()
+            .map(|(oid, obj)| {
+                (
+                    oid.get_long().unwrap(),
+                    obj.read_int(Property {
+                        offset: 2,
+                        data_type: DataType::Int,
+                    }),
+                )
+            })
+            .collect()
     }
 
     #[test]
-    fn test_no_where_clauses() {
-        let (isar, ids) = get_col(vec![(1, "a".to_string()), (2, "b".to_string())]);
+    fn test_no_where_clauses() -> Result<()> {
+        let isar = fill_int_col(vec![1, 2, 3, 4], true);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false).unwrap();
+        let mut txn = isar.begin_txn(false)?;
 
         let q = col.new_query_builder().build();
-        let results = q.find_all_vec(&mut txn).unwrap();
+        assert_eq!(find(&mut txn, q), vec![(1, 1), (2, 2), (3, 3), (4, 4)]);
 
-        assert_eq!(keys(results), vec![ids[0], ids[1]]);
+        Ok(())
     }
 
     #[test]
-    fn test_single_primary_where_clause() {}
+    fn test_single_primary_where_clause() -> Result<()> {
+        let isar = fill_int_col(vec![1, 2, 3, 4, 5], true);
+        let col = isar.get_collection(0).unwrap();
+        let mut txn = isar.begin_txn(false)?;
+
+        let mut wc = col.new_primary_where_clause();
+        wc.add_long(2, 4);
+        let mut qb = col.new_query_builder();
+        qb.add_where_clause(wc, true, true)?;
+        assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3), (4, 4)]);
+
+        Ok(())
+    }
 
     #[test]
-    fn test_single_secondary_where_clause() {
-        let (isar, ids) = get_col(vec![
-            (1, "a".to_string()),
-            (1, "b".to_string()),
-            (1, "c".to_string()),
-            (2, "d".to_string()),
-            (2, "a".to_string()),
-            (3, "b".to_string()),
-        ]);
+    fn test_single_secondary_where_clause() -> Result<()> {
+        let isar = fill_int_col(vec![1, 2, 3, 4], true);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false).unwrap();
+        let mut txn = isar.begin_txn(false)?;
 
         let mut wc = col.new_secondary_where_clause(0, false).unwrap();
-        wc.add_int(1, 1);
-
+        wc.add_int(2, 3);
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(wc.clone(), true, true).unwrap();
-        let q = qb.build();
+        qb.add_where_clause(wc, true, true)?;
+        assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3)]);
 
-        let results = q.find_all_vec(&mut txn).unwrap();
-        assert_eq!(keys(results), vec![ids[0], ids[1], ids[2]]);
-
-        wc.add_string_value(Some("b"), Some("x"));
-        let mut qb = col.new_query_builder();
-        qb.add_where_clause(wc, true, true).unwrap();
-        let q = qb.build();
-
-        let results = q.find_all_vec(&mut txn).unwrap();
-        assert_eq!(keys(results), vec![ids[1], ids[2]]);
+        Ok(())
     }
 
     #[test]
-    fn test_single_secondary_where_clause_dup() {
-        let (isar, ids) = get_col(vec![
-            (1, "aa".to_string()),
-            (2, "ab".to_string()),
-            (4, "bb".to_string()),
-            (3, "ab".to_string()),
-        ]);
+    fn test_single_secondary_where_clause_dup() -> Result<()> {
+        let isar = fill_int_col(vec![1, 2, 2, 3, 3, 3, 4], false);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false).unwrap();
+        let mut txn = isar.begin_txn(false)?;
 
-        let mut wc = col.new_secondary_where_clause(1, false).unwrap();
-        wc.add_string_value(Some("ab"), Some("xx"));
-
+        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
+        wc.add_int(2, 3);
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(wc, true, true).unwrap();
-        let q = qb.build();
+        qb.add_where_clause(wc, true, true)?;
+        assert_eq!(
+            find(&mut txn, qb.build()),
+            vec![(2, 2), (3, 2), (4, 3), (5, 3), (6, 3)]
+        );
 
-        let results = q.find_all_vec(&mut txn).unwrap();
-        assert_eq!(keys(results), vec![ids[1], ids[3], ids[2]]);
-
-        let mut wc = col.new_secondary_where_clause(1, false).unwrap();
-        wc.add_string_value(Some("ab"), Some("ab"));
+        let mut wc = col.new_secondary_where_clause(0, true).unwrap();
+        wc.add_int(2, 4);
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(wc, true, true).unwrap();
-        let q = qb.build();
+        qb.add_where_clause(wc, true, true)?;
+        assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (4, 3), (7, 4)]);
 
-        let results = q.find_all_vec(&mut txn).unwrap();
-        assert_eq!(keys(results), vec![ids[1], ids[3]]);
+        Ok(())
     }
 
     #[test]
-    fn test_multiple_where_clauses() {
-        let (isar, ids) = get_col(vec![
-            (1, "aa".to_string()),
-            (1, "ab".to_string()),
-            (0, "ab".to_string()),
-            (1, "bb".to_string()),
-            (0, "bb".to_string()),
-            (1, "bc".to_string()),
-        ]);
+    fn test_multiple_where_clauses() -> Result<()> {
+        let isar = fill_int_col(vec![1, 2, 2, 3, 3, 3, 4], false);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false).unwrap();
+        let mut txn = isar.begin_txn(false)?;
 
         let mut primary_wc = col.new_primary_where_clause();
-        primary_wc.add_oid(ids[5]);
+        primary_wc.add_long(1, 1);
 
-        let mut secondary_wc = col.new_secondary_where_clause(0, false).unwrap();
-        secondary_wc.add_int(0, 0);
+        let mut primary_wc2 = col.new_primary_where_clause();
+        primary_wc2.add_long(5, 9);
 
-        let mut secondary_dup_wc = col.new_secondary_where_clause(1, false).unwrap();
-        secondary_dup_wc.add_string_value(None, Some("aa"));
+        let mut secondary_dup_wc = col.new_secondary_where_clause(0, false).unwrap();
+        secondary_dup_wc.add_int(3, 5);
 
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(primary_wc, true, true).unwrap();
-        qb.add_where_clause(secondary_wc, true, true).unwrap();
-        qb.add_where_clause(secondary_dup_wc, true, true).unwrap();
-        let q = qb.build();
+        qb.add_where_clause(primary_wc, true, true)?;
+        qb.add_where_clause(primary_wc2, true, true)?;
+        qb.add_where_clause(secondary_dup_wc, true, true)?;
 
-        let results = q.find_all_vec(&mut txn).unwrap();
-        let set: HashSet<ObjectId> = keys(results).into_iter().collect();
-        assert_eq!(set, set!(ids[0], ids[2], ids[4], ids[5]));
+        let results = find(&mut txn, qb.build());
+        let results_set: HashSet<(i64, i32)> = results.into_iter().collect();
+        assert_eq!(results_set, set![(1, 1), (4, 3), (5, 3), (6, 3), (7, 4)]);
+        Ok(())
     }
-}*/
+
+    #[test]
+    fn test_filter_unsorted() -> Result<()> {
+        let isar = fill_int_col(vec![5, 4, 4, 3, 2, 2, 1], false);
+        let col = isar.get_collection(0).unwrap();
+        let mut txn = isar.begin_txn(false)?;
+
+        let int_property = col.get_properties().get(0).unwrap().1;
+        let mut qb = col.new_query_builder();
+        qb.set_filter(OrCond::filter(vec![
+            IntBetweenCond::filter(int_property, 2, 3)?,
+            NotCond::filter(IntBetweenCond::filter(int_property, 0, 4)?),
+        ]));
+
+        assert_eq!(
+            find(&mut txn, qb.build()),
+            vec![(1, 5), (4, 3), (5, 2), (6, 2)]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter_sorted() -> Result<()> {
+        let isar = fill_int_col(vec![5, 4, 4, 3, 2, 2, 1], false);
+        let col = isar.get_collection(0).unwrap();
+        let mut txn = isar.begin_txn(false)?;
+
+        let int_property = col.get_properties().get(0).unwrap().1;
+        let mut qb = col.new_query_builder();
+        qb.set_filter(OrCond::filter(vec![
+            IntBetweenCond::filter(int_property, 2, 3)?,
+            NotCond::filter(IntBetweenCond::filter(int_property, 0, 4)?),
+        ]));
+        qb.add_sort(int_property, Sort::Ascending);
+
+        assert_eq!(
+            find(&mut txn, qb.build()),
+            vec![(5, 2), (6, 2), (4, 3), (1, 5)]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_distinct_unsorted() -> Result<()> {
+        let isar = fill_int_col(vec![5, 4, 4, 3, 2, 2, 1], false);
+        let col = isar.get_collection(0).unwrap();
+        let mut txn = isar.begin_txn(false)?;
+
+        let int_property = col.get_properties().get(0).unwrap().1;
+        let mut qb = col.new_query_builder();
+        qb.set_distinct(&[int_property]);
+
+        assert_eq!(
+            find(&mut txn, qb.build()),
+            vec![(1, 5), (2, 4), (4, 3), (5, 2), (7, 1)]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_distinct_sorted() -> Result<()> {
+        let isar = fill_int_col(vec![5, 4, 4, 3, 2, 2, 1], false);
+        let col = isar.get_collection(0).unwrap();
+        let mut txn = isar.begin_txn(false)?;
+
+        let int_property = col.get_properties().get(0).unwrap().1;
+        let mut qb = col.new_query_builder();
+        qb.set_distinct(&[int_property]);
+        qb.add_sort(int_property, Sort::Ascending);
+
+        assert_eq!(
+            find(&mut txn, qb.build()),
+            vec![(7, 1), (5, 2), (4, 3), (2, 4), (1, 5)]
+        );
+
+        Ok(())
+    }
+}
