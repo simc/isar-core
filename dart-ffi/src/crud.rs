@@ -3,7 +3,6 @@ use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSet
 use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
-use isar_core::object::data_type::DataType;
 use isar_core::object::object_id::ObjectId;
 use isar_core::txn::IsarTxn;
 use serde_json::Value;
@@ -19,8 +18,6 @@ pub unsafe extern "C" fn isar_get(
         let result = collection.get(txn, &object_id)?;
         if let Some(result) = result {
             object.set_object(result);
-        } else {
-            object.reset_object_id();
         }
     }
 }
@@ -37,8 +34,6 @@ pub unsafe extern "C" fn isar_get_async(
         let result = collection.get(txn, &oid)?;
         if let Some(result) = result {
             object.0.set_object(result);
-        } else {
-            object.0.reset_object_id();
         }
         Ok(())
     });
@@ -57,8 +52,6 @@ pub unsafe extern "C" fn isar_get_all_async(
             let result = collection.get(txn, &oid)?;
             if let Some(result) = result {
                 object.set_object(result);
-            } else {
-                object.reset_object_id();
             }
         }
         Ok(())
@@ -73,10 +66,11 @@ pub unsafe extern "C" fn isar_put(
 ) -> i32 {
     isar_try! {
         let oid = object.get_object_id(collection);
+        let oid_none = oid.is_none();
         let data = object.get_object();
-        let oid = collection.put(txn, oid, data)?;
-        if oid.get_type() != DataType::String {
-            object.set_object_id(oid);
+        let new_oid = collection.put(txn, oid, data)?;
+        if oid_none {
+            object.set_object_id(&new_oid);
         }
     }
 }
@@ -90,10 +84,11 @@ pub unsafe extern "C" fn isar_put_async(
     let object = RawObjectSend(object);
     txn.exec(move |txn| -> Result<()> {
         let oid = object.0.get_object_id(collection);
+        let oid_none = oid.is_none();
         let data = object.0.get_object();
-        let oid = collection.put(txn, oid, data)?;
-        if oid.get_type() != DataType::String {
-            object.0.set_object_id(oid);
+        let new_oid = collection.put(txn, oid, data)?;
+        if oid_none {
+            object.0.set_object_id(&new_oid);
         }
         Ok(())
     });
@@ -107,16 +102,18 @@ pub unsafe extern "C" fn isar_put_all_async(
 ) {
     let objects = RawObjectSetSend(objects);
     txn.exec(move |txn| -> Result<()> {
-        let entries = objects
-            .0
-            .get_objects()
-            .iter()
-            .map(|o| (o.get_object_id(collection), o.get_object()))
-            .collect();
+        let mut oids_none = vec![];
+        let mut entries = vec![];
+        for raw_obj in objects.0.get_objects() {
+            let oid = raw_obj.get_object_id(collection);
+            oids_none.push(oid.is_none());
+            entries.push((oid, raw_obj.get_object()))
+        }
         let oids = collection.put_all(txn, entries)?;
-        if collection.get_oid_type() != DataType::String {
-            for (oid, obj) in oids.into_iter().zip(objects.0.get_objects().iter_mut()) {
-                obj.set_object_id(oid);
+        let objects = objects.0.get_objects();
+        for (i, oid_none) in oids_none.iter().enumerate() {
+            if *oid_none {
+                objects[i].set_object_id(oids.get(i).unwrap());
             }
         }
         Ok(())
