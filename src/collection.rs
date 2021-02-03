@@ -172,7 +172,7 @@ impl IsarCollection {
     ) -> Result<ObjectId<'a>> {
         let oid = if let Some(oid) = oid {
             self.verify_oid(&oid)?;
-            if !self.delete_internal(cursors, change_set, &oid, false)? {
+            if !self.delete_internal(cursors, change_set, &oid)? {
                 if oid.get_type() == DataType::Int {
                     self.update_oid_counter(oid.get_int().unwrap() as i64)
                 } else if oid.get_type() == DataType::Long {
@@ -199,7 +199,7 @@ impl IsarCollection {
     }
 
     pub fn delete(&self, txn: &mut IsarTxn, oid: &ObjectId) -> Result<bool> {
-        txn.write(|cursors, change_set| self.delete_internal(cursors, change_set, oid, true))
+        txn.write(|cursors, change_set| self.delete_internal(cursors, change_set, oid))
     }
 
     fn delete_internal(
@@ -207,36 +207,44 @@ impl IsarCollection {
         cursors: &mut Cursors,
         change_set: &mut ChangeSet,
         oid: &ObjectId,
-        delete_object: bool,
     ) -> Result<bool> {
         if let Some((_, existing_object)) = cursors.primary.move_to(oid.as_bytes())? {
             let existing_object = IsarObject::new(existing_object);
-            self.delete_object_internal(cursors, change_set, oid, existing_object, delete_object)?;
+            self.delete_current_object_internal(cursors, change_set, oid, existing_object)?;
             Ok(true)
         } else {
             Ok(false)
         }
     }
 
-    pub(crate) fn delete_object_internal(
+    pub(crate) fn delete_current_object_internal(
         &self,
         cursors: &mut Cursors,
         change_set: &mut ChangeSet,
         oid: &ObjectId,
         object: IsarObject,
-        delete_object: bool,
     ) -> Result<()> {
         for index in &self.indexes {
             index.delete_for_object(cursors, oid, object)?;
         }
         change_set.register_change(self.id, oid, object);
-        if delete_object {
-            cursors.primary.delete_current()?;
-        }
+        cursors.primary.delete_current()?;
         Ok(())
     }
 
-    pub fn delete_all(&self, txn: &mut IsarTxn) -> Result<usize> {
+    pub fn delete_all(&self, txn: &mut IsarTxn, oids: &[ObjectId]) -> Result<usize> {
+        let mut counter = 0;
+        txn.write(|cursors, change_set| {
+            for oid in oids {
+                if self.delete_internal(cursors, change_set, oid)? {
+                    counter += 1;
+                }
+            }
+            Ok(counter)
+        })
+    }
+
+    pub fn clear(&self, txn: &mut IsarTxn) -> Result<usize> {
         let mut counter = 0;
         self.new_query_builder()
             .build()

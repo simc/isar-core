@@ -263,7 +263,7 @@ impl<'txn> Query {
                     return Ok(false);
                 }
                 count += 1;
-                collection.delete_object_internal(cursors, change_set, &oid, object, true)?;
+                collection.delete_current_object_internal(cursors, change_set, &oid, object)?;
                 Ok(true)
             })
         })?;

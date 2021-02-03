@@ -4,7 +4,6 @@ use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::object::data_type::DataType;
-use isar_core::object::isar_object::IsarObject;
 use isar_core::object::object_id::ObjectId;
 use isar_core::txn::IsarTxn;
 use serde_json::Value;
@@ -46,6 +45,27 @@ pub unsafe extern "C" fn isar_get_async(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_get_all_async(
+    collection: &'static IsarCollection,
+    txn: &IsarAsyncTxn,
+    objects: &'static mut RawObjectSet,
+) {
+    let objects = RawObjectSetSend(objects);
+    txn.exec(move |txn| -> Result<()> {
+        for object in objects.0.get_objects() {
+            let oid = object.get_object_id(collection).unwrap();
+            let result = collection.get(txn, &oid)?;
+            if let Some(result) = result {
+                object.set_object(result);
+            } else {
+                object.reset_object_id();
+            }
+        }
+        Ok(())
+    });
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_put(
     collection: &mut IsarCollection,
     txn: &mut IsarTxn,
@@ -80,28 +100,6 @@ pub unsafe extern "C" fn isar_put_async(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_put_all(
-    collection: &mut IsarCollection,
-    txn: &mut IsarTxn,
-    objects: &mut RawObjectSet,
-) -> i32 {
-    let oids_objecs: Vec<(Option<ObjectId>, IsarObject)> = objects
-        .get_objects()
-        .iter()
-        .map(|o| (o.get_object_id(collection), o.get_object()))
-        .collect();
-
-    isar_try! {
-        let oids = collection.put_all(txn, oids_objecs)?;
-        if collection.get_oid_type() != DataType::String {
-            for (oid, obj) in oids.into_iter().zip(objects.get_objects().iter_mut()) {
-                obj.set_object_id(oid);
-            }
-        }
-    }
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn isar_put_all_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
@@ -109,7 +107,7 @@ pub unsafe extern "C" fn isar_put_all_async(
 ) {
     let objects = RawObjectSetSend(objects);
     txn.exec(move |txn| -> Result<()> {
-        let entries: Vec<(Option<ObjectId>, IsarObject)> = objects
+        let entries = objects
             .0
             .get_objects()
             .iter()
@@ -157,10 +155,16 @@ pub unsafe extern "C" fn isar_delete_async(
 pub unsafe extern "C" fn isar_delete_all(
     collection: &IsarCollection,
     txn: &mut IsarTxn,
+    objects: &RawObjectSet,
     count: &mut i64,
 ) -> i32 {
+    let oids: Vec<ObjectId> = objects
+        .get_objects()
+        .iter()
+        .map(|raw_obj| raw_obj.get_object_id(collection).unwrap())
+        .collect();
     isar_try! {
-        *count = collection.delete_all(txn)? as i64;
+        *count = collection.delete_all(txn, &oids)? as i64;
     }
 }
 
@@ -168,11 +172,41 @@ pub unsafe extern "C" fn isar_delete_all(
 pub unsafe extern "C" fn isar_delete_all_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
+    objects: &RawObjectSet,
+    count: &'static mut i64,
+) {
+    let oids: Vec<ObjectId> = objects
+        .get_objects()
+        .iter()
+        .map(|raw_obj| raw_obj.get_object_id(collection).unwrap())
+        .collect();
+    let count = IntSend(count);
+    txn.exec(move |txn| {
+        *count.0 = collection.delete_all(txn, &oids)? as i64;
+        Ok(())
+    });
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_clear(
+    collection: &IsarCollection,
+    txn: &mut IsarTxn,
+    count: &mut i64,
+) -> i32 {
+    isar_try! {
+        *count = collection.clear(txn)? as i64;
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_clear_async(
+    collection: &'static IsarCollection,
+    txn: &IsarAsyncTxn,
     count: &'static mut i64,
 ) {
     let count = IntSend(count);
     txn.exec(move |txn| -> Result<()> {
-        *(count.0) = collection.delete_all(txn)? as i64;
+        *(count.0) = collection.clear(txn)? as i64;
         Ok(())
     });
 }
