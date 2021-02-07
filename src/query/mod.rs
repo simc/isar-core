@@ -35,7 +35,7 @@ pub struct Query {
     where_clauses_overlapping: bool,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
-    distinct: Option<Vec<Property>>,
+    distinct: Vec<Property>,
     offset_limit: Option<(usize, usize)>,
 }
 
@@ -46,7 +46,7 @@ impl<'txn> Query {
         where_clauses: Vec<WhereClause>,
         filter: Option<Filter>,
         sort: Vec<(Property, Sort)>,
-        distinct: Option<Vec<Property>>,
+        distinct: Vec<Property>,
         offset_limit: Option<(usize, usize)>,
     ) -> Self {
         Query {
@@ -85,7 +85,7 @@ impl<'txn> Query {
     where
         F: FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
-        if self.distinct.is_some() {
+        if !self.distinct.is_empty() {
             let callback = self.add_distinct_unsorted(callback);
             let callback = self.add_offset_limit_unsorted(callback);
             self.execute_raw(cursors, callback)
@@ -102,7 +102,7 @@ impl<'txn> Query {
     where
         F: FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
-        let properties = self.distinct.as_ref().unwrap().clone();
+        let properties = self.distinct.clone();
         let mut hashes = HashSet::new();
         move |cursors, oid, object| {
             let mut hasher = WyHash::default();
@@ -163,7 +163,7 @@ impl<'txn> Query {
             Ordering::Equal
         });
 
-        if self.distinct.is_some() {
+        if !self.distinct.is_empty() {
             Ok(self.add_distinct_sorted(results))
         } else {
             Ok(results)
@@ -174,7 +174,7 @@ impl<'txn> Query {
         &self,
         results: Vec<(ObjectId<'txn>, IsarObject<'txn>)>,
     ) -> Vec<(ObjectId<'txn>, IsarObject<'txn>)> {
-        let properties = self.distinct.as_ref().unwrap().clone();
+        let properties = self.distinct.clone();
         let mut hashes = HashSet::new();
         results
             .into_iter()
@@ -255,7 +255,7 @@ impl<'txn> Query {
     where
         F: FnMut(&ObjectId<'txn>, IsarObject<'txn>) -> bool,
     {
-        let skip_sorting = self.offset_limit.is_none() && self.distinct.is_none();
+        let skip_sorting = self.offset_limit.is_none() && self.distinct.is_empty();
         let mut count = 0;
         txn.write(|cursors, change_set| {
             self.find_all_internal(cursors, skip_sorting, |cursors, oid, object| {
@@ -472,7 +472,7 @@ mod tests {
 
         let int_property = col.get_properties().get(0).unwrap().1;
         let mut qb = col.new_query_builder();
-        qb.set_distinct(&[int_property]);
+        qb.add_distinct(int_property);
 
         assert_eq!(
             find(&mut txn, qb.build()),
@@ -490,7 +490,7 @@ mod tests {
 
         let int_property = col.get_properties().get(0).unwrap().1;
         let mut qb = col.new_query_builder();
-        qb.set_distinct(&[int_property]);
+        qb.add_distinct(int_property);
         qb.add_sort(int_property, Sort::Ascending);
 
         assert_eq!(

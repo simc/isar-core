@@ -3,7 +3,6 @@ use crate::async_txn::IsarAsyncTxn;
 use crate::{BoolSend, IntSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
-use isar_core::object::isar_object::Property;
 use isar_core::query::filter::Filter;
 use isar_core::query::query_builder::QueryBuilder;
 use isar_core::query::where_clause::WhereClause;
@@ -58,27 +57,15 @@ pub unsafe extern "C" fn isar_add_sort_by(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_set_distinct(
+pub unsafe extern "C" fn isar_add_distinct_by(
     collection: &IsarCollection,
     builder: &mut QueryBuilder,
-    distinct_property_indices: *const u32,
-    distinct_property_indices_length: u32,
+    property_index: u32,
 ) -> i32 {
-    let properties: Option<Vec<Property>> = std::slice::from_raw_parts(
-        distinct_property_indices,
-        distinct_property_indices_length as usize,
-    )
-    .iter()
-    .map(|index| {
-        collection
-            .get_properties()
-            .get(*index as usize)
-            .map(|(_, p)| *p)
-    })
-    .collect();
+    let property = collection.get_properties().get(property_index as usize);
     isar_try! {
-        if let Some(properties) = properties {
-            builder.set_distinct(&properties);
+        if let Some((_,property)) = property {
+            builder.add_distinct(*property);
         } else {
             illegal_arg("Property does not exist.")?;
         }

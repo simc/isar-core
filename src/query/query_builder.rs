@@ -11,7 +11,7 @@ pub struct QueryBuilder<'a> {
     where_clauses: Vec<WhereClause>,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
-    distinct: Option<Vec<Property>>,
+    distinct: Vec<Property>,
     offset_limit: Option<(usize, usize)>,
 }
 
@@ -22,7 +22,7 @@ impl<'a> QueryBuilder<'a> {
             where_clauses: vec![],
             filter: None,
             sort: vec![],
-            distinct: None,
+            distinct: vec![],
             offset_limit: None,
         }
     }
@@ -57,6 +57,10 @@ impl<'a> QueryBuilder<'a> {
         self.sort.push((property, sort))
     }
 
+    pub fn add_distinct(&mut self, property: Property) {
+        self.distinct.push(property);
+    }
+
     pub fn set_offset_limit(&mut self, offset: Option<usize>, limit: Option<usize>) -> Result<()> {
         let offset = offset.unwrap_or(0);
         let limit = limit.unwrap_or(usize::MAX);
@@ -67,10 +71,6 @@ impl<'a> QueryBuilder<'a> {
             self.offset_limit = Some((offset, limit));
             Ok(())
         }
-    }
-
-    pub fn set_distinct(&mut self, properties: &[Property]) {
-        self.distinct = Some(properties.iter().cloned().collect_vec());
     }
 
     pub fn build(mut self) -> Query {
