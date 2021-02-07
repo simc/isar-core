@@ -73,6 +73,12 @@ impl RawObject {
                 self.oid_str = ptr::null();
                 self.oid_str_length = 0;
             }
+            DataType::String => {
+                self.oid_num = 0;
+                let bytes = oid.get_string().unwrap().as_bytes();
+                self.oid_str = bytes.as_ptr();
+                self.oid_str_length = bytes.len() as u32;
+            }
             _ => unreachable!(),
         }
     }
@@ -82,12 +88,17 @@ impl RawObject {
         IsarObject::new(bytes)
     }
 
-    pub fn set_object(&mut self, object: IsarObject) {
-        let bytes = object.as_bytes();
-        let buffer_length = bytes.len() as u32;
-        let buffer = bytes as *const _ as *const u8;
-        self.buffer = buffer;
-        self.buffer_length = buffer_length;
+    pub fn set_object(&mut self, object: Option<IsarObject>) {
+        if let Some(object) = object {
+            let bytes = object.as_bytes();
+            let buffer_length = bytes.len() as u32;
+            let buffer = bytes as *const _ as *const u8;
+            self.buffer = buffer;
+            self.buffer_length = buffer_length;
+        } else {
+            self.buffer = ptr::null();
+            self.buffer_length = 0;
+        }
     }
 }
 
@@ -108,7 +119,7 @@ impl RawObjectSet {
         query.find_while(txn, |oid, object| {
             let mut raw_obj = RawObject::new();
             raw_obj.set_object_id(&oid);
-            raw_obj.set_object(object);
+            raw_obj.set_object(Some(object));
             objects.push(raw_obj);
             true
         })?;

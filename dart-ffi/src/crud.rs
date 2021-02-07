@@ -16,9 +16,7 @@ pub unsafe extern "C" fn isar_get(
     isar_try! {
         let object_id = object.get_object_id(collection).unwrap();
         let result = collection.get(txn, &object_id)?;
-        if let Some(result) = result {
-            object.set_object(result);
-        }
+        object.set_object(result);
     }
 }
 
@@ -32,9 +30,7 @@ pub unsafe extern "C" fn isar_get_async(
     let oid = object.0.get_object_id(collection).unwrap().to_owned();
     txn.exec(move |txn| -> Result<()> {
         let result = collection.get(txn, &oid)?;
-        if let Some(result) = result {
-            object.0.set_object(result);
-        }
+        object.0.set_object(result);
         Ok(())
     });
 }
@@ -50,9 +46,7 @@ pub unsafe extern "C" fn isar_get_all_async(
         for object in objects.0.get_objects() {
             let oid = object.get_object_id(collection).unwrap();
             let result = collection.get(txn, &oid)?;
-            if let Some(result) = result {
-                object.set_object(result);
-            }
+            object.set_object(result);
         }
         Ok(())
     });

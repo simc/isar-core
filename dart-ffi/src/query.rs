@@ -125,8 +125,8 @@ pub unsafe extern "C" fn isar_q_find_first(
 ) -> i32 {
     isar_try! {
         query.find_while(txn, |oid, obj| {
-            object.set_object_id(oid);
-            object.set_object(obj);
+            object.set_object_id(&oid);
+            object.set_object(Some(obj));
             false
         })?;
     }
@@ -141,8 +141,8 @@ pub unsafe extern "C" fn isar_q_find_first_async(
     let object = RawObjectSend(object);
     txn.exec(move |txn| {
         query.find_while(txn, |oid, obj| {
-            object.0.set_object_id(oid);
-            object.0.set_object(obj);
+            object.0.set_object_id(&oid);
+            object.0.set_object(Some(obj));
             false
         })
     });
