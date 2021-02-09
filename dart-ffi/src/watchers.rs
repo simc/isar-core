@@ -21,7 +21,7 @@ pub extern "C" fn isar_watch_collection(
 }
 
 #[no_mangle]
-pub extern "C" fn isar_watch_object(
+pub unsafe extern "C" fn isar_watch_object(
     isar: &IsarInstance,
     collection: &IsarCollection,
     oid: &RawObject,

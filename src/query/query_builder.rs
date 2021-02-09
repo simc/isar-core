@@ -78,12 +78,14 @@ impl<'a> QueryBuilder<'a> {
             self.where_clauses
                 .push(self.collection.new_primary_where_clause())
         }
+        let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();
+        let distinct_unique = self.distinct.into_iter().unique_by(|p| p.offset).collect();
         Query::new(
             self.collection.get_oid_type(),
             self.where_clauses,
             self.filter,
-            self.sort,
-            self.distinct,
+            sort_unique,
+            distinct_unique,
             self.offset_limit,
         )
     }

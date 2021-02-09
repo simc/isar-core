@@ -1,6 +1,6 @@
-use super::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
+use super::raw_object_set::{RawObjectSet, RawObjectSetSend};
 use crate::async_txn::IsarAsyncTxn;
-use crate::{BoolSend, IntSend};
+use crate::UintSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
 use isar_core::query::filter::Filter;
@@ -35,7 +35,7 @@ pub unsafe extern "C" fn isar_qb_set_filter(builder: &mut QueryBuilder, filter: 
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_add_sort_by(
+pub unsafe extern "C" fn isar_qb_add_sort_by(
     collection: &IsarCollection,
     builder: &mut QueryBuilder,
     property_index: u32,
@@ -57,7 +57,7 @@ pub unsafe extern "C" fn isar_add_sort_by(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_add_distinct_by(
+pub unsafe extern "C" fn isar_qb_add_distinct_by(
     collection: &IsarCollection,
     builder: &mut QueryBuilder,
     property_index: u32,
@@ -73,10 +73,10 @@ pub unsafe extern "C" fn isar_add_distinct_by(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_set_offset_limit(
+pub unsafe extern "C" fn isar_qb_set_offset_limit(
     builder: &mut QueryBuilder,
-    offset: u32,
-    limit: u32,
+    offset: i64,
+    limit: i64,
 ) -> i32 {
     let offset = if offset > 0 {
         Some(offset as usize)
@@ -105,61 +105,32 @@ pub unsafe extern "C" fn isar_q_free(query: *mut Query) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_q_find_first(
-    query: &Query,
-    txn: &mut IsarTxn<'static>,
-    object: &mut RawObject,
-) -> i32 {
-    isar_try! {
-        query.find_while(txn, |oid, obj| {
-            object.set_object_id(&oid);
-            object.set_object(Some(obj));
-            false
-        })?;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_find_first_async(
-    query: &'static Query,
-    txn: &IsarAsyncTxn,
-    object: &'static mut RawObject,
-) {
-    let object = RawObjectSend(object);
-    txn.exec(move |txn| {
-        query.find_while(txn, |oid, obj| {
-            object.0.set_object_id(&oid);
-            object.0.set_object(Some(obj));
-            false
-        })
-    });
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_find_all(
+pub unsafe extern "C" fn isar_q_find(
     query: &Query,
     txn: &mut IsarTxn<'static>,
     result: &mut RawObjectSet,
+    limit: u32,
 ) -> i32 {
     isar_try! {
-        result.fill_from_query(query, txn)?;
+        result.fill_from_query(query, txn, limit as usize)?;
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_q_find_all_async(
+pub unsafe extern "C" fn isar_q_find_async(
     query: &'static Query,
     txn: &IsarAsyncTxn,
     result: &'static mut RawObjectSet,
+    limit: u32,
 ) {
     let result = RawObjectSetSend(result);
-    txn.exec(move |txn| result.0.fill_from_query(query, txn));
+    txn.exec(move |txn| result.0.fill_from_query(query, txn, limit as usize));
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_q_count(query: &Query, txn: &mut IsarTxn, count: &mut i64) -> i32 {
+pub unsafe extern "C" fn isar_q_count(query: &Query, txn: &mut IsarTxn, count: &mut u32) -> i32 {
     isar_try! {
-        *count = query.count(txn)? as i64;
+        *count = query.count(txn)? as u32;
     }
 }
 
@@ -167,79 +138,49 @@ pub unsafe extern "C" fn isar_q_count(query: &Query, txn: &mut IsarTxn, count: &
 pub unsafe extern "C" fn isar_q_count_async(
     query: &'static Query,
     txn: &IsarAsyncTxn,
-    count: &'static mut i64,
+    count: &'static mut u32,
 ) {
-    let count = IntSend(count);
+    let count = UintSend(count);
     txn.exec(move |txn| -> Result<()> {
-        *(count.0) = query.count(txn)? as i64;
+        *(count.0) = query.count(txn)? as u32;
         Ok(())
     });
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_q_delete_first(
+pub unsafe extern "C" fn isar_q_delete(
     query: &Query,
     collection: &IsarCollection,
     txn: &mut IsarTxn,
-    deleted: &mut bool,
+    limit: u32,
+    count: &mut u32,
 ) -> i32 {
     isar_try! {
-        *deleted = false;
+        let mut deleted_count = 0;
         query.delete_while(txn, collection, |_,_| {
-            if !*deleted {
-                *deleted = true;
-                true
-            } else {
-                false
-            }
+            deleted_count += 1;
+            deleted_count <= limit
         })?;
+        *count = deleted_count;
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_q_delete_first_async(
+pub unsafe extern "C" fn isar_q_delete_async(
     query: &'static Query,
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
-    deleted: &'static mut bool,
+    limit: u32,
+    count: &'static mut u32,
 ) {
-    *deleted = false;
-    let deleted = BoolSend(deleted);
+    let count = UintSend(count);
     txn.exec(move |txn| -> Result<()> {
+        let mut deleted_count = 0;
         query.delete_while(txn, collection, |_, _| {
-            if !*deleted.0 {
-                *deleted.0 = true;
-                true
-            } else {
-                false
-            }
+            deleted_count += 1;
+            deleted_count <= limit
         })?;
-        Ok(())
-    });
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_delete_all(
-    query: &Query,
-    collection: &IsarCollection,
-    txn: &mut IsarTxn,
-    count: &mut i64,
-) -> i32 {
-    isar_try! {
-        *count = query.delete_while(txn, collection, |_,_| true)? as i64;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_delete_all_async(
-    query: &'static Query,
-    collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
-    count: &'static mut i64,
-) {
-    let count = IntSend(count);
-    txn.exec(move |txn| -> Result<()> {
-        *(count.0) = query.delete_while(txn, collection, |_, _| true)? as i64;
+        *(count.0) = deleted_count;
         Ok(())
     });
 }

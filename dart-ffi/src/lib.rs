@@ -27,9 +27,9 @@ pub unsafe fn from_c_str<'a>(str: *const c_char) -> Result<&'a str> {
     }
 }
 
-pub struct IntSend(&'static mut i64);
+pub struct UintSend(&'static mut u32);
 
-unsafe impl Send for IntSend {}
+unsafe impl Send for UintSend {}
 
 pub struct BoolSend(&'static mut bool);
 

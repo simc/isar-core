@@ -1,6 +1,6 @@
 use crate::async_txn::IsarAsyncTxn;
 use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
-use crate::{BoolSend, IntSend};
+use crate::{BoolSend, UintSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::object::object_id::ObjectId;
@@ -164,16 +164,16 @@ pub unsafe extern "C" fn isar_delete_all_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
     objects: &RawObjectSet,
-    count: &'static mut i64,
+    count: &'static mut u32,
 ) {
     let oids: Vec<ObjectId> = objects
         .get_objects()
         .iter()
         .map(|raw_obj| raw_obj.get_object_id(collection).unwrap())
         .collect();
-    let count = IntSend(count);
+    let count = UintSend(count);
     txn.exec(move |txn| {
-        *count.0 = collection.delete_all(txn, &oids)? as i64;
+        *count.0 = collection.delete_all(txn, &oids)? as u32;
         Ok(())
     });
 }
@@ -182,10 +182,10 @@ pub unsafe extern "C" fn isar_delete_all_async(
 pub unsafe extern "C" fn isar_clear(
     collection: &IsarCollection,
     txn: &mut IsarTxn,
-    count: &mut i64,
+    count: &mut u32,
 ) -> i32 {
     isar_try! {
-        *count = collection.clear(txn)? as i64;
+        *count = collection.clear(txn)? as u32;
     }
 }
 
@@ -193,11 +193,11 @@ pub unsafe extern "C" fn isar_clear(
 pub unsafe extern "C" fn isar_clear_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
-    count: &'static mut i64,
+    count: &'static mut u32,
 ) {
-    let count = IntSend(count);
+    let count = UintSend(count);
     txn.exec(move |txn| -> Result<()> {
-        *(count.0) = collection.clear(txn)? as i64;
+        *(count.0) = collection.clear(txn)? as u32;
         Ok(())
     });
 }

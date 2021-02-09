@@ -114,14 +114,21 @@ pub struct RawObjectSetSend(pub &'static mut RawObjectSet);
 unsafe impl Send for RawObjectSetSend {}
 
 impl RawObjectSet {
-    pub fn fill_from_query(&mut self, query: &Query, txn: &mut IsarTxn) -> Result<()> {
+    pub fn fill_from_query(
+        &mut self,
+        query: &Query,
+        txn: &mut IsarTxn,
+        limit: usize,
+    ) -> Result<()> {
         let mut objects = vec![];
+        let mut count = 0;
         query.find_while(txn, |oid, object| {
             let mut raw_obj = RawObject::new();
             raw_obj.set_object_id(&oid);
             raw_obj.set_object(Some(object));
             objects.push(raw_obj);
-            true
+            count += 1;
+            count < limit
         })?;
 
         self.fill_from_vec(objects);

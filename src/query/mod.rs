@@ -251,23 +251,20 @@ impl<'txn> Query {
         txn: &mut IsarTxn<'txn>,
         collection: &IsarCollection,
         mut callback: F,
-    ) -> Result<usize>
+    ) -> Result<()>
     where
         F: FnMut(&ObjectId<'txn>, IsarObject<'txn>) -> bool,
     {
         let skip_sorting = self.offset_limit.is_none() && self.distinct.is_empty();
-        let mut count = 0;
         txn.write(|cursors, change_set| {
             self.find_all_internal(cursors, skip_sorting, |cursors, oid, object| {
                 if !callback(&oid, object) {
                     return Ok(false);
                 }
-                count += 1;
                 collection.delete_current_object_internal(cursors, change_set, &oid, object)?;
                 Ok(true)
             })
-        })?;
-        Ok(count)
+        })
     }
 
     pub fn find_all_vec(
@@ -306,7 +303,7 @@ mod tests {
         for int in data {
             let mut o = col.new_object_builder(None);
             o.write_int(int);
-            col.put(&mut txn, None, o.finish()).unwrap();
+            col.put(&mut txn, &mut o.finish()).unwrap();
         }
         txn.commit().unwrap();
         isar
