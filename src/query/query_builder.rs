@@ -81,7 +81,7 @@ impl<'a> QueryBuilder<'a> {
         let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();
         let distinct_unique = self.distinct.into_iter().unique_by(|p| p.offset).collect();
         Query::new(
-            self.collection.get_oid_type(),
+            self.collection.get_oid_property().data_type,
             self.where_clauses,
             self.filter,
             sort_unique,

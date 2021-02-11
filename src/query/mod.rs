@@ -298,27 +298,28 @@ mod tests {
     use std::sync::Arc;
 
     fn fill_int_col(data: Vec<i32>, unique: bool) -> Arc<IsarInstance> {
-        isar!(isar, col => col!(field => DataType::Int; ind!(field; unique)));
+        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Int; ind!(field; unique)));
         let mut txn = isar.begin_txn(true).unwrap();
-        for int in data {
+        for (i, int) in data.iter().enumerate() {
             let mut o = col.new_object_builder(None);
-            o.write_int(int);
-            col.put(&mut txn, &mut o.finish()).unwrap();
+            o.write_int(i as i32 + 1);
+            o.write_int(*int);
+            col.put(&mut txn, o.finish()).unwrap();
         }
         txn.commit().unwrap();
         isar
     }
 
-    fn find(txn: &mut IsarTxn, query: Query) -> Vec<(i64, i32)> {
+    fn find(txn: &mut IsarTxn, query: Query) -> Vec<(i32, i32)> {
         query
             .find_all_vec(txn)
             .unwrap()
             .iter()
             .map(|(oid, obj)| {
                 (
-                    oid.get_long().unwrap(),
+                    oid.get_int().unwrap(),
                     obj.read_int(Property {
-                        offset: 2,
+                        offset: 6,
                         data_type: DataType::Int,
                     }),
                 )
@@ -345,7 +346,7 @@ mod tests {
         let mut txn = isar.begin_txn(false)?;
 
         let mut wc = col.new_primary_where_clause();
-        wc.add_long(2, 4);
+        wc.add_int(2, 4);
         let mut qb = col.new_query_builder();
         qb.add_where_clause(wc, true, true)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3), (4, 4)]);
@@ -399,10 +400,10 @@ mod tests {
         let mut txn = isar.begin_txn(false)?;
 
         let mut primary_wc = col.new_primary_where_clause();
-        primary_wc.add_long(1, 1);
+        primary_wc.add_int(1, 1);
 
         let mut primary_wc2 = col.new_primary_where_clause();
-        primary_wc2.add_long(5, 9);
+        primary_wc2.add_int(5, 9);
 
         let mut secondary_dup_wc = col.new_secondary_where_clause(0, false).unwrap();
         secondary_dup_wc.add_int(3, 5);
@@ -413,7 +414,7 @@ mod tests {
         qb.add_where_clause(secondary_dup_wc, true, true)?;
 
         let results = find(&mut txn, qb.build());
-        let results_set: HashSet<(i64, i32)> = results.into_iter().collect();
+        let results_set: HashSet<(i32, i32)> = results.into_iter().collect();
         assert_eq!(results_set, set![(1, 1), (4, 3), (5, 3), (6, 3), (7, 4)]);
         Ok(())
     }
@@ -424,7 +425,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let int_property = col.get_properties().get(0).unwrap().1;
+        let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
         qb.set_filter(OrCond::filter(vec![
             IntBetweenCond::filter(int_property, 2, 3)?,
@@ -445,7 +446,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let int_property = col.get_properties().get(0).unwrap().1;
+        let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
         qb.set_filter(OrCond::filter(vec![
             IntBetweenCond::filter(int_property, 2, 3)?,
@@ -467,7 +468,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let int_property = col.get_properties().get(0).unwrap().1;
+        let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
         qb.add_distinct(int_property);
 
@@ -485,7 +486,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let int_property = col.get_properties().get(0).unwrap().1;
+        let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
         qb.add_distinct(int_property);
         qb.add_sort(int_property, Sort::Ascending);

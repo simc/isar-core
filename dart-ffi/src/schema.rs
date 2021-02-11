@@ -16,14 +16,10 @@ pub extern "C" fn isar_schema_create() -> *mut Schema {
 pub unsafe extern "C" fn isar_schema_create_collection(
     collection_schema: *mut *const CollectionSchema,
     name: *const c_char,
-    oid_name: *const c_char,
-    oid_type: u8,
 ) -> i32 {
-    let oid_type = DataType::from_ordinal(oid_type).unwrap();
     isar_try! {
         let name_str = from_c_str(name)?;
-        let oid_name_str = from_c_str(oid_name)?;
-        let col = CollectionSchema::new(name_str,oid_name_str,oid_type);
+        let col = CollectionSchema::new(name_str);
         let col_ptr = Box::into_raw(Box::new(col));
         collection_schema.write(col_ptr);
     }
@@ -45,11 +41,12 @@ pub unsafe extern "C" fn isar_schema_add_property(
     collection_schema: &mut CollectionSchema,
     name: *const c_char,
     data_type: u8,
+    is_oid: bool,
 ) -> i32 {
     let data_type = DataType::from_ordinal(data_type).unwrap();
     isar_try! {
         let name_str = from_c_str(name)?;
-        collection_schema.add_property(&name_str, data_type)?;
+        collection_schema.add_property(&name_str, data_type, is_oid)?;
     }
 }
 

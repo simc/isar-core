@@ -51,15 +51,15 @@ impl<'env> SchemaManger<'env> {
                     source: Some(Box::new(e)),
                     message: "Could not deserialize existing schema.".to_string(),
                 })?;
-            schema.update_with_existing_schema(Some(&existing_schema));
-            existing_schema.build_collections()
+            schema.update_with_existing_schema(Some(&existing_schema))?;
+            existing_schema.build_collections()?
         } else {
-            schema.update_with_existing_schema(None);
+            schema.update_with_existing_schema(None)?;
             vec![]
         };
 
         self.save_schema(&schema)?;
-        let collections = schema.build_collections();
+        let collections = schema.build_collections()?;
         for collection in &collections {
             self.update_oid_counter(collection)?;
         }
@@ -69,7 +69,7 @@ impl<'env> SchemaManger<'env> {
     }
 
     fn update_oid_counter(&mut self, collection: &IsarCollection) -> Result<()> {
-        if collection.get_oid_type() == DataType::String {
+        if collection.get_oid_property().data_type == DataType::String {
             return Ok(());
         }
         let id = collection.get_id();
@@ -82,7 +82,8 @@ impl<'env> SchemaManger<'env> {
         };
 
         if let Some((oid, _)) = greatest_qualifying_oid {
-            let oid = ObjectId::from_bytes(collection.get_oid_type(), oid);
+            let oid_type = collection.get_oid_property().data_type;
+            let oid = ObjectId::from_bytes(oid_type, oid);
             if oid.get_col_id() == id {
                 let oid_counter = match oid.get_type() {
                     DataType::Int => oid.get_int().unwrap() as i64,
@@ -100,8 +101,7 @@ impl<'env> SchemaManger<'env> {
         let mut ser = Serializer::new(&mut bytes);
         schema
             .serialize(&mut ser)
-            .map_err(|e| IsarError::MigrationError {
-                source: Some(Box::new(e)),
+            .map_err(|_| IsarError::SchemaError {
                 message: "Could not serialize schema.".to_string(),
             })?;
         self.info_cursor.put(INFO_SCHEMA_KEY, &bytes)?;

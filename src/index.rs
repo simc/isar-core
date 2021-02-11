@@ -77,6 +77,10 @@ impl Index {
         }
     }
 
+    pub fn new_where_clause(&self, skip_duplicates: bool) -> WhereClause {
+        WhereClause::new_secondary(&self.get_prefix(), self.clone(), skip_duplicates)
+    }
+
     pub(crate) fn get_id(&self) -> u16 {
         self.id
     }
@@ -147,10 +151,6 @@ impl Index {
                 Ok(true)
             })?;
         Ok(())
-    }
-
-    pub fn new_where_clause(&self, skip_duplicates: bool) -> WhereClause {
-        WhereClause::new_secondary(&self.get_prefix(), self.clone(), skip_duplicates)
     }
 
     pub(crate) fn create_keys(
@@ -355,7 +355,8 @@ mod tests {
 
     fn check_index(isar: &IsarInstance, col: &IsarCollection, obj: IsarObject) {
         let mut txn = isar.begin_txn(true).unwrap();
-        let oid = col.put(&mut txn, None, obj).unwrap();
+        let oid = obj.read_oid(col).unwrap();
+        col.put(&mut txn, obj).unwrap();
         let index = col.debug_get_index(0);
 
         let set: HashSet<(Vec<u8>, Vec<u8>)> = index
@@ -369,40 +370,45 @@ mod tests {
 
     #[test]
     fn test_create_for_object_byte() {
-        isar!(isar, col => col!(field => DataType::Byte; ind!(field)));
+        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Byte; ind!(field)));
         let mut builder = col.new_object_builder(None);
+        builder.write_int(1);
         builder.write_byte(123);
         check_index(&isar, col, builder.finish());
     }
 
     #[test]
     fn test_create_for_object_int() {
-        isar!(isar, col => col!(field => DataType::Int; ind!(field)));
+        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Int; ind!(field)));
         let mut builder = col.new_object_builder(None);
+        builder.write_int(1);
         builder.write_int(123);
         check_index(&isar, col, builder.finish());
     }
 
     #[test]
     fn test_create_for_object_float() {
-        isar!(isar, col => col!(field => DataType::Float; ind!(field)));
+        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Float; ind!(field)));
         let mut builder = col.new_object_builder(None);
+        builder.write_int(1);
         builder.write_float(123.321);
         check_index(&isar, col, builder.finish());
     }
 
     #[test]
     fn test_create_for_object_long() {
-        isar!(isar, col => col!(field => DataType::Long; ind!(field)));
+        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Long; ind!(field)));
         let mut builder = col.new_object_builder(None);
+        builder.write_int(1);
         builder.write_long(123321);
         check_index(&isar, col, builder.finish());
     }
 
     #[test]
     fn test_create_for_object_double() {
-        isar!(isar, col => col!(field => DataType::Double; ind!(field)));
+        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Double; ind!(field)));
         let mut builder = col.new_object_builder(None);
+        builder.write_int(1);
         builder.write_double(123123.321321);
         check_index(&isar, col, builder.finish());
     }
@@ -410,8 +416,9 @@ mod tests {
     #[test]
     fn test_create_for_object_string() {
         fn test(str_type: StringIndexType, str_lc: bool) {
-            isar!(isar, col => col!(field => DataType::String; ind!(str field, Some(str_type), str_lc)));
+            isar!(isar, col => col!(oid => DataType::Int, field => DataType::String; ind!(str field, Some(str_type), str_lc)));
             let mut builder = col.new_object_builder(None);
+            builder.write_int(1);
             builder.write_string(Some("Hello This Is A TEST Hello"));
             check_index(&isar, col, builder.finish());
         }
@@ -431,16 +438,18 @@ mod tests {
 
     #[test]
     fn test_create_for_object_violate_unique() {
-        isar!(isar, col => col!(field => DataType::Int; ind!(field; true)));
+        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Int; ind!(field; true)));
         let mut txn = isar.begin_txn(true).unwrap();
 
         let mut ob = col.new_object_builder(None);
+        ob.write_int(1);
         ob.write_int(5);
-        let object = ob.finish();
+        col.put(&mut txn, ob.finish()).unwrap();
 
-        col.put(&mut txn, None, object).unwrap();
-
-        let result = col.put(&mut txn, None, object);
+        let mut ob = col.new_object_builder(None);
+        ob.write_int(2);
+        ob.write_int(5);
+        let result = col.put(&mut txn, ob.finish());
         match result {
             Err(IsarError::UniqueViolated { .. }) => {}
             _ => panic!("wrong error"),

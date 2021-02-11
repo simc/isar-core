@@ -1,6 +1,7 @@
 use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::object::isar_object::Property;
+use crate::object::object_id::ObjectId;
 use crate::object::object_info::ObjectInfo;
 use std::slice::from_raw_parts;
 
@@ -62,6 +63,18 @@ impl<'a> ObjectBuilder<'a> {
             DataType::LongList => self.write_long_list(None),
             DataType::DoubleList => self.write_double_list(None),
             DataType::StringList => self.write_string_list(None),
+        }
+    }
+
+    pub fn write_oid(&mut self, value: &ObjectId) {
+        let property = self.get_next_property(true);
+        assert!(self.object_info.get_oid_property() == property);
+
+        match value.get_type() {
+            DataType::Int => self.write_int(value.get_int().unwrap()),
+            DataType::Long => self.write_long(value.get_long().unwrap()),
+            DataType::String => self.write_string(value.get_string()),
+            _ => unreachable!(),
         }
     }
 
@@ -192,8 +205,9 @@ mod tests {
 
     macro_rules! builder {
         ($var:ident, $type:ident) => {
-            isar!(isar, col => col!("field" => $type));
+            isar!(isar, col => col!("id" => Int, "field" => $type));
             let mut $var = col.new_object_builder(None);
+            $var.write_int(1);
         };
     }
 
@@ -201,29 +215,29 @@ mod tests {
     pub fn test_write_null() {
         builder!(b, Byte);
         b.write_null();
-        assert_eq!(b.finish().as_bytes(), &[3, 0, 0]);
+        assert_eq!(b.finish().as_bytes(), &[7, 0, 1, 0, 0, 0, 0]);
 
         builder!(b, Int);
         b.write_null();
-        let mut bytes = vec![6, 0];
+        let mut bytes = vec![10, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&IsarObject::NULL_INT.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, Float);
         b.write_null();
-        let mut bytes = vec![6, 0];
+        let mut bytes = vec![10, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&IsarObject::NULL_FLOAT.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, Long);
         b.write_null();
-        let mut bytes = vec![10, 0];
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&IsarObject::NULL_LONG.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, Double);
         b.write_null();
-        let mut bytes = vec![10, 0];
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&IsarObject::NULL_DOUBLE.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
@@ -234,7 +248,7 @@ mod tests {
         for list_type in list_types {
             builder!(b, list_type);
             b.write_null();
-            let mut bytes = vec![10, 0];
+            let mut bytes = vec![14, 0, 1, 0, 0, 0];
             bytes.extend_from_slice(&0u64.to_le_bytes());
             assert_eq!(b.finish().as_bytes(), &bytes);
         }
@@ -244,15 +258,15 @@ mod tests {
     pub fn test_write_byte() {
         builder!(b, Byte);
         b.write_byte(0);
-        assert_eq!(b.finish().as_bytes(), &[3, 0, 0]);
+        assert_eq!(b.finish().as_bytes(), &[7, 0, 1, 0, 0, 0, 0]);
 
         builder!(b, Byte);
         b.write_byte(123);
-        assert_eq!(b.finish().as_bytes(), &[3, 0, 123]);
+        assert_eq!(b.finish().as_bytes(), &[7, 0, 1, 0, 0, 0, 123]);
 
         builder!(b, Byte);
         b.write_byte(255);
-        assert_eq!(b.finish().as_bytes(), &[3, 0, 255]);
+        assert_eq!(b.finish().as_bytes(), &[7, 0, 1, 0, 0, 0, 255]);
     }
 
     #[test]
@@ -266,18 +280,24 @@ mod tests {
     pub fn test_write_bool() {
         builder!(b, Byte);
         b.write_bool(true);
-        assert_eq!(b.finish().as_bytes(), &[3, 0, IsarObject::TRUE_BYTE]);
+        assert_eq!(
+            b.finish().as_bytes(),
+            &[7, 0, 1, 0, 0, 0, IsarObject::TRUE_BYTE]
+        );
 
         builder!(b, Byte);
         b.write_bool(false);
-        assert_eq!(b.finish().as_bytes(), &[3, 0, IsarObject::FALSE_BYTE]);
+        assert_eq!(
+            b.finish().as_bytes(),
+            &[7, 0, 1, 0, 0, 0, IsarObject::FALSE_BYTE]
+        );
     }
 
     #[test]
     pub fn test_write_int() {
         builder!(b, Int);
         b.write_int(123);
-        assert_eq!(b.finish().as_bytes(), &[6, 0, 123, 0, 0, 0])
+        assert_eq!(b.finish().as_bytes(), &[10, 0, 1, 0, 0, 0, 123, 0, 0, 0])
     }
 
     #[test]
@@ -291,13 +311,13 @@ mod tests {
     pub fn test_write_float() {
         builder!(b, Float);
         b.write_float(123.123);
-        let mut bytes = vec![6, 0];
+        let mut bytes = vec![10, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&123.123f32.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, Float);
         b.write_float(f32::NAN);
-        let mut bytes = vec![6, 0];
+        let mut bytes = vec![10, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&f32::NAN.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
@@ -313,7 +333,7 @@ mod tests {
     pub fn test_write_long() {
         builder!(b, Long);
         b.write_long(123123);
-        let mut bytes = vec![10, 0];
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&123123i64.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes)
     }
@@ -329,13 +349,13 @@ mod tests {
     pub fn test_write_double() {
         builder!(b, Double);
         b.write_double(123.123);
-        let mut bytes = vec![10, 0];
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&123.123f64.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, Double);
         b.write_double(f64::NAN);
-        let mut bytes = vec![10, 0];
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
         bytes.extend_from_slice(&f64::NAN.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
@@ -351,8 +371,8 @@ mod tests {
     pub fn test_write_string() {
         builder!(b, String);
         b.write_string(Some("hello"));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&5u32.to_le_bytes());
         bytes.extend_from_slice(b"hello");
         assert_eq!(b.finish().as_bytes(), &bytes);
@@ -367,17 +387,18 @@ mod tests {
 
     #[test]
     pub fn test_write_multiple_static_types() {
-        isar!(isar, col => col!("byte" => Byte, "int" => Int, "float" => Float, "long" => Long, "double" => Double));
+        isar!(isar, col => col!( "int" => Int,"byte" => Byte, "float" => Float, "long" => Long, "double" => Double));
         let mut b = col.new_object_builder(None);
 
-        b.write_byte(u8::MAX);
         b.write_int(i32::MAX);
+        b.write_byte(u8::MAX);
         b.write_float(std::f32::consts::E);
         b.write_long(i64::MIN);
         b.write_double(std::f64::consts::PI);
 
-        let mut bytes = vec![27, 0, u8::MAX];
+        let mut bytes = vec![27, 0];
         bytes.extend_from_slice(&i32::MAX.to_le_bytes());
+        bytes.push(u8::MAX);
         bytes.extend_from_slice(&std::f32::consts::E.to_le_bytes());
         bytes.extend_from_slice(&i64::MIN.to_le_bytes());
         bytes.extend_from_slice(&std::f64::consts::PI.to_le_bytes());
@@ -389,16 +410,16 @@ mod tests {
     pub fn test_write_byte_list() {
         builder!(b, ByteList);
         b.write_byte_list(Some(&[1, 2, 3]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&3u32.to_le_bytes());
         bytes.extend_from_slice(&[1, 2, 3]);
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, ByteList);
         b.write_byte_list(Some(&[]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
@@ -414,8 +435,8 @@ mod tests {
     pub fn test_write_int_list() {
         builder!(b, IntList);
         b.write_int_list(Some(&[1, -10]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&2u32.to_le_bytes());
         bytes.extend_from_slice(&1i32.to_le_bytes());
         bytes.extend_from_slice(&(-10i32).to_le_bytes());
@@ -423,8 +444,8 @@ mod tests {
 
         builder!(b, IntList);
         b.write_int_list(Some(&[]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
@@ -440,8 +461,8 @@ mod tests {
     pub fn test_write_float_list() {
         builder!(b, FloatList);
         b.write_float_list(Some(&[1.1, -10.10]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&2u32.to_le_bytes());
         bytes.extend_from_slice(&1.1f32.to_le_bytes());
         bytes.extend_from_slice(&(-10.10f32).to_le_bytes());
@@ -449,8 +470,8 @@ mod tests {
 
         builder!(b, FloatList);
         b.write_float_list(Some(&[]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
@@ -466,8 +487,8 @@ mod tests {
     pub fn test_write_long_list() {
         builder!(b, LongList);
         b.write_long_list(Some(&[1, -10]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&2u32.to_le_bytes());
         bytes.extend_from_slice(&1i64.to_le_bytes());
         bytes.extend_from_slice(&(-10i64).to_le_bytes());
@@ -475,8 +496,8 @@ mod tests {
 
         builder!(b, LongList);
         b.write_long_list(Some(&[]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
@@ -492,8 +513,8 @@ mod tests {
     pub fn test_write_double_list() {
         builder!(b, DoubleList);
         b.write_double_list(Some(&[1.1, -10.10]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&2u32.to_le_bytes());
         bytes.extend_from_slice(&1.1f64.to_le_bytes());
         bytes.extend_from_slice(&(-10.10f64).to_le_bytes());
@@ -511,13 +532,13 @@ mod tests {
     pub fn test_write_string_list() {
         builder!(b, StringList);
         b.write_string_list(Some(&[Some("abc"), None, Some("de")]));
-        let mut bytes = vec![10, 0];
-        bytes.extend_from_slice(&10u32.to_le_bytes());
+        let mut bytes = vec![14, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&14u32.to_le_bytes());
         bytes.extend_from_slice(&3u32.to_le_bytes());
-        bytes.extend_from_slice(&34u32.to_le_bytes());
+        bytes.extend_from_slice(&38u32.to_le_bytes());
         bytes.extend_from_slice(&3u32.to_le_bytes());
         bytes.extend_from_slice(&0u64.to_le_bytes());
-        bytes.extend_from_slice(&37u32.to_le_bytes());
+        bytes.extend_from_slice(&41u32.to_le_bytes());
         bytes.extend_from_slice(&2u32.to_le_bytes());
         bytes.extend_from_slice(b"abcde");
         assert_eq!(b.finish().as_bytes(), &bytes);

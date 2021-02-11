@@ -254,9 +254,10 @@ mod tests {
         let o = ob.finish();
 
         let mut txn = isar.begin_txn(true).unwrap();
-        let oid = col.put(&mut txn, None, o).unwrap();
+        col.put(&mut txn, o).unwrap();
         txn.commit().unwrap();
 
+        let oid = col.new_int_oid(123).unwrap();
         let mut txn = isar.begin_txn(false).unwrap();
         assert_eq!(col.get(&mut txn, &oid).unwrap().unwrap(), o);
         txn.abort();
@@ -269,13 +270,14 @@ mod tests {
 
         isar!(path: path, isar, col1 => col!("col1", f1 => DataType::Int));
 
+        let oid = col1.new_int_oid(123).unwrap();
         let mut ob = col1.new_object_builder(None);
         ob.write_int(123);
         let object = ob.finish();
         let object_bytes = object.as_bytes().to_vec();
 
         let mut txn = isar.begin_txn(true).unwrap();
-        let oid = col1.put(&mut txn, None, object).unwrap().to_owned();
+        col1.put(&mut txn, object).unwrap();
         txn.commit().unwrap();
 
         assert!(isar.close().is_none());
@@ -299,7 +301,7 @@ mod tests {
         let o = ob.finish();
         let mut txn = isar.begin_txn(true).unwrap();
         //col1.put(&txn, None, o.as_ref()).unwrap();
-        col1.put(&mut txn, None, o).unwrap();
+        col1.put(&mut txn, o).unwrap();
         txn.commit().unwrap();
         isar.close();
 

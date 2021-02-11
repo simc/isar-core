@@ -1,42 +1,22 @@
+use crate::collection::IsarCollection;
 use crate::error::{IsarError, Result};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::object::object_builder::ObjectBuilder;
-use crate::object::object_id::ObjectId;
-use crate::object::object_info::ObjectInfo;
 use serde_json::{json, Map, Value};
 
-pub(crate) struct JsonEncodeDecode<'a> {
-    col_id: u16,
-    object_info: &'a ObjectInfo,
-}
+pub(crate) struct JsonEncodeDecode {}
 
-impl<'a> JsonEncodeDecode<'a> {
-    pub fn new(col_id: u16, object_info: &'a ObjectInfo) -> Self {
-        JsonEncodeDecode {
-            col_id,
-            object_info,
-        }
-    }
-
+impl<'a> JsonEncodeDecode {
     pub fn encode(
-        &self,
-        oid: ObjectId,
-        object: IsarObject,
+        collection: &IsarCollection,
+        object: &IsarObject,
         primitive_null: bool,
         byte_as_bool: bool,
     ) -> Value {
         let mut object_map = Map::new();
 
-        let oid_json = match oid.get_type() {
-            DataType::String => json!(oid.get_string().unwrap()),
-            DataType::Int => json!(oid.get_int().unwrap()),
-            DataType::Long => json!(oid.get_long().unwrap()),
-            _ => unreachable!(),
-        };
-        object_map.insert(self.object_info.get_oid_name().to_string(), oid_json);
-
-        for (property_name, property) in self.object_info.get_properties() {
+        for (property_name, property) in collection.get_properties() {
             let property = *property;
             let value =
                 if primitive_null && property.data_type.is_static() && object.is_null(property) {
@@ -69,41 +49,14 @@ impl<'a> JsonEncodeDecode<'a> {
     }
 
     pub fn decode(
-        &self,
+        collection: &'a IsarCollection,
         json: &Value,
         buffer: Option<Vec<u8>>,
-    ) -> Result<(Option<ObjectId>, ObjectBuilder)> {
-        let mut ob = ObjectBuilder::new(self.object_info, buffer);
+    ) -> Result<ObjectBuilder<'a>> {
+        let mut ob = collection.new_object_builder(buffer);
         let object = json.as_object().ok_or(IsarError::InvalidJson {})?;
-        let oid = if let Some(oid_json) = object.get(self.object_info.get_oid_name()) {
-            let oid = match (oid_json, self.object_info.get_oid_type()) {
-                (Value::String(str), DataType::String) => ObjectId::from_str(self.col_id, str),
-                (Value::Number(num), DataType::Int) => {
-                    if let Some(num) = num.as_i64() {
-                        if num <= i32::MAX as i64 {
-                            ObjectId::from_int(self.col_id, num as i32)
-                        } else {
-                            return Err(IsarError::InvalidJson {});
-                        }
-                    } else {
-                        return Err(IsarError::InvalidJson {});
-                    }
-                }
-                (Value::Number(num), DataType::Long) => {
-                    if let Some(num) = num.as_i64() {
-                        ObjectId::from_long(self.col_id, num)
-                    } else {
-                        return Err(IsarError::InvalidJson {});
-                    }
-                }
-                _ => return Err(IsarError::InvalidJson {}),
-            };
-            Some(oid)
-        } else {
-            None
-        };
 
-        for (name, property) in self.object_info.get_properties() {
+        for (name, property) in collection.get_properties() {
             if let Some(value) = object.get(name) {
                 match property.data_type {
                     DataType::Byte => ob.write_byte(Self::value_to_byte(value)?),
@@ -149,7 +102,7 @@ impl<'a> JsonEncodeDecode<'a> {
             }
         }
 
-        Ok((oid, ob))
+        Ok(ob)
     }
 
     fn value_to_byte(value: &Value) -> Result<u8> {

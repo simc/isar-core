@@ -52,27 +52,31 @@ impl IsarCollection {
         &self.name
     }
 
-    pub fn get_oid_type(&self) -> DataType {
-        self.object_info.get_oid_type()
+    pub fn get_oid_property(&self) -> Property {
+        self.object_info.get_oid_property()
     }
 
-    pub fn new_int_oid(&self, oid: i32) -> ObjectId<'static> {
-        ObjectId::from_int(self.id, oid)
-    }
-
-    pub fn new_long_oid(&self, oid: i64) -> ObjectId<'static> {
-        ObjectId::from_long(self.id, oid)
-    }
-
-    pub fn new_string_oid(&self, oid: &str) -> ObjectId<'static> {
-        ObjectId::from_str(self.id, oid)
-    }
-
-    fn verify_oid(&self, oid: &ObjectId) -> Result<()> {
-        if oid.get_col_id() == self.id && oid.get_type() == self.object_info.get_oid_type() {
-            Ok(())
+    pub fn new_int_oid(&self, oid: i32) -> Result<ObjectId<'static>> {
+        if self.object_info.get_oid_property().data_type == DataType::Int {
+            Ok(ObjectId::from_int(self.id, oid))
         } else {
-            Err(IsarError::InvalidObjectId {})
+            illegal_arg("Wrong ObjectId type.")
+        }
+    }
+
+    pub fn new_long_oid(&self, oid: i64) -> Result<ObjectId<'static>> {
+        if self.object_info.get_oid_property().data_type == DataType::Int {
+            Ok(ObjectId::from_long(self.id, oid))
+        } else {
+            illegal_arg("Wrong ObjectId type.")
+        }
+    }
+
+    pub fn new_string_oid(&self, oid: &str) -> Result<ObjectId<'static>> {
+        if self.object_info.get_oid_property().data_type == DataType::Int {
+            Ok(ObjectId::from_str(self.id, oid))
+        } else {
+            illegal_arg("Wrong ObjectId type.")
         }
     }
 
@@ -106,19 +110,19 @@ impl IsarCollection {
         &self.indexes
     }
 
-    fn generate_oid(&self) -> Result<ObjectId<'static>> {
+    pub fn auto_increment(&self, _txn: &mut IsarTxn) -> Result<i64> {
         if let Some(counter) = self.oid_counter.get().checked_add(1) {
             self.oid_counter.set(counter);
-            match self.get_oid_type() {
+            match self.get_oid_property().data_type {
                 DataType::Int => {
                     if counter <= i32::MAX as i64 {
-                        Ok(self.new_int_oid(counter as i32))
+                        Ok(counter)
                     } else {
                         Err(IsarError::AutoIncrementOverflow {})
                     }
                 }
-                DataType::Long => Ok(self.new_long_oid(counter)),
-                DataType::String => illegal_arg("ObjectId must be provided"),
+                DataType::Long => Ok(counter),
+                DataType::String => illegal_arg("ObjectId cannot be generated"),
                 _ => unreachable!(),
             }
         } else {
@@ -131,7 +135,9 @@ impl IsarCollection {
         txn: &'txn mut IsarTxn,
         oid: &ObjectId,
     ) -> Result<Option<IsarObject<'txn>>> {
-        self.verify_oid(oid)?;
+        if oid.get_col_id() != self.id {
+            return Err(IsarError::InvalidObjectId {});
+        }
         txn.read(|c| {
             let object = c
                 .primary
@@ -141,48 +147,24 @@ impl IsarCollection {
         })
     }
 
-    pub fn put<'a>(
-        &self,
-        txn: &mut IsarTxn,
-        oid: Option<ObjectId<'a>>,
-        object: IsarObject,
-    ) -> Result<ObjectId<'a>> {
-        txn.write(|cursors, change_set| self.put_internal(cursors, change_set, oid, object))
-    }
-
-    pub fn put_all<'a>(
-        &self,
-        txn: &mut IsarTxn,
-        entries: Vec<(Option<ObjectId<'a>>, IsarObject)>,
-    ) -> Result<Vec<ObjectId<'a>>> {
-        txn.write(|cursors, change_set| {
-            entries
-                .into_iter()
-                .map(|(oid, object)| self.put_internal(cursors, change_set, oid, object))
-                .collect()
-        })
+    pub fn put<'a>(&self, txn: &mut IsarTxn, object: IsarObject<'a>) -> Result<()> {
+        txn.write(|cursors, change_set| self.put_internal(cursors, change_set, object))
     }
 
     fn put_internal<'a>(
         &self,
         cursors: &mut Cursors,
         change_set: &mut ChangeSet,
-        oid: Option<ObjectId<'a>>,
-        object: IsarObject,
-    ) -> Result<ObjectId<'a>> {
-        let oid = if let Some(oid) = oid {
-            self.verify_oid(&oid)?;
-            if !self.delete_internal(cursors, change_set, &oid)? {
-                if oid.get_type() == DataType::Int {
-                    self.update_oid_counter(oid.get_int().unwrap() as i64)
-                } else if oid.get_type() == DataType::Long {
-                    self.update_oid_counter(oid.get_long().unwrap())
-                }
+        object: IsarObject<'a>,
+    ) -> Result<()> {
+        let oid = object.read_oid(self).ok_or(IsarError::InvalidObjectId {})?;
+        if !self.delete_internal(cursors, change_set, &oid)? {
+            if oid.get_type() == DataType::Int {
+                self.update_oid_counter(oid.get_int().unwrap() as i64)
+            } else if oid.get_type() == DataType::Long {
+                self.update_oid_counter(oid.get_long().unwrap())
             }
-            oid
-        } else {
-            self.generate_oid()?
-        };
+        }
 
         if !self.object_info.verify_object(object) {
             return Err(IsarError::InvalidObject {});
@@ -195,7 +177,7 @@ impl IsarCollection {
 
         cursors.primary.put(&oid_bytes, object.as_bytes())?;
         change_set.register_change(self.id, &oid, object);
-        Ok(oid)
+        Ok(())
     }
 
     pub fn delete(&self, txn: &mut IsarTxn, oid: &ObjectId) -> Result<bool> {
@@ -232,18 +214,6 @@ impl IsarCollection {
         Ok(())
     }
 
-    pub fn delete_all(&self, txn: &mut IsarTxn, oids: &[ObjectId]) -> Result<usize> {
-        let mut counter = 0;
-        txn.write(|cursors, change_set| {
-            for oid in oids {
-                if self.delete_internal(cursors, change_set, oid)? {
-                    counter += 1;
-                }
-            }
-            Ok(counter)
-        })
-    }
-
     pub fn clear(&self, txn: &mut IsarTxn) -> Result<usize> {
         let mut counter = 0;
         self.new_query_builder()
@@ -258,11 +228,14 @@ impl IsarCollection {
     pub fn import_json(&self, txn: &mut IsarTxn, json: Value) -> Result<()> {
         txn.write(|cursors, change_set| {
             let array = json.as_array().ok_or(IsarError::InvalidJson {})?;
-            let json_encode_decode = JsonEncodeDecode::new(self.id, &self.object_info);
             let mut ob_result_cache = None;
             for value in array {
-                let (oid, ob) = json_encode_decode.decode(value, ob_result_cache)?;
-                self.put_internal(cursors, change_set, oid, ob.finish())?;
+                let ob = JsonEncodeDecode::decode(self, value, ob_result_cache)?;
+                let object = ob.finish();
+                if object.is_null(self.get_oid_property()) {
+                    return Err(IsarError::InvalidJson {});
+                }
+                self.put_internal(cursors, change_set, object)?;
                 ob_result_cache = Some(ob.recycle());
             }
             Ok(())
@@ -275,12 +248,11 @@ impl IsarCollection {
         primitive_null: bool,
         byte_as_bool: bool,
     ) -> Result<Value> {
-        let json_encode_decode = JsonEncodeDecode::new(self.id, &self.object_info);
         let mut items = vec![];
         self.new_query_builder()
             .build()
-            .find_while(txn, |oid, object| {
-                let entry = json_encode_decode.encode(oid, object, primitive_null, byte_as_bool);
+            .find_while(txn, |_, object| {
+                let entry = JsonEncodeDecode::encode(self, &object, primitive_null, byte_as_bool);
                 items.push(entry);
                 true
             })?;
@@ -294,7 +266,8 @@ impl IsarCollection {
                 .into_iter()
                 .map(|(k, v)| {
                     (
-                        ObjectId::from_bytes(self.object_info.get_oid_type(), &k).to_owned(),
+                        ObjectId::from_bytes(self.object_info.get_oid_property().data_type, &k)
+                            .to_owned(),
                         v,
                     )
                 })
@@ -320,18 +293,30 @@ mod tests {
 
     #[test]
     fn test_get() {
-        isar!(isar, col => col!(field1 => DataType::Int));
+        isar!(isar, col => col!(oid => DataType::Int, field2 => DataType::Int));
         let mut txn = isar.begin_txn(true).unwrap();
 
+        let oid = col.new_int_oid(123).unwrap();
         let mut builder = col.new_object_builder(None);
-        builder.write_int(1111111);
+        builder.write_oid(&oid);
+        builder.write_int(555);
         let object = builder.finish();
-        let oid = col.put(&mut txn, None, object).unwrap();
+        col.put(&mut txn, object).unwrap();
 
         assert_eq!(col.get(&mut txn, &oid).unwrap().unwrap(), object);
 
-        let other_oid = ObjectId::from_long(col.id, 123);
+        let other_oid = ObjectId::from_int(col.id, 321);
         assert_eq!(col.get(&mut txn, &other_oid).unwrap(), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_get_fails_with_wrong_oid() {
+        isar!(isar, col => col!(field1 => DataType::Int));
+
+        let oid = ObjectId::from_int(1234, 12);
+        let mut txn = isar.begin_txn(true).unwrap();
+        col.get(&mut txn, &oid).unwrap();
     }
 
     #[test]
@@ -341,102 +326,74 @@ mod tests {
         assert_eq!(col.oid_counter.get(), 0);
 
         let mut builder = col.new_object_builder(None);
-        builder.write_int(1111111);
+        builder.write_int(123);
         let object1 = builder.finish();
-        let oid1 = col.put(&mut txn, None, object1).unwrap();
-        assert_eq!(col.oid_counter.get(), 1);
+        col.put(&mut txn, object1).unwrap();
+        assert_eq!(col.oid_counter.get(), 123);
 
         let mut builder = col.new_object_builder(None);
-        builder.write_int(123123123);
+        builder.write_int(100);
         let object2 = builder.finish();
-        let oid2 = col.put(&mut txn, None, object2).unwrap();
-        assert_eq!(col.oid_counter.get(), 2);
+        col.put(&mut txn, object2).unwrap();
+        assert_eq!(col.oid_counter.get(), 123);
 
         assert_eq!(
             col.debug_dump(&mut txn),
             map![
-                oid1 => object1.as_bytes().to_vec(),
-                oid2 => object2.as_bytes().to_vec()
+                col.new_int_oid(123).unwrap() => object1.as_bytes().to_vec(),
+                col.new_int_oid(100).unwrap() => object2.as_bytes().to_vec()
             ]
         );
     }
 
     #[test]
     fn test_put_existing() {
-        isar!(isar, col => col!(field1 => DataType::Int));
+        isar!(isar, col => col!(field1 => DataType::Int, field2 => DataType::Int));
         let mut txn = isar.begin_txn(true).unwrap();
         assert_eq!(col.oid_counter.get(), 0);
 
         let mut builder = col.new_object_builder(None);
-        builder.write_int(1111111);
+        builder.write_int(123);
+        builder.write_int(1);
         let object1 = builder.finish();
-        let oid1 = col.put(&mut txn, None, object1).unwrap();
-        assert_eq!(col.oid_counter.get(), 1);
-
-        let mut builder = col.new_object_builder(None);
-        builder.write_int(123123123);
-        let object2 = builder.finish();
-        let oid2 = col.put(&mut txn, Some(oid1.clone()), object2).unwrap();
-        assert_eq!(oid1, oid2);
-        assert_eq!(col.oid_counter.get(), 1);
-
-        let new_oid = ObjectId::from_long(col.id, 123);
-        let mut builder = col.new_object_builder(None);
-        builder.write_int(55555555);
-        let object3 = builder.finish();
-        let oid3 = col.put(&mut txn, Some(new_oid.clone()), object3).unwrap();
-        assert_eq!(new_oid, oid3);
+        col.put(&mut txn, object1).unwrap();
         assert_eq!(col.oid_counter.get(), 123);
+
+        let mut builder = col.new_object_builder(None);
+        builder.write_int(123);
+        builder.write_int(2);
+        let object2 = builder.finish();
+        col.put(&mut txn, object2).unwrap();
+        assert_eq!(col.oid_counter.get(), 123);
+
+        let mut builder = col.new_object_builder(None);
+        builder.write_int(333);
+        builder.write_int(3);
+        let object3 = builder.finish();
+        col.put(&mut txn, object3).unwrap();
+        assert_eq!(col.oid_counter.get(), 333);
 
         assert_eq!(
             col.debug_dump(&mut txn),
             map![
-                oid1 => object2.as_bytes().to_vec(),
-                new_oid => object3.as_bytes().to_vec()
+                col.new_int_oid(123).unwrap() => object2.as_bytes().to_vec(),
+                col.new_int_oid(333).unwrap() => object3.as_bytes().to_vec()
             ]
         );
     }
 
     #[test]
-    fn test_put_int_oid_overflow() {
-        isar!(isar, col => col!("col", DataType::Int, field1 => DataType::Int;));
-
-        let oid = ObjectId::from_int(col.id, i32::MAX);
-
-        let mut txn = isar.begin_txn(true).unwrap();
-        let mut builder = col.new_object_builder(None);
-        builder.write_int(123);
-
-        col.put(&mut txn, Some(oid), builder.finish()).unwrap();
-        let result = col.put(&mut txn, None, builder.finish());
-        assert!(result.is_err())
-    }
-
-    #[test]
-    fn test_put_long_oid_overflow() {
-        isar!(isar, col => col!(field1 => DataType::Int));
-
-        let oid = ObjectId::from_long(col.id, i64::MAX);
-
-        let mut txn = isar.begin_txn(true).unwrap();
-        let mut builder = col.new_object_builder(None);
-        builder.write_int(123);
-
-        col.put(&mut txn, Some(oid), builder.finish()).unwrap();
-        let result = col.put(&mut txn, None, builder.finish());
-        assert!(result.is_err())
-    }
-
-    #[test]
     fn test_put_creates_index() {
-        isar!(isar, col => col!(field1 => DataType::Int; ind!(field1)));
+        isar!(isar, col => col!(field1 => DataType::Int, field2 => DataType::Int; ind!(field2)));
 
         let mut txn = isar.begin_txn(true).unwrap();
 
         let mut builder = col.new_object_builder(None);
+        builder.write_int(1);
         builder.write_int(1234);
         let object = builder.finish();
-        let oid = col.put(&mut txn, None, object).unwrap();
+        col.put(&mut txn, object).unwrap();
+        let oid = col.new_int_oid(1).unwrap();
 
         let index = &col.indexes[0];
         let key = index.debug_create_keys(object)[0].clone();
@@ -448,20 +405,23 @@ mod tests {
 
     #[test]
     fn test_put_clears_old_index() {
-        isar!(isar, col => col!(field1 => DataType::Int; ind!(field1)));
+        isar!(isar, col => col!(field1 => DataType::Int, field2 => DataType::Int; ind!(field2)));
 
         let mut txn = isar.begin_txn(true).unwrap();
 
         let mut builder = col.new_object_builder(None);
+        builder.write_int(1);
         builder.write_int(1234);
         let object = builder.finish();
-        let oid = col.put(&mut txn, None, object).unwrap();
+        col.put(&mut txn, object).unwrap();
 
         let mut builder = col.new_object_builder(None);
+        builder.write_int(1);
         builder.write_int(5678);
         let object2 = builder.finish();
-        col.put(&mut txn, Some(oid.clone()), object2).unwrap();
+        col.put(&mut txn, object2).unwrap();
 
+        let oid = col.new_int_oid(1).unwrap();
         let index = &col.indexes[0];
         let key = index.debug_create_keys(object2)[0].clone();
         assert_eq!(
@@ -471,38 +431,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_put_fails_with_wrong_oid() {
-        isar!(isar, col => col!(field1 => DataType::Int; ind!(field1)));
-
-        let oid = ObjectId::from_long(1234, 12);
-
-        let mut builder = col.new_object_builder(None);
-        builder.write_int(12345);
-        let object = builder.finish();
-
-        let mut txn = isar.begin_txn(true).unwrap();
-        col.put(&mut txn, Some(oid), object).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_put_fails_with_wrong_oid_type() {
-        isar!(isar, col => col!(field1 => DataType::Int; ind!(field1)));
-
-        let oid = ObjectId::from_str(col.id, "hello");
-
-        let mut builder = col.new_object_builder(None);
-        builder.write_int(12345);
-        let object = builder.finish();
-
-        let mut txn = isar.begin_txn(true).unwrap();
-        col.put(&mut txn, Some(oid), object).unwrap();
-    }
-
-    #[test]
     fn test_put_calls_notifiers() {
-        isar!(isar, col => col!(field1 => DataType::Int; ind!(field1)));
+        isar!(isar, col => col!(field1 => DataType::Int));
         let p = col.get_properties().first().unwrap().1;
 
         let mut qb1 = col.new_query_builder();
@@ -522,10 +452,7 @@ mod tests {
         let mut txn = isar.begin_txn(true).unwrap();
         let mut builder = col.new_object_builder(None);
         builder.write_int(1);
-        let oid = col
-            .put(&mut txn, None, builder.finish())
-            .unwrap()
-            .to_owned();
+        col.put(&mut txn, builder.finish()).unwrap();
         txn.commit().unwrap();
 
         assert_eq!(rx1.len(), 1);
@@ -535,10 +462,10 @@ mod tests {
         let mut txn = isar.begin_txn(true).unwrap();
         let mut builder = col.new_object_builder(None);
         builder.write_int(2);
-        col.put(&mut txn, Some(oid), builder.finish()).unwrap();
+        col.put(&mut txn, builder.finish()).unwrap();
         txn.commit().unwrap();
 
-        assert_eq!(rx1.len(), 1);
+        assert_eq!(rx1.len(), 0);
         assert_eq!(rx2.len(), 1);
         handle1.stop();
         handle2.stop();
@@ -546,20 +473,24 @@ mod tests {
 
     #[test]
     fn test_delete() {
-        isar!(isar, col => col!(field1 => DataType::Int; ind!(field1)));
+        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Int; ind!(field)));
 
         let mut txn = isar.begin_txn(true).unwrap();
 
         let mut builder = col.new_object_builder(None);
-        builder.write_int(12345);
+        builder.write_int(1);
+        builder.write_int(111);
         let object = builder.finish();
-        let oid = col.put(&mut txn, None, object).unwrap();
+        col.put(&mut txn, object).unwrap();
 
         let mut builder = col.new_object_builder(None);
-        builder.write_int(54321);
+        builder.write_int(2);
+        builder.write_int(222);
         let object2 = builder.finish();
-        let oid2 = col.put(&mut txn, None, object2).unwrap();
+        col.put(&mut txn, object2).unwrap();
 
+        let oid = col.new_int_oid(1).unwrap();
+        let oid2 = col.new_int_oid(2).unwrap();
         col.delete(&mut txn, &oid).unwrap();
 
         assert_eq!(
@@ -577,7 +508,7 @@ mod tests {
 
     #[test]
     fn test_delete_calls_notifiers() {
-        isar!(isar, col => col!(field1 => DataType::Int; ind!(field1)));
+        isar!(isar, col => col!(field1 => DataType::Int));
 
         let (tx, rx) = unbounded();
         let handle = isar.watch_collection(col, Box::new(move || tx.send(true).unwrap()));
@@ -585,7 +516,7 @@ mod tests {
         let mut txn = isar.begin_txn(true).unwrap();
         let mut builder = col.new_object_builder(None);
         builder.write_int(1234);
-        col.put(&mut txn, None, builder.finish()).unwrap();
+        col.put(&mut txn, builder.finish()).unwrap();
         txn.commit().unwrap();
 
         assert_eq!(rx.len(), 1);

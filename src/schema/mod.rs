@@ -31,7 +31,7 @@ impl Schema {
         Ok(())
     }
 
-    pub(crate) fn build_collections(self) -> Vec<IsarCollection> {
+    pub(crate) fn build_collections(self) -> Result<Vec<IsarCollection>> {
         self.collections
             .iter()
             .map(|c| c.get_isar_collection())
@@ -42,17 +42,11 @@ impl Schema {
         let mut ids = HashSet::<u16>::new();
         for collection in &self.collections {
             if let Some(id) = collection.id {
-                assert!(
-                    ids.insert(id),
-                    "Something is wrong, schema contains duplicate id."
-                );
+                assert!(ids.insert(id), "Schema contains duplicate id.");
             }
             for index in &collection.indexes {
                 if let Some(id) = index.id {
-                    assert!(
-                        ids.insert(id),
-                        "Something is wrong, schema contains duplicate id."
-                    );
+                    assert!(ids.insert(id), "Schema contains duplicate id.");
                 }
             }
         }
@@ -63,7 +57,7 @@ impl Schema {
         &mut self,
         existing_schema: Option<&Schema>,
         mut random: impl FnMut() -> u16,
-    ) {
+    ) -> Result<()> {
         let mut ids = if let Some(existing_schema) = existing_schema {
             existing_schema.collect_ids()
         } else {
@@ -80,11 +74,12 @@ impl Schema {
         let empty = vec![];
         let existing_collections = existing_schema.map_or(&empty, |c| &c.collections);
         for collection in &mut self.collections {
-            collection.update_with_existing_collections(existing_collections, &mut find_id)
+            collection.update_with_existing_collections(existing_collections, &mut find_id)?;
         }
+        Ok(())
     }
 
-    pub fn update_with_existing_schema(&mut self, existing_schema: Option<&Schema>) {
+    pub fn update_with_existing_schema(&mut self, existing_schema: Option<&Schema>) -> Result<()> {
         self.update_with_existing_schema_internal(existing_schema, random)
     }
 }

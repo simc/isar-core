@@ -1,24 +1,17 @@
-use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
 
 #[cfg_attr(test, derive(Clone))]
 pub(crate) struct ObjectInfo {
-    oid_name: String,
-    oid_type: DataType,
+    oid_property: Property,
     properties: Vec<(String, Property)>,
     static_size: usize,
 }
 
 impl ObjectInfo {
-    pub(crate) fn new(
-        oid_name: String,
-        oid_type: DataType,
-        properties: Vec<(String, Property)>,
-    ) -> ObjectInfo {
+    pub(crate) fn new(oid_property: Property, properties: Vec<(String, Property)>) -> ObjectInfo {
         let static_size = Self::calculate_static_size(&properties);
         ObjectInfo {
-            oid_name,
-            oid_type,
+            oid_property,
             properties,
             static_size,
         }
@@ -36,12 +29,8 @@ impl ObjectInfo {
         self.static_size
     }
 
-    pub fn get_oid_name(&self) -> &str {
-        &self.oid_name
-    }
-
-    pub fn get_oid_type(&self) -> DataType {
-        self.oid_type
+    pub fn get_oid_property(&self) -> Property {
+        self.oid_property
     }
 
     pub fn get_properties(&self) -> &[(String, Property)] {

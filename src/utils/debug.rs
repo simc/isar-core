@@ -1,13 +1,8 @@
 #![cfg(test)]
 
-use crate::collection::IsarCollection;
 use crate::lmdb::cursor::Cursor;
-use crate::object::isar_object::IsarObject;
-use crate::object::object_id::ObjectId;
-use crate::txn::IsarTxn;
 use hashbrown::{HashMap, HashSet};
 use std::hash::Hash;
-use std::mem;
 
 #[macro_export]
 macro_rules! map (
@@ -68,13 +63,9 @@ macro_rules! col (
     };
 
     ($name:expr, $($field:expr => $type:path),+; $($index:expr),*) => {
-        col!($name, crate::object::data_type::DataType::Long, $($field => $type),+; $($index),*);
-    };
-
-    ($name:expr, $oid_type:path, $($field:expr => $type:path),+; $($index:expr),*) => {
         {
-            let mut collection = crate::schema::collection_schema::CollectionSchema::new($name, "id", $oid_type);
-            $(collection.add_property(stringify!($field), $type).unwrap();)+
+            let mut collection = crate::schema::collection_schema::CollectionSchema::new($name);
+            col!(add_property collection, true, $($field => $type,)+);
             $(
                 let (fields, unique) = $index;
                 collection.add_index(fields, unique).unwrap();
@@ -82,6 +73,13 @@ macro_rules! col (
             collection
         }
     };
+
+    (add_property $col:expr, $oid:expr, $field:expr => $type:path, $($fields:expr => $types:path,)*) => {
+        $col.add_property(stringify!($field), $type, $oid).unwrap();
+        col!(add_property $col, false, $($fields => $types,)*);
+    };
+
+    (add_property $col:expr, $oid:expr,) => {};
 );
 
 #[macro_export]
@@ -102,19 +100,6 @@ macro_rules! ind (
         (&[$((stringify!($index), $str_type, $str_lc)),+], $unique);
     };
 );
-
-pub fn fill_db(
-    col: &IsarCollection,
-    txn: &mut IsarTxn,
-    data: &[(Option<ObjectId>, Vec<u8>)],
-) -> HashMap<Vec<u8>, Vec<u8>> {
-    let mut result = HashMap::new();
-    for (oid, object) in data {
-        let oid = col.put(txn, oid.clone(), IsarObject::new(object)).unwrap();
-        result.insert(oid.as_bytes().to_vec(), object.to_vec());
-    }
-    result
-}
 
 pub fn ref_map<K: Eq + Hash, V>(map: &HashMap<K, V>) -> HashMap<&K, &V> {
     map.iter().map(|(k, v)| (k, v)).collect()

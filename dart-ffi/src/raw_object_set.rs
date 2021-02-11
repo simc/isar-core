@@ -5,6 +5,8 @@ use isar_core::object::isar_object::IsarObject;
 use isar_core::object::object_id::ObjectId;
 use isar_core::query::Query;
 use isar_core::txn::IsarTxn;
+use std::ffi::{c_void, CStr};
+use std::os::raw::c_char;
 use std::{ptr, slice};
 
 #[repr(C)]
@@ -12,8 +14,26 @@ pub struct RawObject {
     oid_str: *const u8,
     oid_str_length: u32,
     oid_num: i64,
-    buffer: *const u8,
+    buffer: *mut u8,
     buffer_length: u32,
+}
+
+#[repr(C)]
+pub struct RawObjectId(*const c_void);
+
+impl RawObjectId {
+    pub unsafe fn get_oid(&self, collection: &IsarCollection) -> ObjectId {
+        let oid = match collection.get_oid_property().data_type {
+            DataType::Int => collection.new_int_oid(*(self.0 as *const i32)),
+            DataType::Long => collection.new_long_oid(*(self.0 as *const i64)),
+            DataType::String => {
+                let str = CStr::from_ptr(self.0 as *const c_char);
+                collection.new_string_oid(str.to_str().unwrap())
+            }
+            _ => unimplemented!(),
+        };
+        oid.unwrap()
+    }
 }
 
 #[repr(C)]
@@ -24,28 +44,28 @@ unsafe impl Send for RawObjectSend {}
 impl RawObject {
     pub fn new() -> Self {
         RawObject {
-            oid_num: 0,
-            oid_str: std::ptr::null(),
+            oid_num: i64::MIN,
+            oid_str: std::ptr::null_mut(),
             oid_str_length: 0,
-            buffer: std::ptr::null(),
+            buffer: std::ptr::null_mut(),
             buffer_length: 0,
         }
     }
 
     pub fn get_object_id(&self, col: &IsarCollection) -> Option<ObjectId<'static>> {
-        match col.get_oid_type() {
+        match col.get_oid_property().data_type {
             DataType::Int => {
-                if self.oid_num == 0 {
+                if self.oid_num == i32::MIN as i64 {
                     None
                 } else {
-                    Some(col.new_int_oid(self.oid_num as i32))
+                    Some(col.new_int_oid(self.oid_num as i32).unwrap())
                 }
             }
             DataType::Long => {
-                if self.oid_num == 0 {
+                if self.oid_num == i64::MIN {
                     None
                 } else {
-                    Some(col.new_long_oid(self.oid_num))
+                    Some(col.new_long_oid(self.oid_num).unwrap())
                 }
             }
             DataType::String => unsafe {
@@ -54,49 +74,28 @@ impl RawObject {
                 } else {
                     let slice =
                         std::slice::from_raw_parts(self.oid_str, self.oid_str_length as usize);
-                    Some(col.new_string_oid(std::str::from_utf8(slice).unwrap()))
+                    let str = std::str::from_utf8(slice).unwrap();
+                    Some(col.new_string_oid(str).unwrap())
                 }
             },
             _ => unreachable!(),
         }
     }
 
-    pub fn set_object_id(&mut self, oid: &ObjectId) {
-        match oid.get_type() {
-            DataType::Int => {
-                self.oid_num = oid.get_int().unwrap() as i64;
-                self.oid_str = ptr::null();
-                self.oid_str_length = 0;
-            }
-            DataType::Long => {
-                self.oid_num = oid.get_long().unwrap();
-                self.oid_str = ptr::null();
-                self.oid_str_length = 0;
-            }
-            DataType::String => {
-                self.oid_num = 0;
-                let bytes = oid.get_string().unwrap().as_bytes();
-                self.oid_str = bytes.as_ptr();
-                self.oid_str_length = bytes.len() as u32;
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn get_object(&self) -> IsarObject {
-        let bytes = unsafe { slice::from_raw_parts(self.buffer, self.buffer_length as usize) };
-        IsarObject::new(bytes)
+    #[allow(clippy::mut_from_ref)]
+    pub fn get_bytes(&self) -> &mut [u8] {
+        unsafe { slice::from_raw_parts_mut(self.buffer, self.buffer_length as usize) }
     }
 
     pub fn set_object(&mut self, object: Option<IsarObject>) {
         if let Some(object) = object {
             let bytes = object.as_bytes();
             let buffer_length = bytes.len() as u32;
-            let buffer = bytes as *const _ as *const u8;
+            let buffer = bytes as *const _ as *mut u8;
             self.buffer = buffer;
             self.buffer_length = buffer_length;
         } else {
-            self.buffer = ptr::null();
+            self.buffer = ptr::null_mut();
             self.buffer_length = 0;
         }
     }
@@ -122,9 +121,8 @@ impl RawObjectSet {
     ) -> Result<()> {
         let mut objects = vec![];
         let mut count = 0;
-        query.find_while(txn, |oid, object| {
+        query.find_while(txn, |_, object| {
             let mut raw_obj = RawObject::new();
-            raw_obj.set_object_id(&oid);
             raw_obj.set_object(Some(object));
             objects.push(raw_obj);
             count += 1;

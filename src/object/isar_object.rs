@@ -1,4 +1,6 @@
+use crate::collection::IsarCollection;
 use crate::object::data_type::DataType;
+use crate::object::object_id::ObjectId;
 use byteorder::{ByteOrder, LittleEndian};
 use std::cmp::Ordering;
 use std::hash::Hasher;
@@ -17,7 +19,7 @@ impl Property {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct IsarObject<'a> {
-    data: &'a [u8],
+    bytes: &'a [u8],
     static_size: usize,
 }
 
@@ -30,19 +32,16 @@ impl<'a> IsarObject<'a> {
     pub const NULL_FLOAT: f32 = f32::NAN;
     pub const NULL_DOUBLE: f64 = f64::NAN;
 
-    pub fn new(object: &'a [u8]) -> Self {
-        let static_size = LittleEndian::read_u16(object) as usize;
-        IsarObject {
-            data: object,
-            static_size,
-        }
+    pub fn new(bytes: &'a [u8]) -> Self {
+        let static_size = LittleEndian::read_u16(bytes) as usize;
+        IsarObject { bytes, static_size }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        self.data
+        self.bytes
     }
 
-    pub fn contains_offset(&self, offset: usize) -> bool {
+    pub(crate) fn contains_offset(&self, offset: usize) -> bool {
         self.static_size > offset
     }
 
@@ -61,10 +60,25 @@ impl<'a> IsarObject<'a> {
         }
     }
 
+    pub fn read_oid(&self, collection: &IsarCollection) -> Option<ObjectId> {
+        let property = collection.get_oid_property();
+
+        if self.is_null(property) {
+            return None;
+        }
+        let oid = match property.data_type {
+            DataType::Int => collection.new_int_oid(self.read_int(property)),
+            DataType::Long => collection.new_long_oid(self.read_long(property)),
+            DataType::String => collection.new_string_oid(self.read_string(property)?),
+            _ => unreachable!(),
+        };
+        Some(oid.unwrap())
+    }
+
     pub fn read_byte(&self, property: Property) -> u8 {
         assert_eq!(property.data_type, DataType::Byte);
         if self.contains_property(property) {
-            self.data[property.offset]
+            self.bytes[property.offset]
         } else {
             Self::NULL_BYTE
         }
@@ -77,7 +91,7 @@ impl<'a> IsarObject<'a> {
     pub fn read_int(&self, property: Property) -> i32 {
         assert_eq!(property.data_type, DataType::Int);
         if self.contains_property(property) {
-            LittleEndian::read_i32(&self.data[property.offset..])
+            LittleEndian::read_i32(&self.bytes[property.offset..])
         } else {
             Self::NULL_INT
         }
@@ -86,7 +100,7 @@ impl<'a> IsarObject<'a> {
     pub fn read_float(&self, property: Property) -> f32 {
         assert_eq!(property.data_type, DataType::Float);
         if self.contains_property(property) {
-            LittleEndian::read_f32(&self.data[property.offset..])
+            LittleEndian::read_f32(&self.bytes[property.offset..])
         } else {
             Self::NULL_FLOAT
         }
@@ -95,7 +109,7 @@ impl<'a> IsarObject<'a> {
     pub fn read_long(&self, property: Property) -> i64 {
         assert_eq!(property.data_type, DataType::Long);
         if self.contains_property(property) {
-            LittleEndian::read_i64(&self.data[property.offset..])
+            LittleEndian::read_i64(&self.bytes[property.offset..])
         } else {
             Self::NULL_LONG
         }
@@ -104,7 +118,7 @@ impl<'a> IsarObject<'a> {
     pub fn read_double(&self, property: Property) -> f64 {
         assert_eq!(property.data_type, DataType::Double);
         if self.contains_property(property) {
-            LittleEndian::read_f64(&self.data[property.offset..])
+            LittleEndian::read_f64(&self.bytes[property.offset..])
         } else {
             Self::NULL_DOUBLE
         }
@@ -112,8 +126,8 @@ impl<'a> IsarObject<'a> {
 
     fn get_offset_length(&self, offset: usize, dynamic_offset: bool) -> Option<(usize, usize)> {
         if dynamic_offset || self.contains_offset(offset) {
-            let list_offset = LittleEndian::read_u32(&self.data[offset..]) as usize;
-            let length = LittleEndian::read_u32(&self.data[offset + 4..]);
+            let list_offset = LittleEndian::read_u32(&self.bytes[offset..]) as usize;
+            let length = LittleEndian::read_u32(&self.bytes[offset + 4..]);
             if list_offset != 0 {
                 return Some((list_offset as usize, length as usize));
             }
@@ -123,11 +137,11 @@ impl<'a> IsarObject<'a> {
 
     fn read_string_at(&self, offset: usize, dynamic_offset: bool) -> Option<&'a str> {
         let (offset, length) = self.get_offset_length(offset, dynamic_offset)?;
-        let str = unsafe { std::str::from_utf8_unchecked(&self.data[offset..offset + length]) };
+        let str = unsafe { std::str::from_utf8_unchecked(&self.bytes[offset..offset + length]) };
         Some(str)
     }
 
-    pub fn read_string(&self, property: Property) -> Option<&'a str> {
+    pub fn read_string(&'a self, property: Property) -> Option<&'a str> {
         assert_eq!(property.data_type, DataType::String);
         self.read_string_at(property.offset, false)
     }
@@ -135,7 +149,7 @@ impl<'a> IsarObject<'a> {
     pub fn read_byte_list(&self, property: Property) -> Option<&'a [u8]> {
         assert_eq!(property.data_type, DataType::ByteList);
         let (offset, length) = self.get_offset_length(property.offset, false)?;
-        Some(&self.data[offset..offset + length])
+        Some(&self.bytes[offset..offset + length])
     }
 
     pub fn read_int_list(&self, property: Property) -> Option<Vec<i32>> {
@@ -144,7 +158,7 @@ impl<'a> IsarObject<'a> {
         let list = (offset..offset + length * 4)
             .step_by(4)
             .into_iter()
-            .map(|offset| LittleEndian::read_i32(&self.data[offset..]))
+            .map(|offset| LittleEndian::read_i32(&self.bytes[offset..]))
             .collect();
         Some(list)
     }
@@ -155,7 +169,7 @@ impl<'a> IsarObject<'a> {
         let list = (offset..offset + length * 4)
             .step_by(4)
             .into_iter()
-            .map(|offset| LittleEndian::read_f32(&self.data[offset..]))
+            .map(|offset| LittleEndian::read_f32(&self.bytes[offset..]))
             .collect();
         Some(list)
     }
@@ -166,7 +180,7 @@ impl<'a> IsarObject<'a> {
         let list = (offset..offset + length * 8)
             .step_by(8)
             .into_iter()
-            .map(|offset| LittleEndian::read_i64(&self.data[offset..]))
+            .map(|offset| LittleEndian::read_i64(&self.bytes[offset..]))
             .collect();
         Some(list)
     }
@@ -177,7 +191,7 @@ impl<'a> IsarObject<'a> {
         let list = (offset..offset + length * 8)
             .step_by(8)
             .into_iter()
-            .map(|offset| LittleEndian::read_f64(&self.data[offset..]))
+            .map(|offset| LittleEndian::read_f64(&self.bytes[offset..]))
             .collect();
         Some(list)
     }
@@ -282,9 +296,10 @@ mod tests {
 
     macro_rules! builder {
         ($var:ident, $p:ident, $type:ident) => {
-            isar!(isar, col => col!("field" => $type));
-            let $p = col.get_properties().get(0).unwrap().1;
+            isar!(isar, col => col!("oid" => Int, "field" => $type));
+            let $p = col.get_properties().get(1).unwrap().1;
             let mut $var = col.new_object_builder(None);
+            $var.write_int(1);
         };
     }
 

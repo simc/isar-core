@@ -45,11 +45,8 @@ pub enum IsarError {
         message: String,
     },
 
-    #[error("MigrationError: {message:?}")]
-    MigrationError {
-        source: Option<Box<dyn Error>>,
-        message: String,
-    },
+    #[error("SchemaError: {message:?}")]
+    SchemaError { message: String },
 
     #[error("LmdbError ({code:?}): {message:?}")]
     LmdbError { code: i32, message: String },
@@ -72,6 +69,12 @@ impl From<LmdbError> for IsarError {
 
 pub fn illegal_arg<T>(msg: &str) -> Result<T> {
     Err(IsarError::IllegalArg {
+        message: msg.to_string(),
+    })
+}
+
+pub fn schema_error<T>(msg: &str) -> Result<T> {
+    Err(IsarError::SchemaError {
         message: msg.to_string(),
     })
 }

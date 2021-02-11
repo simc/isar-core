@@ -1,8 +1,11 @@
 use crate::async_txn::IsarAsyncTxn;
-use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
-use crate::{BoolSend, UintSend};
+use crate::raw_object_set::{RawObject, RawObjectSet, RawObjectSetSend};
+use crate::UintSend;
+use byteorder::{ByteOrder, LittleEndian};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
+use isar_core::object::data_type::DataType;
+use isar_core::object::isar_object::IsarObject;
 use isar_core::object::object_id::ObjectId;
 use isar_core::txn::IsarTxn;
 use serde_json::Value;
@@ -18,21 +21,6 @@ pub unsafe extern "C" fn isar_get(
         let result = collection.get(txn, &object_id)?;
         object.set_object(result);
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_get_async(
-    collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
-    object: &'static mut RawObject,
-) {
-    let object = RawObjectSend(object);
-    let oid = object.0.get_object_id(collection).unwrap().to_owned();
-    txn.exec(move |txn| -> Result<()> {
-        let result = collection.get(txn, &oid)?;
-        object.0.set_object(result);
-        Ok(())
-    });
 }
 
 #[no_mangle]
@@ -52,6 +40,28 @@ pub unsafe extern "C" fn isar_get_all_async(
     });
 }
 
+fn update_auto_increment(
+    collection: &IsarCollection,
+    txn: &mut IsarTxn,
+    bytes: &mut [u8],
+) -> Result<()> {
+    let isar_object = IsarObject::new(bytes);
+    if isar_object.read_oid(collection).is_none() {
+        let counter = collection.auto_increment(txn)?;
+        let oid_property = collection.get_oid_property();
+        match oid_property.data_type {
+            DataType::Int => {
+                LittleEndian::write_i32(&mut bytes[oid_property.offset..], counter as i32);
+            }
+            DataType::Long => {
+                LittleEndian::write_i64(&mut bytes[oid_property.offset..], counter);
+            }
+            _ => unreachable!(),
+        }
+    };
+    Ok(())
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn isar_put(
     collection: &mut IsarCollection,
@@ -59,33 +69,10 @@ pub unsafe extern "C" fn isar_put(
     object: &mut RawObject,
 ) -> i32 {
     isar_try! {
-        let oid = object.get_object_id(collection);
-        let oid_none = oid.is_none();
-        let data = object.get_object();
-        let new_oid = collection.put(txn, oid, data)?;
-        if oid_none {
-            object.set_object_id(&new_oid);
-        }
+        let bytes = object.get_bytes();
+        update_auto_increment(collection, txn, bytes)?;
+        collection.put(txn, IsarObject::new(bytes))?;
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_put_async(
-    collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
-    object: &'static mut RawObject,
-) {
-    let object = RawObjectSend(object);
-    txn.exec(move |txn| -> Result<()> {
-        let oid = object.0.get_object_id(collection);
-        let oid_none = oid.is_none();
-        let data = object.0.get_object();
-        let new_oid = collection.put(txn, oid, data)?;
-        if oid_none {
-            object.0.set_object_id(&new_oid);
-        }
-        Ok(())
-    });
 }
 
 #[no_mangle]
@@ -96,19 +83,10 @@ pub unsafe extern "C" fn isar_put_all_async(
 ) {
     let objects = RawObjectSetSend(objects);
     txn.exec(move |txn| -> Result<()> {
-        let mut oids_none = vec![];
-        let mut entries = vec![];
         for raw_obj in objects.0.get_objects() {
-            let oid = raw_obj.get_object_id(collection);
-            oids_none.push(oid.is_none());
-            entries.push((oid, raw_obj.get_object()))
-        }
-        let oids = collection.put_all(txn, entries)?;
-        let objects = objects.0.get_objects();
-        for (i, oid_none) in oids_none.iter().enumerate() {
-            if *oid_none {
-                objects[i].set_object_id(oids.get(i).unwrap());
-            }
+            let bytes = raw_obj.get_bytes();
+            update_auto_increment(collection, txn, bytes)?;
+            collection.put(txn, IsarObject::new(bytes))?;
         }
         Ok(())
     });
@@ -122,40 +100,8 @@ pub unsafe extern "C" fn isar_delete(
     deleted: &mut bool,
 ) -> i32 {
     isar_try! {
-    let oid = object.get_object_id(collection).unwrap();
+        let oid = object.get_object_id(collection).unwrap();
         *deleted = collection.delete(txn, &oid)?;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_delete_async(
-    collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
-    object: &RawObject,
-    deleted: &'static mut bool,
-) {
-    let oid = object.get_object_id(collection).unwrap().to_owned();
-    let deleted = BoolSend(deleted);
-    txn.exec(move |txn| {
-        *deleted.0 = collection.delete(txn, &oid)?;
-        Ok(())
-    });
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_delete_all(
-    collection: &IsarCollection,
-    txn: &mut IsarTxn,
-    objects: &RawObjectSet,
-    count: &mut i64,
-) -> i32 {
-    let oids: Vec<ObjectId> = objects
-        .get_objects()
-        .iter()
-        .map(|raw_obj| raw_obj.get_object_id(collection).unwrap())
-        .collect();
-    isar_try! {
-        *count = collection.delete_all(txn, &oids)? as i64;
     }
 }
 
@@ -173,7 +119,11 @@ pub unsafe extern "C" fn isar_delete_all_async(
         .collect();
     let count = UintSend(count);
     txn.exec(move |txn| {
-        *count.0 = collection.delete_all(txn, &oids)? as u32;
+        for oid in oids {
+            if collection.delete(txn, &oid)? {
+                *count.0 += 1;
+            }
+        }
         Ok(())
     });
 }
@@ -197,7 +147,7 @@ pub unsafe extern "C" fn isar_clear_async(
 ) {
     let count = UintSend(count);
     txn.exec(move |txn| -> Result<()> {
-        *(count.0) = collection.clear(txn)? as u32;
+        *count.0 = collection.clear(txn)? as u32;
         Ok(())
     });
 }
