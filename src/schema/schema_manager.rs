@@ -6,8 +6,6 @@ use crate::object::object_id::ObjectId;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
 use crate::txn::Cursors;
-use serde::{Deserialize, Serialize};
-use serde_json::{Deserializer, Serializer};
 use std::convert::TryInto;
 
 const ISAR_VERSION: u64 = 1;
@@ -45,21 +43,21 @@ impl<'env> SchemaManger<'env> {
         let existing_schema_bytes = self.info_cursor.move_to(INFO_SCHEMA_KEY)?;
 
         let existing_collections = if let Some((_, existing_schema_bytes)) = existing_schema_bytes {
-            let mut deser = Deserializer::from_slice(existing_schema_bytes);
-            let existing_schema =
-                Schema::deserialize(&mut deser).map_err(|e| IsarError::DbCorrupted {
+            let existing_schema = serde_json::from_slice(existing_schema_bytes).map_err(|e| {
+                IsarError::DbCorrupted {
                     source: Some(Box::new(e)),
                     message: "Could not deserialize existing schema.".to_string(),
-                })?;
+                }
+            })?;
             schema.update_with_existing_schema(Some(&existing_schema))?;
-            existing_schema.build_collections()?
+            existing_schema.build_collections()
         } else {
             schema.update_with_existing_schema(None)?;
             vec![]
         };
 
         self.save_schema(&schema)?;
-        let collections = schema.build_collections()?;
+        let collections = schema.build_collections();
         for collection in &collections {
             self.update_oid_counter(collection)?;
         }
@@ -97,13 +95,9 @@ impl<'env> SchemaManger<'env> {
     }
 
     fn save_schema(&mut self, schema: &Schema) -> Result<()> {
-        let mut bytes = vec![];
-        let mut ser = Serializer::new(&mut bytes);
-        schema
-            .serialize(&mut ser)
-            .map_err(|_| IsarError::SchemaError {
-                message: "Could not serialize schema.".to_string(),
-            })?;
+        let bytes = serde_json::to_vec(schema).map_err(|_| IsarError::SchemaError {
+            message: "Could not serialize schema.".to_string(),
+        })?;
         self.info_cursor.put(INFO_SCHEMA_KEY, &bytes)?;
         Ok(())
     }

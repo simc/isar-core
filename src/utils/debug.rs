@@ -29,11 +29,8 @@ macro_rules! set (
 #[macro_export]
 macro_rules! isar (
     (path: $path:ident, $isar:ident, $($col:ident => $schema:expr),+) => {
-        let mut schema = crate::schema::Schema::new();
-        $(
-            let col = $schema;
-            schema.add_collection(col).unwrap();
-        )+
+        let cols = vec![$($schema,)+];
+        let schema = crate::schema::Schema::new(cols).unwrap();
         let $isar = crate::instance::IsarInstance::open($path, 10000000, schema).unwrap();
         $(
             let col = $schema;
@@ -42,8 +39,8 @@ macro_rules! isar (
     };
 
     ($isar:ident, $($col:ident => $schema:expr),+) => {
-        let temp = tempfile::tempdir().expect("DIR");
-        let path = temp.path().to_str().expect("PATH");
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().to_str().unwrap();
         isar!(path: path, $isar, $($col => $schema),+);
     };
 );
@@ -64,19 +61,23 @@ macro_rules! col (
 
     ($name:expr, $($field:expr => $type:path),+; $($index:expr),*) => {
         {
-            let mut collection = crate::schema::collection_schema::CollectionSchema::new($name);
-            col!(add_property collection, true, $($field => $type,)+);
+            let mut properties = vec![];
+            col!(add_property properties, true, $($field => $type,)+);
+            let mut indexes = vec![];
+            indexes.clear();
             $(
                 let (fields, unique) = $index;
-                collection.add_index(fields, unique).unwrap();
+                let index = crate::schema::collection_schema::IndexSchema::new(fields, unique);
+                indexes.push(index);
             )*
-            collection
+            crate::schema::collection_schema::CollectionSchema::new($name, properties, indexes).unwrap()
         }
     };
 
-    (add_property $col:expr, $oid:expr, $field:expr => $type:path, $($fields:expr => $types:path,)*) => {
-        $col.add_property(stringify!($field), $type, $oid).unwrap();
-        col!(add_property $col, false, $($fields => $types,)*);
+    (add_property $vec:expr, $oid:expr, $field:expr => $type:path, $($fields:expr => $types:path,)*) => {
+        let property = crate::schema::collection_schema::PropertySchema::new(stringify!($field), $type, $oid);
+        $vec.push(property);
+        col!(add_property $vec, false, $($fields => $types,)*);
     };
 
     (add_property $col:expr, $oid:expr,) => {};
@@ -89,7 +90,7 @@ macro_rules! ind (
     };
 
     ($($index:expr),+; $unique:expr) => {
-        (&[$((stringify!($index), None, true)),+], $unique);
+        ind!(str $($index, crate::index::IndexType::Value, None),+; $unique);
     };
 
     (str $($index:expr, $str_type:expr, $str_lc:expr),+) => {
@@ -97,7 +98,14 @@ macro_rules! ind (
     };
 
     (str $($index:expr, $str_type:expr, $str_lc:expr),+; $unique:expr) => {
-        (&[$((stringify!($index), $str_type, $str_lc)),+], $unique);
+        {
+            let properties = vec![
+                $(
+                    crate::schema::collection_schema::IndexPropertySchema::new(stringify!($index), $str_type, $str_lc)
+                ),+
+            ];
+            (properties, $unique)
+        }
     };
 );
 

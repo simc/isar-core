@@ -25,7 +25,7 @@ Null values are always considered the "smallest" element.
 
 #[derive(Copy, Clone, Eq, PartialEq, Serialize_repr, Deserialize_repr, Debug, Ordinalize)]
 #[repr(u8)]
-pub enum StringIndexType {
+pub enum IndexType {
     Value,
     Hash,
     Words,
@@ -34,25 +34,25 @@ pub enum StringIndexType {
 #[derive(Clone, Eq, PartialEq)]
 pub struct IndexProperty {
     property: Property,
-    string_type: Option<StringIndexType>,
-    string_case_sensitive: bool,
+    index_type: IndexType,
+    case_sensitive: Option<bool>,
 }
 
 impl IndexProperty {
     pub(crate) fn new(
         property: Property,
-        string_type: Option<StringIndexType>,
-        string_case_sensitive: bool,
+        index_type: IndexType,
+        case_sensitive: Option<bool>,
     ) -> Self {
         IndexProperty {
             property,
-            string_type,
-            string_case_sensitive,
+            index_type,
+            case_sensitive,
         }
     }
     pub fn get_string_with_case(&self, object: IsarObject) -> Option<String> {
         object.read_string(self.property).map(|str| {
-            if self.string_case_sensitive {
+            if self.case_sensitive.unwrap() {
                 str.to_string()
             } else {
                 str.to_lowercase()
@@ -94,7 +94,7 @@ impl Index {
     }
 
     pub(crate) fn multiple(&self) -> bool {
-        self.properties.first().unwrap().string_type == Some(StringIndexType::Words)
+        self.properties.first().unwrap().index_type == IndexType::Words
     }
 
     pub(crate) fn create_for_object(
@@ -198,9 +198,9 @@ impl Index {
                 }
                 DataType::String => {
                     let value = ip.get_string_with_case(object);
-                    match ip.string_type.as_ref().unwrap() {
-                        StringIndexType::Value => Self::create_string_value_key(value.as_deref()),
-                        StringIndexType::Hash => Self::create_string_hash_key(value.as_deref()),
+                    match ip.index_type {
+                        IndexType::Value => Self::create_string_value_key(value.as_deref()),
+                        IndexType::Hash => Self::create_string_hash_key(value.as_deref()),
                         _ => unimplemented!(),
                     }
                 }
@@ -415,19 +415,15 @@ mod tests {
 
     #[test]
     fn test_create_for_object_string() {
-        fn test(str_type: StringIndexType, str_lc: bool) {
-            isar!(isar, col => col!(oid => DataType::Int, field => DataType::String; ind!(str field, Some(str_type), str_lc)));
+        fn test(str_type: IndexType, str_lc: bool) {
+            isar!(isar, col => col!(oid => DataType::Int, field => DataType::String; ind!(str field, str_type, Some(str_lc))));
             let mut builder = col.new_object_builder(None);
             builder.write_int(1);
             builder.write_string(Some("Hello This Is A TEST Hello"));
             check_index(&isar, col, builder.finish());
         }
 
-        for str_type in &[
-            StringIndexType::Value,
-            StringIndexType::Hash,
-            StringIndexType::Words,
-        ] {
+        for str_type in &[IndexType::Value, IndexType::Hash, IndexType::Words] {
             test(*str_type, false);
             test(*str_type, true);
         }

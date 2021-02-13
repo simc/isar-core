@@ -1,13 +1,12 @@
 mod collection_migrator;
 pub mod collection_schema;
-pub mod index_schema;
-pub mod property_schema;
 pub(crate) mod schema_manager;
 
 use crate::collection::IsarCollection;
-use crate::error::{illegal_arg, Result};
+use crate::error::{schema_error, Result};
 use crate::schema::collection_schema::CollectionSchema;
 use hashbrown::HashSet;
+use itertools::Itertools;
 use rand::random;
 use serde::{Deserialize, Serialize};
 
@@ -17,21 +16,38 @@ pub struct Schema {
 }
 
 impl Schema {
-    pub fn new() -> Schema {
-        Schema {
-            collections: vec![],
+    pub fn new(collections: Vec<CollectionSchema>) -> Result<Schema> {
+        let mut schema = Schema { collections };
+        schema.verify()?;
+        Ok(schema)
+    }
+
+    pub fn from_json(json: &[u8]) -> Result<Schema> {
+        if let Ok(mut schema) = serde_json::from_slice::<Schema>(json) {
+            for col in &mut schema.collections {
+                col.id = None;
+                for index in &mut col.indexes {
+                    index.id = None;
+                }
+            }
+            schema.verify()?;
+            Ok(schema)
+        } else {
+            schema_error("Could not deserialize schema JSON")
         }
     }
 
-    pub fn add_collection(&mut self, collection: CollectionSchema) -> Result<()> {
-        if self.collections.iter().any(|c| c.name == collection.name) {
-            illegal_arg("Schema already contains this collection.")?;
+    fn verify(&mut self) -> Result<()> {
+        if self.collections.iter().unique_by(|c| &c.name).count() != self.collections.len() {
+            return schema_error("Duplicate collections");
         }
-        self.collections.push(collection);
+        for col in &mut self.collections {
+            col.verify()?;
+        }
         Ok(())
     }
 
-    pub(crate) fn build_collections(self) -> Result<Vec<IsarCollection>> {
+    pub(crate) fn build_collections(self) -> Vec<IsarCollection> {
         self.collections
             .iter()
             .map(|c| c.get_isar_collection())
@@ -74,7 +90,10 @@ impl Schema {
         let empty = vec![];
         let existing_collections = existing_schema.map_or(&empty, |c| &c.collections);
         for collection in &mut self.collections {
-            collection.update_with_existing_collections(existing_collections, &mut find_id)?;
+            let existing_collection = existing_collections
+                .iter()
+                .find(|c| c.name == collection.name);
+            collection.update_with_existing_collections(existing_collection, &mut find_id)?;
         }
         Ok(())
     }

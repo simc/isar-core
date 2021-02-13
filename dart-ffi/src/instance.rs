@@ -4,10 +4,11 @@ use crate::dart::DartPort;
 use crate::error::DartErrCode;
 use crate::from_c_str;
 use isar_core::collection::IsarCollection;
-use isar_core::error::illegal_arg;
+use isar_core::error::{illegal_arg, Result};
 use isar_core::instance::IsarInstance;
 use isar_core::schema::Schema;
 use std::os::raw::c_char;
+use std::sync::Arc;
 
 struct IsarInstanceSend(*mut *const IsarInstance);
 
@@ -18,22 +19,27 @@ pub unsafe extern "C" fn isar_create_instance(
     isar: *mut *const IsarInstance,
     path: *const c_char,
     max_size: i64,
-    schema: *mut Schema,
+    schema_json: *const u8,
+    schema_json_length: u32,
     port: DartPort,
 ) {
     let isar = IsarInstanceSend(isar);
     let path = from_c_str(path).unwrap();
-    let schema = Box::from_raw(schema);
-    run_async(move || {
-        let instance = IsarInstance::open(&path, max_size as usize, *schema);
-        match instance {
-            Ok(instance) => {
-                isar.0.write(instance.as_ref());
-                dart_post_int(port, 0);
-            }
-            Err(e) => {
-                dart_post_int(port, e.into_dart_err_code());
-            }
+    let schema_json = std::slice::from_raw_parts(schema_json, schema_json_length as usize);
+
+    fn open(path: &str, max_size: usize, schema_json: &[u8]) -> Result<Arc<IsarInstance>> {
+        let schema = Schema::from_json(schema_json)?;
+        let instance = IsarInstance::open(&path, max_size, schema)?;
+        Ok(instance)
+    }
+
+    run_async(move || match open(path, max_size as usize, schema_json) {
+        Ok(instance) => {
+            isar.0.write(instance.as_ref());
+            dart_post_int(port, 0);
+        }
+        Err(e) => {
+            dart_post_int(port, e.into_dart_err_code());
         }
     });
 }

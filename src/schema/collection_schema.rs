@@ -1,13 +1,73 @@
 use crate::collection::IsarCollection;
 use crate::error::{schema_error, Result};
-use crate::index::{Index, IndexProperty, StringIndexType};
+use crate::index::{Index, IndexProperty, IndexType};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::Property;
 use crate::object::object_info::ObjectInfo;
-use crate::schema::index_schema::{IndexPropertySchema, IndexSchema};
-use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+
+#[derive(PartialEq, Serialize, Deserialize, Clone, Debug)]
+pub struct PropertySchema {
+    pub(crate) name: String,
+    #[serde(rename = "type")]
+    pub(crate) data_type: DataType,
+    #[serde(rename = "isObjectId")]
+    pub(crate) is_oid: bool,
+    pub(crate) offset: Option<usize>,
+}
+
+impl PropertySchema {
+    pub fn new(name: &str, data_type: DataType, is_oid: bool) -> PropertySchema {
+        PropertySchema {
+            name: name.to_string(),
+            data_type,
+            is_oid,
+            offset: None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct IndexPropertySchema {
+    #[serde(rename = "name")]
+    pub(crate) name: String,
+    #[serde(rename = "indexType")]
+    pub(crate) index_type: IndexType,
+    #[serde(rename = "caseSensitive")]
+    pub(crate) case_sensitive: Option<bool>,
+}
+
+impl IndexPropertySchema {
+    pub fn new(
+        name: &str,
+        index_type: IndexType,
+        case_sensitive: Option<bool>,
+    ) -> IndexPropertySchema {
+        IndexPropertySchema {
+            name: name.to_string(),
+            index_type,
+            case_sensitive,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct IndexSchema {
+    pub(crate) id: Option<u16>,
+    pub(crate) properties: Vec<IndexPropertySchema>,
+    pub(crate) unique: bool,
+}
+
+impl IndexSchema {
+    pub fn new(properties: Vec<IndexPropertySchema>, unique: bool) -> IndexSchema {
+        IndexSchema {
+            id: None,
+            properties,
+            unique,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CollectionSchema {
@@ -18,134 +78,131 @@ pub struct CollectionSchema {
 }
 
 impl CollectionSchema {
-    pub fn new(name: &str) -> CollectionSchema {
-        CollectionSchema {
+    pub fn new(
+        name: &str,
+        properties: Vec<PropertySchema>,
+        indexes: Vec<IndexSchema>,
+    ) -> Result<CollectionSchema> {
+        let mut schema = CollectionSchema {
             id: None,
             name: name.to_string(),
-            properties: vec![],
-            indexes: vec![],
+            properties,
+            indexes,
+        };
+        schema.verify()?;
+        Ok(schema)
+    }
+
+    pub fn from_json(json: &str) -> Result<CollectionSchema> {
+        if let Ok(mut schema) = serde_json::from_str::<CollectionSchema>(json) {
+            schema.id = None;
+            for index in &mut schema.indexes {
+                index.id = None;
+            }
+            schema.verify()?;
+            Ok(schema)
+        } else {
+            schema_error("Could not deserialize schema JSON")
         }
     }
 
-    pub fn add_property(&mut self, name: &str, data_type: DataType, is_oid: bool) -> Result<()> {
-        if name.is_empty() {
-            schema_error("Empty property names are not allowed")?;
+    pub(crate) fn verify(&mut self) -> Result<()> {
+        if self.name.is_empty() {
+            schema_error("Empty collection names are not allowed")?;
         }
 
-        if self.properties.iter().any(|f| f.name == name) {
-            schema_error("Property already exists")?;
+        if self.properties.iter().unique_by(|p| &p.name).count() != self.properties.len() {
+            schema_error("Duplicate property name")?;
         }
-
-        if is_oid {
-            if data_type != DataType::Int
-                && data_type != DataType::Long
-                && data_type != DataType::Double
-            {
-                schema_error("Illegal ObjectId type.")?;
+        let mut has_oid = false;
+        for property in &mut self.properties {
+            if property.name.is_empty() {
+                schema_error("Empty property names are not allowed")?;
             }
-            if self.properties.iter().any(|p| p.is_oid) {
-                schema_error("An ObjectId property already exists.")?;
+            if property.is_oid {
+                if has_oid {
+                    schema_error("Only one ObjectId property is allowed")?;
+                }
+                if property.data_type != DataType::Int
+                    && property.data_type != DataType::Long
+                    && property.data_type != DataType::Double
+                {
+                    schema_error("Illegal ObjectId type")?;
+                }
+                has_oid = true;
             }
+            property.offset = None
+        }
+        if !has_oid {
+            schema_error("No ObjectId property is defined")?;
         }
 
-        self.properties.push(PropertySchema {
-            name: name.to_string(),
-            data_type,
-            offset: None,
-            is_oid,
-        });
+        for index in &self.indexes {
+            if index.properties.is_empty() {
+                schema_error("At least one property needs to be added to a valid index")?;
+            } else if index.properties.len() > 3 {
+                schema_error("No more than three properties may be used as a composite index")?;
+            }
 
-        Ok(())
-    }
-
-    pub fn add_index(
-        &mut self,
-        properties: &[(&str, Option<StringIndexType>, bool)],
-        unique: bool,
-    ) -> Result<()> {
-        if properties.is_empty() {
-            schema_error("At least one property needs to be added to a valid index.")?;
-        }
-
-        if properties.len() > 3 {
-            schema_error("No more than three properties may be used as a composite index.")?;
-        }
-
-        let properties: Result<Vec<_>> = properties
-            .iter()
-            .enumerate()
-            .map(|(i, (property_name, string_type, string_case_sensitive))| {
-                let property = self.properties
+            for (i, index_property) in index.properties.iter().enumerate() {
+                let property = self
+                    .properties
                     .iter()
-                    .find(|p| p.name == *property_name)
+                    .find(|p| p.name == index_property.name)
                     .cloned();
                 if property.is_none() {
-                    schema_error("Index property does not exist.")?;
+                    schema_error("Index property does not exist")?;
                 }
                 let property = property.unwrap();
 
-                if property.data_type.is_dynamic() && property.data_type != DataType::String{
-                    schema_error("Illegal index data type.")?;
+                if property.data_type.is_dynamic() && property.data_type != DataType::String {
+                    schema_error("Illegal index data type")?;
                 }
 
-                if (property.data_type == DataType::String) != string_type.is_some() {
-                    schema_error("String indexes must have a StringIndexType.")?;
+                if property.data_type != DataType::String
+                    && index_property.index_type != IndexType::Value
+                {
+                    schema_error("Non string indexes must use IndexType::Value")?;
+                }
+                if (property.data_type == DataType::String)
+                    != index_property.case_sensitive.is_some()
+                {
+                    schema_error("Only String indexes must have case sensitivity.")?;
                 }
 
-                match string_type {
-                    Some(StringIndexType::Value) => {
-                        if i != properties.len() -1 {
+                match index_property.index_type {
+                    IndexType::Value => {
+                        if i != index.properties.len() - 1 {
                             schema_error(
                                 "Value string indexes must only be at the end of a composite index.",
                             )?;
                         }
                     }
-                    Some(StringIndexType::Words) => {
-                        if properties.len() > 1 {
+                    IndexType::Words => {
+                        if index.properties.len() > 1 {
                             schema_error("Word indexes require a single property")?;
                         }
                     }
                     _ => {}
                 }
-
-                Ok(IndexPropertySchema {
-                    property,
-                    string_type: *string_type,
-                    string_case_sensitive: *string_case_sensitive,
-                })
-            })
-            .collect();
-        let properties = properties?;
-
-        let same_property = self.indexes.iter().any(|i| {
-            i.properties.first().unwrap().property.name == properties.first().unwrap().property.name
-        });
-        if same_property {
-            schema_error("Another index already exists for this property.")?;
+            }
         }
-
-        self.indexes.push(IndexSchema::new(properties, unique));
 
         Ok(())
     }
 
-    pub(super) fn get_isar_collection(&self) -> Result<IsarCollection> {
+    pub(super) fn get_isar_collection(&self) -> IsarCollection {
         let properties = self.get_properties();
         let indexes = self.get_indexes(&properties);
 
-        let oid_property_schema = self.properties.iter().find(|p| p.is_oid);
-        if let Some(oid_property_schema) = oid_property_schema {
-            let (_, oid_property) = properties
-                .iter()
-                .find(|(name, _)| name == &oid_property_schema.name)
-                .unwrap();
+        let oid_property_schema = self.properties.iter().find(|p| p.is_oid).unwrap();
+        let (_, oid_property) = properties
+            .iter()
+            .find(|(name, _)| name == &oid_property_schema.name)
+            .unwrap();
 
-            let oi = ObjectInfo::new(*oid_property, properties);
-            let col = IsarCollection::new(self.id.unwrap(), self.name.clone(), oi, indexes);
-            Ok(col)
-        } else {
-            schema_error("Collection does not have an ObjectId")
-        }
+        let oi = ObjectInfo::new(*oid_property, properties);
+        IsarCollection::new(self.id.unwrap(), self.name.clone(), oi, indexes)
     }
 
     fn get_properties(&self) -> Vec<(String, Property)> {
@@ -168,9 +225,9 @@ impl CollectionSchema {
                     .map(|ips| {
                         let (_, property) = properties
                             .iter()
-                            .find(|(name, _)| name == &ips.property.name)
+                            .find(|(name, _)| name == &ips.name)
                             .unwrap();
-                        IndexProperty::new(*property, ips.string_type, ips.string_case_sensitive)
+                        IndexProperty::new(*property, ips.index_type, ips.case_sensitive)
                     })
                     .collect_vec();
 
@@ -181,32 +238,43 @@ impl CollectionSchema {
 
     pub(super) fn update_with_existing_collections(
         &mut self,
-        existing_collections: &[CollectionSchema],
+        existing_collection: Option<&CollectionSchema>,
         get_id: &mut impl FnMut() -> u16,
     ) -> Result<()> {
-        let existing_collection = existing_collections.iter().find(|c| c.name == self.name);
-
         let id = existing_collection.map_or_else(|| get_id(), |e| e.id.unwrap());
         self.id = Some(id);
 
         let existing_properties: &[PropertySchema] =
             existing_collection.map_or(&[], |e| &e.properties);
-        let mut existing_offset = existing_properties
+        let mut next_offset = existing_properties
             .iter()
             .map(|p| p.offset.unwrap() + p.data_type.get_static_size())
             .max()
             .unwrap_or(2);
         for property in &mut self.properties {
-            let offset =
-                property.update_with_existing_properties(existing_properties, existing_offset)?;
-            if offset > existing_offset {
-                existing_offset = offset;
+            let existing_property = existing_properties.iter().find(|i| i.name == property.name);
+            if let Some(existing_property) = existing_property {
+                if existing_property.is_oid != property.is_oid {
+                    return schema_error("The ObjectId property must not change between versions.");
+                }
+                property.offset = existing_property.offset;
+            } else {
+                property.offset = Some(next_offset);
+                next_offset += property.data_type.get_static_size();
             }
         }
 
         let existing_indexes: &[IndexSchema] = existing_collection.map_or(&[], |e| &e.indexes);
         for index in &mut self.indexes {
-            index.update_with_existing_indexes(existing_indexes, get_id);
+            let existing_index = existing_indexes.iter().find(|i| {
+                let index_properties_equal = i.properties.iter().eq(index.properties.iter());
+                index_properties_equal && i.unique == index.unique
+            });
+            if let Some(existing_index) = existing_index {
+                index.id = existing_index.id;
+            } else {
+                index.id = Some(get_id());
+            }
         }
 
         Ok(())

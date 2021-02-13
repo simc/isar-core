@@ -27,8 +27,6 @@ fn main() {
         builder
             .file(lmdb.join("mdb.c"))
             .file(lmdb.join("midl.c"))
-            .define("MDB_DEVEL", "2")
-            //.define("MDB_DEBUG","2")
             .flag_if_supported("-Wno-unused-parameter")
             .flag_if_supported("-Wbad-function-cast")
             .flag_if_supported("-Wuninitialized");
