@@ -19,16 +19,15 @@ pub unsafe extern "C" fn isar_create_instance(
     isar: *mut *const IsarInstance,
     path: *const c_char,
     max_size: i64,
-    schema_json: *const u8,
-    schema_json_length: u32,
+    schema_json: *const c_char,
     port: DartPort,
 ) {
     let isar = IsarInstanceSend(isar);
     let path = from_c_str(path).unwrap();
-    let schema_json = std::slice::from_raw_parts(schema_json, schema_json_length as usize);
+    let schema_json = from_c_str(schema_json).unwrap();
 
-    fn open(path: &str, max_size: usize, schema_json: &[u8]) -> Result<Arc<IsarInstance>> {
-        let schema = Schema::from_json(schema_json)?;
+    fn open(path: &str, max_size: usize, schema_json: &str) -> Result<Arc<IsarInstance>> {
+        let schema = Schema::from_json(schema_json.as_bytes())?;
         let instance = IsarInstance::open(&path, max_size, schema)?;
         Ok(instance)
     }
@@ -42,6 +41,17 @@ pub unsafe extern "C" fn isar_create_instance(
             dart_post_int(port, e.into_dart_err_code());
         }
     });
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_get_instance(isar: *mut *const IsarInstance, path: *const c_char) {
+    let path = from_c_str(path).unwrap();
+    let instance = IsarInstance::get_instance(&path);
+    if let Some(instance) = instance {
+        isar.write(instance.as_ref());
+    } else {
+        isar.write(std::ptr::null());
+    }
 }
 
 #[no_mangle]
