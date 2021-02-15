@@ -44,22 +44,31 @@ fn update_auto_increment(
     collection: &IsarCollection,
     txn: &mut IsarTxn,
     bytes: &mut [u8],
-) -> Result<()> {
+) -> Result<Option<i64>> {
     let isar_object = IsarObject::new(bytes);
-    if isar_object.read_oid(collection).is_none() {
+    if let Some(oid) = isar_object.read_oid(collection) {
+        match oid.get_type() {
+            DataType::Int => Ok(Some(oid.get_int().unwrap() as i64)),
+            DataType::Long => Ok(Some(oid.get_long().unwrap())),
+            DataType::String => Ok(None),
+            _ => unreachable!(),
+        }
+    } else {
         let counter = collection.auto_increment(txn)?;
         let oid_property = collection.get_oid_property();
         match oid_property.data_type {
             DataType::Int => {
                 LittleEndian::write_i32(&mut bytes[oid_property.offset..], counter as i32);
+                Ok(Some(counter))
             }
             DataType::Long => {
                 LittleEndian::write_i64(&mut bytes[oid_property.offset..], counter);
+                Ok(Some(counter))
             }
+            DataType::String => Ok(None),
             _ => unreachable!(),
         }
-    };
-    Ok(())
+    }
 }
 
 #[no_mangle]
@@ -70,8 +79,9 @@ pub unsafe extern "C" fn isar_put(
 ) -> i32 {
     isar_try! {
         let bytes = object.get_bytes();
-        update_auto_increment(collection, txn, bytes)?;
+        let auto_increment = update_auto_increment(collection, txn, bytes)?;
         collection.put(txn, IsarObject::new(bytes))?;
+        object.set_auto_increment(auto_increment);
     }
 }
 
@@ -85,8 +95,9 @@ pub unsafe extern "C" fn isar_put_all_async(
     txn.exec(move |txn| -> Result<()> {
         for raw_obj in objects.0.get_objects() {
             let bytes = raw_obj.get_bytes();
-            update_auto_increment(collection, txn, bytes)?;
+            let auto_increment = update_auto_increment(collection, txn, bytes)?;
             collection.put(txn, IsarObject::new(bytes))?;
+            raw_obj.set_auto_increment(auto_increment)
         }
         Ok(())
     });

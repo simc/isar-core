@@ -23,15 +23,14 @@ impl Schema {
     }
 
     pub fn from_json(json: &[u8]) -> Result<Schema> {
-        if let Ok(mut schema) = serde_json::from_slice::<Schema>(json) {
-            for col in &mut schema.collections {
+        if let Ok(mut collections) = serde_json::from_slice::<Vec<CollectionSchema>>(json) {
+            for col in &mut collections {
                 col.id = None;
                 for index in &mut col.indexes {
                     index.id = None;
                 }
             }
-            schema.verify()?;
-            Ok(schema)
+            Schema::new(collections)
         } else {
             schema_error("Could not deserialize schema JSON")
         }

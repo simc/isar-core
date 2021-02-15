@@ -82,27 +82,12 @@ impl CollectionSchema {
         name: &str,
         properties: Vec<PropertySchema>,
         indexes: Vec<IndexSchema>,
-    ) -> Result<CollectionSchema> {
-        let mut schema = CollectionSchema {
+    ) -> CollectionSchema {
+        CollectionSchema {
             id: None,
             name: name.to_string(),
             properties,
             indexes,
-        };
-        schema.verify()?;
-        Ok(schema)
-    }
-
-    pub fn from_json(json: &str) -> Result<CollectionSchema> {
-        if let Ok(mut schema) = serde_json::from_str::<CollectionSchema>(json) {
-            schema.id = None;
-            for index in &mut schema.indexes {
-                index.id = None;
-            }
-            schema.verify()?;
-            Ok(schema)
-        } else {
-            schema_error("Could not deserialize schema JSON")
         }
     }
 
@@ -125,7 +110,7 @@ impl CollectionSchema {
                 }
                 if property.data_type != DataType::Int
                     && property.data_type != DataType::Long
-                    && property.data_type != DataType::Double
+                    && property.data_type != DataType::String
                 {
                     schema_error("Illegal ObjectId type")?;
                 }

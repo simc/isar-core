@@ -5,8 +5,6 @@ use isar_core::object::isar_object::IsarObject;
 use isar_core::object::object_id::ObjectId;
 use isar_core::query::Query;
 use isar_core::txn::IsarTxn;
-use std::ffi::{c_void, CStr};
-use std::os::raw::c_char;
 use std::{ptr, slice};
 
 #[repr(C)]
@@ -16,24 +14,6 @@ pub struct RawObject {
     oid_num: i64,
     buffer: *mut u8,
     buffer_length: u32,
-}
-
-#[repr(C)]
-pub struct RawObjectId(*const c_void);
-
-impl RawObjectId {
-    pub unsafe fn get_oid(&self, collection: &IsarCollection) -> ObjectId {
-        let oid = match collection.get_oid_property().data_type {
-            DataType::Int => collection.new_int_oid(*(self.0 as *const i32)),
-            DataType::Long => collection.new_long_oid(*(self.0 as *const i64)),
-            DataType::String => {
-                let str = CStr::from_ptr(self.0 as *const c_char);
-                collection.new_string_oid(str.to_str().unwrap())
-            }
-            _ => unimplemented!(),
-        };
-        oid.unwrap()
-    }
 }
 
 #[repr(C)]
@@ -79,6 +59,12 @@ impl RawObject {
                 }
             },
             _ => unreachable!(),
+        }
+    }
+
+    pub fn set_auto_increment(&mut self, auto_increment: Option<i64>) {
+        if let Some(auto_increment) = auto_increment {
+            self.oid_num = auto_increment;
         }
     }
 

@@ -65,7 +65,7 @@ impl IsarCollection {
     }
 
     pub fn new_long_oid(&self, oid: i64) -> Result<ObjectId<'static>> {
-        if self.object_info.get_oid_property().data_type == DataType::Int {
+        if self.object_info.get_oid_property().data_type == DataType::Long {
             Ok(ObjectId::from_long(self.id, oid))
         } else {
             illegal_arg("Wrong ObjectId type.")
@@ -73,7 +73,7 @@ impl IsarCollection {
     }
 
     pub fn new_string_oid(&self, oid: &str) -> Result<ObjectId<'static>> {
-        if self.object_info.get_oid_property().data_type == DataType::Int {
+        if self.object_info.get_oid_property().data_type == DataType::String {
             Ok(ObjectId::from_str(self.id, oid))
         } else {
             illegal_arg("Wrong ObjectId type.")

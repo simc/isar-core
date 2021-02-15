@@ -70,7 +70,7 @@ macro_rules! col (
                 let index = crate::schema::collection_schema::IndexSchema::new(fields, unique);
                 indexes.push(index);
             )*
-            crate::schema::collection_schema::CollectionSchema::new($name, properties, indexes).unwrap()
+            crate::schema::collection_schema::CollectionSchema::new($name, properties, indexes)
         }
     };
 
