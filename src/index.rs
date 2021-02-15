@@ -159,14 +159,15 @@ impl Index {
         mut callback: impl FnMut(&[u8]) -> Result<bool>,
     ) -> Result<()> {
         let mut bytes = self.get_prefix();
+        bytes.extend(self.create_single_key(object));
         if self.multiple() {
+            let static_len = bytes.len();
             self.create_multiple_keys(object, |key| {
-                bytes.truncate(2);
+                bytes.truncate(static_len);
                 bytes.extend_from_slice(key);
                 callback(&bytes)
             })
         } else {
-            bytes.extend(self.create_single_key(object));
             callback(&bytes)?;
             Ok(())
         }
@@ -175,6 +176,7 @@ impl Index {
     fn create_single_key(&self, object: IsarObject) -> Vec<u8> {
         self.properties
             .iter()
+            .filter(|ip| ip.index_type != IndexType::Words)
             .flat_map(|ip| match ip.property.data_type {
                 DataType::Byte => {
                     let value = object.read_byte(ip.property);
