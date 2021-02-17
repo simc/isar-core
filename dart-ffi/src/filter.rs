@@ -260,5 +260,5 @@ macro_rules! filter_string_ffi {
 filter_string_ffi!(StringEqualCond, isar_filter_string_equal);
 filter_string_ffi!(StringStartsWithCond, isar_filter_string_starts_with);
 filter_string_ffi!(StringEndsWithCond, isar_filter_string_ends_with);
-filter_string_ffi!(StringLikeCond, isar_filter_string_like);
+filter_string_ffi!(StringMatchesCond, isar_filter_string_matches);
 filter_string_ffi!(StringListContainsCond, isar_filter_string_list_contains);

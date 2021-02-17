@@ -22,7 +22,7 @@ pub enum Filter {
     StringEqual(StringEqualCond),
     StringStartsWith(StringStartsWithCond),
     StringEndsWith(StringEndsWithCond),
-    StringLike(StringLikeCond),
+    StringMatches(StringMatchesCond),
 
     StringListContains(StringListContainsCond),
 
@@ -255,7 +255,7 @@ macro_rules! string_filter {
 string_filter!(StringEqual);
 string_filter!(StringStartsWith);
 string_filter!(StringEndsWith);
-string_filter!(StringLike);
+string_filter!(StringMatches);
 
 string_filter_struct!(StringListContains);
 
