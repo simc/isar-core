@@ -247,7 +247,7 @@ macro_rules! string_filter {
         $other_str.ends_with($filter_str)
     };
 
-    (StringLike $filter_str:ident, $other_str:ident) => {
+    (StringMatches $filter_str:ident, $other_str:ident) => {
         fast_wild_compare_portable($other_str, $filter_str)
     };
 }
