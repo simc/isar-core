@@ -1,5 +1,6 @@
 use crate::error::{illegal_arg, Result};
 use crate::object::isar_object::{IsarObject, Property};
+use crate::query::fast_wild_compare::fast_wild_compare_portable;
 use enum_dispatch::enum_dispatch;
 use paste::paste;
 
@@ -21,7 +22,7 @@ pub enum Filter {
     StringEqual(StringEqualCond),
     StringStartsWith(StringStartsWithCond),
     StringEndsWith(StringEndsWithCond),
-    StringContains(StringContainsCond),
+    StringLike(StringLikeCond),
 
     StringListContains(StringListContainsCond),
 
@@ -246,15 +247,15 @@ macro_rules! string_filter {
         $other_str.ends_with($filter_str)
     };
 
-    (StringContains $filter_str:ident, $other_str:ident) => {
-        twoway::find_str($other_str, $filter_str).is_some()
+    (StringLike $filter_str:ident, $other_str:ident) => {
+        fast_wild_compare_portable($other_str, $filter_str)
     };
 }
 
 string_filter!(StringEqual);
 string_filter!(StringStartsWith);
 string_filter!(StringEndsWith);
-string_filter!(StringContains);
+string_filter!(StringLike);
 
 string_filter_struct!(StringListContains);
 
