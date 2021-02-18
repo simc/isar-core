@@ -180,7 +180,9 @@ impl WhereClause {
     pub fn add_string(
         &mut self,
         lower: Option<&str>,
+        lower_unbound: bool,
         upper: Option<&str>,
+        upper_unbound: bool,
         case_sensitive: bool,
         index_type: IndexType,
     ) {
@@ -195,27 +197,26 @@ impl WhereClause {
             upper.map(|s| s.to_lowercase())
         };
 
-        match index_type {
-            IndexType::Value => {
-                self.lower_key
-                    .extend_from_slice(&Index::create_string_value_key(lower.as_deref()));
-                self.upper_key
-                    .extend_from_slice(&Index::create_string_value_key(upper.as_deref()));
-            }
-            IndexType::Hash => {
-                self.lower_key
-                    .extend_from_slice(&Index::create_string_hash_key(lower.as_deref()));
-                self.upper_key
-                    .extend_from_slice(&Index::create_string_hash_key(upper.as_deref()));
-            }
-            IndexType::Words => {
-                if let Some(lower) = lower {
-                    self.lower_key.extend_from_slice(lower.as_bytes());
-                }
-                if let Some(upper) = upper {
-                    self.upper_key.extend_from_slice(upper.as_bytes());
-                }
-            }
+        if lower_unbound {
+            self.lower_key.extend_from_slice(b"\0");
+        } else {
+            let key = match index_type {
+                IndexType::Value => Index::create_string_value_key(lower.as_deref()),
+                IndexType::Hash => Index::create_string_hash_key(lower.as_deref()),
+                IndexType::Words => lower.map_or(vec![], |s| s.as_bytes().to_vec()),
+            };
+            self.lower_key.extend_from_slice(&key);
+        }
+
+        if upper_unbound {
+            self.upper_key.extend_from_slice("\u{FFFF}".as_bytes());
+        } else {
+            let key = match index_type {
+                IndexType::Value => Index::create_string_value_key(upper.as_deref()),
+                IndexType::Hash => Index::create_string_hash_key(upper.as_deref()),
+                IndexType::Words => upper.map_or(vec![], |s| s.as_bytes().to_vec()),
+            };
+            self.upper_key.extend_from_slice(&key);
         }
     }
 

@@ -58,6 +58,8 @@ pub unsafe extern "C" fn isar_wc_add_string(
     where_clause: &mut WhereClause,
     lower: *const c_char,
     upper: *const c_char,
+    lower_unbound: bool,
+    upper_unbound: bool,
     case_sensitive: bool,
     index_type: u8,
 ) {
@@ -72,7 +74,14 @@ pub unsafe extern "C" fn isar_wc_add_string(
     } else {
         None
     };
-    where_clause.add_string(lower_str, upper_str, case_sensitive, index_type);
+    where_clause.add_string(
+        lower_str,
+        lower_unbound,
+        upper_str,
+        upper_unbound,
+        case_sensitive,
+        index_type,
+    );
 }
 
 #[no_mangle]
