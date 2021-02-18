@@ -12,7 +12,7 @@ use std::cmp::Ordering;
 use std::hash::Hasher;
 use wyhash::WyHash;
 
-mod fast_wild_compare;
+mod fast_wild_match;
 pub mod filter;
 pub mod query_builder;
 pub mod where_clause;

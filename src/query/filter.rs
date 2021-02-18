@@ -1,6 +1,6 @@
 use crate::error::{illegal_arg, Result};
 use crate::object::isar_object::{IsarObject, Property};
-use crate::query::fast_wild_compare::fast_wild_compare_portable;
+use crate::query::fast_wild_match::fast_wild_match;
 use enum_dispatch::enum_dispatch;
 use paste::paste;
 
@@ -248,7 +248,7 @@ macro_rules! string_filter {
     };
 
     (StringMatches $filter_str:ident, $other_str:ident) => {
-        fast_wild_compare_portable($other_str, $filter_str)
+        fast_wild_match($other_str, $filter_str)
     };
 }
 

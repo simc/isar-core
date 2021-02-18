@@ -159,7 +159,7 @@ impl CollectionSchema {
                     IndexType::Value | IndexType::Words => {
                         if i != index.properties.len() - 1 {
                             schema_error(
-                                "Value string indexes must only be at the end of a composite index.",
+                                "Value and word string indexes must only be at the end of a composite index.",
                             )?;
                         }
                     }

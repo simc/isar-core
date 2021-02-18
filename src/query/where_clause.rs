@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::index::Index;
+use crate::index::{Index, IndexType};
 use crate::lmdb::check_below_upper_key;
 use crate::object::isar_object::IsarObject;
 use crate::txn::Cursors;
@@ -177,22 +177,12 @@ impl WhereClause {
             .extend_from_slice(&Index::create_double_key(upper));
     }
 
-    pub fn add_string_hash(&mut self, value: Option<&str>, case_sensitive: bool) {
-        let value = if case_sensitive {
-            value.map(|s| s.to_string())
-        } else {
-            value.map(|s| s.to_lowercase())
-        };
-        let hash = Index::create_string_hash_key(value.as_deref());
-        self.lower_key.extend_from_slice(&hash);
-        self.upper_key.extend_from_slice(&hash);
-    }
-
-    pub fn add_string_value(
+    pub fn add_string(
         &mut self,
         lower: Option<&str>,
         upper: Option<&str>,
         case_sensitive: bool,
+        index_type: IndexType,
     ) {
         let lower = if case_sensitive {
             lower.map(|s| s.to_string())
@@ -204,20 +194,29 @@ impl WhereClause {
         } else {
             upper.map(|s| s.to_lowercase())
         };
-        self.lower_key
-            .extend_from_slice(&Index::create_string_value_key(lower.as_deref()));
-        self.upper_key
-            .extend_from_slice(&Index::create_string_value_key(upper.as_deref()));
-    }
 
-    pub fn add_string_word(&mut self, lower: &str, upper: &str, case_sensitive: bool) {
-        let lower = if case_sensitive {
-            lower.to_string()
-        } else {
-            lower.to_lowercase()
-        };
-        self.lower_key.extend_from_slice(lower.as_bytes());
-        self.upper_key.extend_from_slice(upper.as_bytes());
+        match index_type {
+            IndexType::Value => {
+                self.lower_key
+                    .extend_from_slice(&Index::create_string_value_key(lower.as_deref()));
+                self.upper_key
+                    .extend_from_slice(&Index::create_string_value_key(upper.as_deref()));
+            }
+            IndexType::Hash => {
+                self.lower_key
+                    .extend_from_slice(&Index::create_string_hash_key(lower.as_deref()));
+                self.upper_key
+                    .extend_from_slice(&Index::create_string_hash_key(upper.as_deref()));
+            }
+            IndexType::Words => {
+                if let Some(lower) = lower {
+                    self.lower_key.extend_from_slice(lower.as_bytes());
+                }
+                if let Some(upper) = upper {
+                    self.upper_key.extend_from_slice(upper.as_bytes());
+                }
+            }
+        }
     }
 
     pub fn add_oid_string(&mut self, lower: &str, upper: &str) {

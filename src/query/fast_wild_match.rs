@@ -1,149 +1,74 @@
-// Ported from http://developforperformance.com/MatchingWildcards_AnImprovedAlgorithmForBigData.html
-
 const ASTERISK: u8 = 42;
 const QUESTION_MARK: u8 = 63;
 
-pub fn fast_wild_compare_portable(str_tame: &str, str_wild: &str) -> bool {
-    let str_wild = str_wild.as_bytes();
-    let str_tame = str_tame.as_bytes();
-    let mut i_wild = 0; // Index for both tame and wild strings in upper loop
-    let mut i_tame; // Index for tame string, set going into lower loop
-    let mut i_wild_sequence; // Index for prospective match after '*' (wild string)
-    let mut i_tame_sequence; // Index for prospective match (tame string)
+pub(crate) fn fast_wild_match(tame: &str, wild: &str) -> bool {
+    let wild = wild.as_bytes();
+    let tame = tame.as_bytes();
+    let mut i_wild = 0;
+    let mut i_tame = 0;
+    let mut i_last = 0;
+    let mut i_star = 0;
 
-    // Find a first wildcard, if one exists, and the beginning of any
-    // prospectively matching sequence after it.
-    loop {
-        // Check for the end from the start.  Get out fast, if possible.
-        if str_tame.get(i_wild).is_none() {
-            return if str_wild.get(i_wild).is_some() {
-                while str_wild.get(i_wild) == Some(&ASTERISK) {
+    while tame.get(i_tame).is_some() {
+        match wild.get(i_wild) {
+            Some(&QUESTION_MARK) => {
+                i_tame += 1;
+                i_wild += 1;
+                continue;
+            }
+            Some(&ASTERISK) => {
+                loop {
                     i_wild += 1;
-                    if str_wild.get(i_wild).is_none() {
-                        return true; // "ab" matches "ab*".
+                    if wild.get(i_wild) != Some(&ASTERISK) {
+                        break;
                     }
                 }
-                false // "abcd" doesn't match "abc".
-            } else {
-                true // "abc" matches "abc".
-            };
-        } else if str_wild.get(i_wild) == Some(&ASTERISK) {
-            // Got wild: set up for the second loop and skip on down there.
-            i_tame = i_wild;
-
-            loop {
-                i_wild += 1;
-                if str_wild.get(i_wild) != Some(&ASTERISK) {
-                    break;
+                if wild.get(i_wild).is_none() {
+                    return true;
                 }
+                i_star = i_wild;
             }
-
-            if str_wild.get(i_wild).is_none() {
-                return true; // "abc*" matches "abcd".
-            }
-
-            // Search for the next prospective match.
-            if str_wild.get(i_wild) != Some(&QUESTION_MARK) {
-                while str_wild.get(i_wild) != str_tame.get(i_tame) {
+            _ => {
+                if tame.get(i_tame) == wild.get(i_wild) {
                     i_tame += 1;
-                    if str_tame.get(i_tame).is_none() {
-                        return false; // "a*bc" doesn't match "ab".
-                    }
+                    i_wild += 1;
+                    continue;
                 }
-            }
-
-            // Keep fallback positions for retry in case of incomplete match.
-            i_wild_sequence = i_wild;
-            i_tame_sequence = i_tame;
-            break;
-        } else if str_wild.get(i_wild) != str_tame.get(i_wild)
-            && str_wild.get(i_wild) != Some(&QUESTION_MARK)
-        {
-            return false; // "abc" doesn't match "abd".
-        }
-        i_wild += 1;
-    } // Everything's a match, so far.
-
-    loop {
-        if str_wild.get(i_wild) == Some(&ASTERISK) {
-            // Got wild again.
-            i_wild += 1;
-            while str_wild.get(i_wild) == Some(&ASTERISK) {
-                i_wild += 1;
-            }
-
-            if str_wild.get(i_wild).is_none() {
-                return true; // "ab*c*" matches "abcd".
-            }
-
-            if str_tame.get(i_tame).is_none() {
-                return false; // "*bcd*" doesn't match "abc".
-            }
-
-            // Search for the next prospective match.
-            if str_wild.get(i_wild) != Some(&QUESTION_MARK) {
-                while str_wild.get(i_wild) != str_tame.get(i_tame) {
-                    i_tame += 1;
-                    if str_tame.get(i_tame).is_none() {
-                        return false; // "a*b*c" doesn't match "ab".
-                    }
+                if i_star == 0 {
+                    return false;
                 }
+                i_wild = i_star;
+                i_tame = i_last + 1;
             }
-
-            // Keep the new fallback positions.
-            i_wild_sequence = i_wild;
-            i_tame_sequence = i_tame;
-        } else if str_wild.get(i_wild) != str_tame.get(i_tame)
-            && str_wild.get(i_wild) != Some(&QUESTION_MARK)
-        {
-            // The equivalent portion of the upper loop is really simple.
-            if str_tame.get(i_tame).is_none() {
-                return false; // "*bcd" doesn't match "abc".
-            }
-
-            // A fine time for questions.
-            while str_wild.get(i_wild_sequence) == Some(&QUESTION_MARK) {
-                i_wild_sequence += 1;
-                i_tame_sequence += 1;
-            }
-
-            i_wild = i_wild_sequence;
-
-            // Fall back, but never so far again.
-            i_tame_sequence += 1;
-            while str_wild.get(i_wild) != str_tame.get(i_tame_sequence) {
-                if str_tame.get(i_tame_sequence).is_none() {
-                    return false; // "*a*b" doesn't match "ac".
-                }
-                i_tame_sequence += 1;
-            }
-
-            i_tame = i_tame_sequence;
         }
 
-        // Another check for the end, at the end.
-        if str_tame.get(i_tame).is_none() {
-            return str_wild.get(i_wild).is_none(); // "*bc" matches "abc"
+        while tame.get(i_tame) != wild.get(i_wild) && wild.get(i_wild) != Some(&QUESTION_MARK) {
+            i_tame += 1;
+            if tame.get(i_tame).is_none() {
+                return false;
+            }
         }
-
-        i_wild += 1; // Everything's still a match.
+        i_last = i_tame;
         i_tame += 1;
+        i_wild += 1;
     }
+    while wild.get(i_wild) == Some(&ASTERISK) {
+        i_wild += 1;
+    }
+    wild.get(i_wild).is_none()
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::query::fast_wild_compare::fast_wild_compare_portable;
+    use crate::query::fast_wild_match::fast_wild_match;
 
     #[test]
     fn test_wild() {
         let wild_cases = vec![
             // Case with first wildcard after total match.
             ("Hi", "Hi*", true),
-
             // Case with mismatch after '*'
             ("abc", "ab*d", false),
-
             // Cases with repeating character sequences.
             ("abcccd", "*ccd", true),
             ("mississipissippi", "*issip*ss*", true),
@@ -161,16 +86,13 @@ mod tests {
             ("a12b12", "*12*23", false),
             ("a12b12", "a12b", false),
             ("a12b12", "*12*12*", true),
-
             // From DDJ reader Andy Belf
             ("caaab", "*a?b", true),
-
             // Additional cases where the '*' char appears in the tame string.
             ("*", "*", true),
             ("a*abab", "a*b", true),
             ("a*r", "a*", true),
             ("a*ar", "a*aar", false),
-
             // More double wildcard scenarios.
             ("XYXYXYZYXYz", "XY*Z*XYz", true),
             ("missisSIPpi", "*SIP*", true),
@@ -184,16 +106,13 @@ mod tests {
             ("A12b12", "*12*23", false),
             ("a12B12", "*12*12*", true),
             ("oWn", "*oWn*", true),
-
             // Completely tame (no wildcards) cases.
             ("bLah", "bLah", true),
             ("bLah", "bLaH", false),
-
             // Simple mixed wildcard tests suggested by Marlin Deckert.
             ("a", "*?", true),
             ("ab", "*?", true),
             ("abc", "*?", true),
-
             // More mixed wildcard tests including coverage for false positives.
             ("a", "??", false),
             ("ab", "?*?", true),
@@ -205,7 +124,6 @@ mod tests {
             ("abcd", "?**?c?", true),
             ("abcd", "?**?d?", false),
             ("abcde", "?*b*?*d*?", true),
-
             // Single-character-match cases.
             ("bLah", "bL?h", true),
             ("bLaaa", "bLa?", false),
@@ -244,7 +162,7 @@ mod tests {
         ];
 
         for (tame, wild, result) in wild_cases {
-            assert_eq!(fast_wild_compare_portable(tame, wild), result);
+            assert_eq!(fast_wild_match(tame, wild), result);
         }
     }
 
@@ -355,7 +273,7 @@ mod tests {
         ];
 
         for (tame, wild, result) in tame_cases {
-            assert_eq!(fast_wild_compare_portable(tame, wild), result);
+            assert_eq!(fast_wild_match(tame, wild), result);
         }
     }
 
@@ -443,7 +361,7 @@ mod tests {
         ];
 
         for (tame, wild, result) in empty_cases {
-            assert_eq!(fast_wild_compare_portable(tame, wild), result);
+            assert_eq!(fast_wild_match(tame, wild), result);
         }
     }
 }

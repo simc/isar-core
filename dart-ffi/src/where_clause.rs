@@ -1,6 +1,7 @@
 use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
+use isar_core::index::IndexType;
 use isar_core::query::where_clause::WhereClause;
 use std::os::raw::c_char;
 
@@ -53,26 +54,14 @@ pub extern "C" fn isar_wc_add_double(where_clause: &mut WhereClause, lower: f64,
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_wc_add_string_hash(
-    where_clause: &mut WhereClause,
-    value: *const c_char,
-    case_sensitive: bool,
-) {
-    let str = if !value.is_null() {
-        Some(from_c_str(value).unwrap())
-    } else {
-        None
-    };
-    where_clause.add_string_hash(str, case_sensitive);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_wc_add_string_value(
+pub unsafe extern "C" fn isar_wc_add_string(
     where_clause: &mut WhereClause,
     lower: *const c_char,
     upper: *const c_char,
     case_sensitive: bool,
+    index_type: u8,
 ) {
+    let index_type = IndexType::from_ordinal(index_type).unwrap();
     let lower_str = if !lower.is_null() {
         Some(from_c_str(lower).unwrap())
     } else {
@@ -83,19 +72,7 @@ pub unsafe extern "C" fn isar_wc_add_string_value(
     } else {
         None
     };
-    where_clause.add_string_value(lower_str, upper_str, case_sensitive);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_wc_add_string_word(
-    where_clause: &mut WhereClause,
-    lower: *const c_char,
-    upper: *const c_char,
-    case_sensitive: bool,
-) {
-    let lower_str = from_c_str(lower).unwrap();
-    let upper_str = from_c_str(upper).unwrap();
-    where_clause.add_string_word(lower_str, upper_str, case_sensitive);
+    where_clause.add_string(lower_str, upper_str, case_sensitive, index_type);
 }
 
 #[no_mangle]
