@@ -3,16 +3,18 @@ use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::object_id::ObjectId;
 use crate::query::where_clause::WhereClause;
+use crate::query::Sort;
 use crate::txn::Cursors;
 use byteorder::{BigEndian, ByteOrder};
 use enum_ordinalize::Ordinalize;
 use itertools::Itertools;
 use serde_repr::{Deserialize_repr, Serialize_repr};
+use std::hash::Hasher;
 use std::mem::transmute;
 use unicode_segmentation::UnicodeSegmentation;
 use wyhash::{wyhash, WyHash};
 
-use std::hash::Hasher;
+use crate::lmdb::Key;
 #[cfg(test)]
 use {crate::txn::IsarTxn, crate::utils::debug::dump_db, hashbrown::HashSet};
 
@@ -78,8 +80,8 @@ impl Index {
         }
     }
 
-    pub fn new_where_clause(&self, skip_duplicates: bool) -> WhereClause {
-        WhereClause::new_secondary(&self.get_prefix(), self.clone(), skip_duplicates)
+    pub fn new_where_clause(&self, skip_duplicates: bool, sort: Sort) -> WhereClause {
+        WhereClause::new_secondary(&self.get_prefix(), self.clone(), skip_duplicates, sort)
     }
 
     pub(crate) fn get_id(&self) -> u16 {
@@ -107,12 +109,12 @@ impl Index {
         let oid_bytes = oid.as_bytes();
         self.create_keys(object, |key| {
             if self.unique {
-                let success = cursors.secondary.put_no_override(key, oid_bytes)?;
+                let success = cursors.secondary.put_no_override(Key(key), oid_bytes)?;
                 if !success {
                     return Err(IsarError::UniqueViolated {});
                 }
             } else {
-                cursors.secondary_dup.put(key, oid_bytes)?;
+                cursors.secondary_dup.put(Key(key), oid_bytes)?;
             }
             Ok(true)
         })
@@ -127,12 +129,12 @@ impl Index {
         let oid_bytes = oid.as_bytes();
         self.create_keys(object, |key| {
             if self.unique {
-                let entry = cursors.secondary.move_to(key)?;
+                let entry = cursors.secondary.move_to(Key(key))?;
                 if entry.is_some() {
                     cursors.secondary.delete_current()?;
                 }
             } else {
-                let entry = cursors.secondary_dup.move_to_dup(key, oid_bytes)?;
+                let entry = cursors.secondary_dup.move_to_dup(Key(key), oid_bytes)?;
                 if entry.is_some() {
                     cursors.secondary_dup.delete_current()?;
                 }
@@ -142,7 +144,7 @@ impl Index {
     }
 
     pub(crate) fn clear(&self, cursors: &mut Cursors) -> Result<()> {
-        self.new_where_clause(false)
+        self.new_where_clause(false, Sort::Ascending)
             .iter(cursors, |cursors, _, _| {
                 if self.unique {
                     cursors.secondary.delete_current()?;

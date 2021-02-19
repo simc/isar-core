@@ -2,6 +2,7 @@
 
 use core::slice;
 use lmdb_sys as ffi;
+use std::cmp::{min, Ordering};
 use std::ffi::c_void;
 
 pub mod cursor;
@@ -10,7 +11,7 @@ pub mod env;
 pub mod error;
 pub mod txn;
 
-pub type KeyVal<'txn> = (&'txn [u8], &'txn [u8]);
+pub type KeyVal<'txn> = (Key<'txn>, &'txn [u8]);
 
 pub const EMPTY_KEY: ffi::MDB_val = ffi::MDB_val {
     mv_size: 0,
@@ -35,10 +36,28 @@ pub unsafe fn to_mdb_val(value: &[u8]) -> ffi::MDB_val {
     }
 }
 
-#[inline]
-pub fn check_below_upper_key(mut key: &[u8], upper_key: &[u8]) -> bool {
-    if upper_key.len() < key.len() {
-        key = &key[0..(upper_key.len())]
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct Key<'a>(pub &'a [u8]);
+
+impl<'a> Ord for Key<'a> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        let len = min(self.0.len(), other.0.len());
+        let cmp = (&self.0[0..len]).cmp(&other.0[0..len]);
+        if cmp == Ordering::Equal {
+            if self.0.len() < other.0.len() {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        } else {
+            cmp
+        }
     }
-    upper_key >= key
+}
+
+impl<'a> PartialOrd for Key<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }

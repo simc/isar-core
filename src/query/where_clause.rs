@@ -1,7 +1,9 @@
+use crate::collection::IsarCollection;
 use crate::error::Result;
 use crate::index::{Index, IndexType};
-use crate::lmdb::check_below_upper_key;
+use crate::lmdb::Key;
 use crate::object::isar_object::IsarObject;
+use crate::query::Sort;
 use crate::txn::Cursors;
 use std::convert::TryInto;
 use std::mem::ManuallyDrop;
@@ -10,23 +12,30 @@ use std::mem::ManuallyDrop;
 pub struct WhereClause {
     lower_key: Vec<u8>,
     upper_key: Vec<u8>,
-    pub(crate) index: Option<Index>,
+    index: Option<Index>,
     skip_duplicates: bool,
+    sort: Sort,
 }
 
 impl WhereClause {
     const PREFIX_LEN: usize = 2;
 
-    pub(crate) fn new_primary(prefix: &[u8]) -> Self {
+    pub(crate) fn new_primary(prefix: &[u8], sort: Sort) -> Self {
         WhereClause {
             lower_key: prefix.to_vec(),
             upper_key: prefix.to_vec(),
             index: None,
             skip_duplicates: false,
+            sort,
         }
     }
 
-    pub(crate) fn new_secondary(prefix: &[u8], index: Index, mut skip_duplicates: bool) -> Self {
+    pub(crate) fn new_secondary(
+        prefix: &[u8],
+        index: Index,
+        mut skip_duplicates: bool,
+        sort: Sort,
+    ) -> Self {
         if index.is_unique() {
             skip_duplicates = false;
         }
@@ -35,6 +44,7 @@ impl WhereClause {
             upper_key: prefix.to_vec(),
             index: Some(index),
             skip_duplicates,
+            sort,
         }
     }
 
@@ -44,11 +54,12 @@ impl WhereClause {
             upper_key: vec![0],
             index: None,
             skip_duplicates: false,
+            sort: Sort::Ascending,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        !check_below_upper_key(&self.lower_key, &self.upper_key)
+        Key(&self.lower_key) > Key(&self.upper_key)
     }
 
     pub fn is_primary(&self) -> bool {
@@ -67,19 +78,27 @@ impl WhereClause {
         }
     }
 
+    pub fn is_from_collection(&self, collection: &IsarCollection) -> bool {
+        if let Some(index) = &self.index {
+            collection.get_indexes().contains(index)
+        } else {
+            collection.get_id() == self.get_prefix()
+        }
+    }
+
     pub(crate) fn object_matches(&self, oid: &[u8], object: IsarObject) -> bool {
         if let Some(index) = &self.index {
             let mut key_matches = false;
             index
                 .create_keys(object, |key| {
-                    key_matches = self.lower_key.as_slice() <= key
-                        && check_below_upper_key(key, &self.upper_key);
+                    key_matches =
+                        Key(key) >= Key(&self.lower_key) && Key(key) <= Key(&self.upper_key);
                     Ok(!key_matches)
                 })
                 .unwrap();
             key_matches
         } else {
-            &self.lower_key[..] <= oid && check_below_upper_key(oid, &self.upper_key)
+            Key(oid) >= Key(&self.lower_key) && Key(oid) <= Key(&self.upper_key)
         }
     }
 
@@ -101,10 +120,11 @@ impl WhereClause {
         };
 
         cursor.iter_between(
-            &self.lower_key,
-            &self.upper_key,
+            Key(&self.lower_key),
+            Key(&self.upper_key),
             self.skip_duplicates,
-            |_, oid, object| callback(&mut cursors_clone, oid, object),
+            self.sort == Sort::Ascending,
+            |_, oid, object| callback(&mut cursors_clone, oid.0, object),
         )
     }
 
@@ -137,10 +157,6 @@ impl WhereClause {
         }
         true
     }
-
-    /*pub(super) fn merge(&self, other: &WhereClause) -> Option<WhereClause> {
-        unimplemented!()
-    }*/
 
     pub fn add_byte(&mut self, lower: u8, upper: u8) {
         self.lower_key
@@ -180,43 +196,39 @@ impl WhereClause {
     pub fn add_string(
         &mut self,
         lower: Option<&str>,
-        lower_unbound: bool,
+        lower_unbounded: bool,
         upper: Option<&str>,
-        upper_unbound: bool,
+        upper_unbounded: bool,
         case_sensitive: bool,
         index_type: IndexType,
     ) {
-        let lower = if case_sensitive {
-            lower.map(|s| s.to_string())
-        } else {
-            lower.map(|s| s.to_lowercase())
-        };
-        let upper = if case_sensitive {
-            upper.map(|s| s.to_string())
-        } else {
-            upper.map(|s| s.to_lowercase())
+        let get_bytes = |value: Option<&str>| {
+            let value = if case_sensitive {
+                value.map(|s| s.to_string())
+            } else {
+                value.map(|s| s.to_lowercase())
+            };
+            match index_type {
+                IndexType::Value => Index::create_string_value_key(value.as_deref()),
+                IndexType::Hash => Index::create_string_hash_key(value.as_deref()),
+                IndexType::Words => value.map_or(vec![], |s| s.as_bytes().to_vec()),
+            }
         };
 
-        if lower_unbound {
-            self.lower_key.extend_from_slice(&0u64.to_le_bytes());
-        } else {
-            let key = match index_type {
-                IndexType::Value => Index::create_string_value_key(lower.as_deref()),
-                IndexType::Hash => Index::create_string_hash_key(lower.as_deref()),
-                IndexType::Words => lower.map_or(vec![], |s| s.as_bytes().to_vec()),
+        if lower_unbounded {
+            match index_type {
+                IndexType::Value => self.lower_key.push(0),
+                IndexType::Hash => self.lower_key.extend_from_slice(&0u64.to_le_bytes()),
+                IndexType::Words => {}
             };
-            self.lower_key.extend_from_slice(&key);
+        } else {
+            self.lower_key.extend_from_slice(&get_bytes(lower));
         }
 
-        if upper_unbound {
+        if upper_unbounded {
             self.upper_key.extend_from_slice(&u64::MAX.to_le_bytes());
         } else {
-            let key = match index_type {
-                IndexType::Value => Index::create_string_value_key(upper.as_deref()),
-                IndexType::Hash => Index::create_string_hash_key(upper.as_deref()),
-                IndexType::Words => upper.map_or(vec![], |s| s.as_bytes().to_vec()),
-            };
-            self.upper_key.extend_from_slice(&key);
+            self.upper_key.extend_from_slice(&get_bytes(upper));
         }
     }
 

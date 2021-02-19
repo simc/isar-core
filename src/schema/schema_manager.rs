@@ -1,16 +1,18 @@
 use crate::collection::IsarCollection;
 use crate::error::{IsarError, Result};
 use crate::lmdb::cursor::Cursor;
+use crate::lmdb::Key;
 use crate::object::data_type::DataType;
 use crate::object::object_id::ObjectId;
+use crate::query::Sort;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
 use crate::txn::Cursors;
 use std::convert::TryInto;
 
 const ISAR_VERSION: u64 = 1;
-const INFO_VERSION_KEY: &[u8] = b"version";
-const INFO_SCHEMA_KEY: &[u8] = b"schema";
+const INFO_VERSION_KEY: Key = Key(b"version");
+const INFO_SCHEMA_KEY: Key = Key(b"schema");
 
 pub(crate) struct SchemaManger<'env> {
     info_cursor: Cursor<'env>,
@@ -72,7 +74,7 @@ impl<'env> SchemaManger<'env> {
         }
         let id = collection.get_id();
         let next_prefix = (id + 1).to_be_bytes();
-        let next_entry = self.cursors.primary.move_to_gte(&next_prefix)?;
+        let next_entry = self.cursors.primary.move_to_gte(Key(&next_prefix))?;
         let greatest_qualifying_oid = if next_entry.is_some() {
             self.cursors.primary.move_to_prev_key()?
         } else {
@@ -81,7 +83,7 @@ impl<'env> SchemaManger<'env> {
 
         if let Some((oid, _)) = greatest_qualifying_oid {
             let oid_type = collection.get_oid_property().data_type;
-            let oid = ObjectId::from_bytes(oid_type, oid);
+            let oid = ObjectId::from_bytes(oid_type, oid.0);
             if oid.get_col_id() == id {
                 let oid_counter = match oid.get_type() {
                     DataType::Int => oid.get_int().unwrap() as i64,
@@ -115,7 +117,7 @@ impl<'env> SchemaManger<'env> {
             for index in col.get_indexes() {
                 index.clear(&mut self.cursors)?;
             }
-            col.new_primary_where_clause()
+            col.new_primary_where_clause(Sort::Ascending)
                 .iter(&mut self.cursors, |c, _, _| {
                     c.primary.delete_current()?;
                     Ok(true)

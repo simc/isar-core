@@ -1,4 +1,5 @@
 use crate::error::{IsarError, Result};
+use crate::lmdb::Key;
 use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::object::object_id::ObjectId;
@@ -95,7 +96,7 @@ impl<'a> WhereExecutor<'a> {
                     return Ok(true);
                 }
             }
-            let entry = cursors.primary.move_to(oid)?;
+            let entry = cursors.primary.move_to(Key(oid))?;
             if let Some((_, object)) = entry {
                 if !callback(
                     cursors,

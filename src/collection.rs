@@ -13,6 +13,8 @@ use crate::watch::change_set::ChangeSet;
 use serde_json::{json, Value};
 use std::cell::Cell;
 
+use crate::lmdb::Key;
+use crate::query::Sort;
 #[cfg(test)]
 use {crate::utils::debug::dump_db, hashbrown::HashMap};
 
@@ -92,18 +94,19 @@ impl IsarCollection {
         QueryBuilder::new(self)
     }
 
-    pub fn new_primary_where_clause(&self) -> WhereClause {
-        WhereClause::new_primary(&self.id.to_be_bytes())
+    pub fn new_primary_where_clause(&self, sort: Sort) -> WhereClause {
+        WhereClause::new_primary(&self.id.to_be_bytes(), sort)
     }
 
     pub fn new_secondary_where_clause(
         &self,
         index_index: usize,
         skip_duplicates: bool,
+        sort: Sort,
     ) -> Option<WhereClause> {
         self.indexes
             .get(index_index)
-            .map(|i| i.new_where_clause(skip_duplicates))
+            .map(|i| i.new_where_clause(skip_duplicates, sort))
     }
 
     pub(crate) fn get_indexes(&self) -> &[Index] {
@@ -141,7 +144,7 @@ impl IsarCollection {
         txn.read(|c| {
             let object = c
                 .primary
-                .move_to(oid.as_bytes())?
+                .move_to(Key(oid.as_bytes()))?
                 .map(|(_, v)| IsarObject::new(v));
             Ok(object)
         })
@@ -175,7 +178,7 @@ impl IsarCollection {
             index.create_for_object(cursors, &oid, object)?;
         }
 
-        cursors.primary.put(&oid_bytes, object.as_bytes())?;
+        cursors.primary.put(Key(&oid_bytes), object.as_bytes())?;
         change_set.register_change(self.id, &oid, object);
         Ok(())
     }
@@ -190,7 +193,7 @@ impl IsarCollection {
         change_set: &mut ChangeSet,
         oid: &ObjectId,
     ) -> Result<bool> {
-        if let Some((_, existing_object)) = cursors.primary.move_to(oid.as_bytes())? {
+        if let Some((_, existing_object)) = cursors.primary.move_to(Key(oid.as_bytes()))? {
             let existing_object = IsarObject::new(existing_object);
             self.delete_current_object_internal(cursors, change_set, oid, existing_object)?;
             Ok(true)

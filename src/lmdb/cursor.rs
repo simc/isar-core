@@ -2,7 +2,7 @@ use crate::error::Result;
 use crate::lmdb::db::Db;
 use crate::lmdb::error::{lmdb_result, LmdbError};
 use crate::lmdb::txn::Txn;
-use crate::lmdb::{check_below_upper_key, from_mdb_val, to_mdb_val, KeyVal, EMPTY_KEY, EMPTY_VAL};
+use crate::lmdb::{from_mdb_val, to_mdb_val, Key, KeyVal, EMPTY_KEY, EMPTY_VAL};
 use core::ptr;
 use lmdb_sys as ffi;
 use std::marker::PhantomData;
@@ -31,10 +31,10 @@ impl<'txn> Cursor<'txn> {
     fn op_get(
         &self,
         op: u32,
-        key: Option<&[u8]>,
+        key: Option<Key>,
         val: Option<&[u8]>,
     ) -> Result<Option<KeyVal<'txn>>> {
-        let mut key = key.map_or(EMPTY_KEY, |key| unsafe { to_mdb_val(key) });
+        let mut key = key.map_or(EMPTY_KEY, |key| unsafe { to_mdb_val(key.0) });
         let mut data = val.map_or(EMPTY_VAL, |val| unsafe { to_mdb_val(val) });
 
         let result =
@@ -44,22 +44,22 @@ impl<'txn> Cursor<'txn> {
             Ok(()) => {
                 let key = unsafe { from_mdb_val(key) };
                 let data = unsafe { from_mdb_val(data) };
-                Ok(Some((key, data)))
+                Ok(Some((Key(key), data)))
             }
             Err(LmdbError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e)?,
         }
     }
 
-    pub fn move_to(&mut self, key: &[u8]) -> Result<Option<KeyVal<'txn>>> {
+    pub fn move_to(&mut self, key: Key) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDB_SET_KEY, Some(key), None)
     }
 
-    pub fn move_to_dup(&mut self, key: &[u8], val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
+    pub fn move_to_dup(&mut self, key: Key, val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDB_GET_BOTH, Some(key), Some(val))
     }
 
-    pub fn move_to_gte(&mut self, key: &[u8]) -> Result<Option<KeyVal<'txn>>> {
+    pub fn move_to_gte(&mut self, key: Key) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDB_SET_RANGE, Some(key), None)
     }
 
@@ -71,6 +71,10 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDB_NEXT_NODUP, None, None)
     }
 
+    pub fn move_to_prev(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDB_PREV, None, None)
+    }
+
     pub fn move_to_prev_key(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDB_PREV_NODUP, None, None)
     }
@@ -79,13 +83,13 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDB_LAST, None, None)
     }
 
-    pub fn put(&self, key: &[u8], data: &[u8]) -> Result<()> {
+    pub fn put(&self, key: Key, data: &[u8]) -> Result<()> {
         self.put_internal(key, data, 0)?;
         Ok(())
     }
 
     #[allow(clippy::try_err)]
-    pub fn put_no_override(&self, key: &[u8], data: &[u8]) -> Result<bool> {
+    pub fn put_no_override(&self, key: Key, data: &[u8]) -> Result<bool> {
         let result = self.put_internal(key, data, ffi::MDB_NOOVERWRITE);
         match result {
             Ok(()) => Ok(true),
@@ -96,13 +100,13 @@ impl<'txn> Cursor<'txn> {
 
     fn put_internal(
         &self,
-        key: &[u8],
+        key: Key,
         data: &[u8],
         flags: u32,
     ) -> std::result::Result<(), LmdbError> {
         assert!(self.write);
         unsafe {
-            let mut key = to_mdb_val(key);
+            let mut key = to_mdb_val(key.0);
             let mut data = to_mdb_val(data);
             lmdb_result(ffi::mdb_cursor_put(self.cursor, &mut key, &mut data, flags))?;
         }
@@ -119,27 +123,47 @@ impl<'txn> Cursor<'txn> {
 
     pub fn iter_between(
         &mut self,
-        lower_key: &[u8],
-        upper_key: &[u8],
+        lower_key: Key,
+        upper_key: Key,
         skip_duplicates: bool,
-        mut callback: impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
+        ascending: bool,
+        mut callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
-        if let Some((key, val)) = self.move_to_gte(lower_key)? {
-            let below_upper_key = check_below_upper_key(key, upper_key);
-            if !below_upper_key {
+        let mut first_entry = self.move_to_gte(upper_key)?;
+        if !ascending && first_entry.is_none() {
+            // If some key between upper_key and lower_key happens to be the last key in the db
+            first_entry = self.move_to_last()?;
+        }
+
+        if let Some((mut key, mut val)) = first_entry {
+            if !ascending && key > upper_key {
+                if let Some((prev_key, prev_val)) = self.move_to_prev()? {
+                    key = prev_key;
+                    val = prev_val;
+                    if key < lower_key {
+                        return Ok(true);
+                    }
+                }
+            }
+            if key > upper_key {
                 return Ok(true);
             } else if !callback(self, key, val)? {
                 return Ok(false);
             }
             loop {
-                let next = if skip_duplicates {
-                    self.move_to_next_key()
-                } else {
-                    self.move_to_next()
+                let next = match (ascending, skip_duplicates) {
+                    (true, true) => self.move_to_next_key(),
+                    (true, false) => self.move_to_next(),
+                    (false, true) => self.move_to_next_key(),
+                    (false, false) => self.move_to_prev(),
                 }?;
                 if let Some((key, val)) = next {
-                    let below_upper_key = check_below_upper_key(key, upper_key);
-                    if !below_upper_key {
+                    let within_bounds = if ascending {
+                        key <= upper_key
+                    } else {
+                        key >= lower_key
+                    };
+                    if !within_bounds {
                         return Ok(true);
                     } else if !callback(self, key, val)? {
                         return Ok(false);

@@ -3,21 +3,27 @@ use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::index::IndexType;
 use isar_core::query::where_clause::WhereClause;
+use isar_core::query::Sort;
 use std::os::raw::c_char;
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_wc_create(
     collection: &IsarCollection,
     wc: *mut *const WhereClause,
-    primary: bool,
-    index_index: u32,
+    index_index: i32,
     skip_duplicates: bool,
+    ascending: bool,
 ) -> i32 {
+    let sort = if ascending {
+        Sort::Ascending
+    } else {
+        Sort::Descending
+    };
     isar_try! {
-        let where_clause = if primary {
-            Some(collection.new_primary_where_clause())
+        let where_clause = if index_index < 0 {
+            Some(collection.new_primary_where_clause(sort))
         } else {
-            collection.new_secondary_where_clause(index_index as usize, skip_duplicates)
+            collection.new_secondary_where_clause(index_index as usize, skip_duplicates, sort)
         };
         if let Some(where_clause) = where_clause {
             let ptr = Box::into_raw(Box::new(where_clause));
@@ -58,27 +64,27 @@ pub unsafe extern "C" fn isar_wc_add_string(
     where_clause: &mut WhereClause,
     lower: *const c_char,
     upper: *const c_char,
-    lower_unbound: bool,
-    upper_unbound: bool,
+    lower_unbounded: bool,
+    upper_unbounded: bool,
     case_sensitive: bool,
     index_type: u8,
 ) {
     let index_type = IndexType::from_ordinal(index_type).unwrap();
-    let lower_str = if !lower.is_null() {
+    let lower = if !lower.is_null() {
         Some(from_c_str(lower).unwrap())
     } else {
         None
     };
-    let upper_str = if !upper.is_null() {
+    let upper = if !upper.is_null() {
         Some(from_c_str(upper).unwrap())
     } else {
         None
     };
     where_clause.add_string(
-        lower_str,
-        lower_unbound,
-        upper_str,
-        upper_unbound,
+        lower,
+        lower_unbounded,
+        upper,
+        upper_unbounded,
         case_sensitive,
         index_type,
     );

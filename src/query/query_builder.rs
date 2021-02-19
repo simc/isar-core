@@ -33,11 +33,7 @@ impl<'a> QueryBuilder<'a> {
         include_lower: bool,
         include_upper: bool,
     ) -> Result<()> {
-        if let Some(index) = &wc.index {
-            if !self.collection.get_indexes().contains(index) {
-                return illegal_arg("Wrong WhereClause for this collection.");
-            }
-        } else if self.collection.get_id() != wc.get_prefix() {
+        if !wc.is_from_collection(self.collection) {
             return illegal_arg("Wrong WhereClause for this collection.");
         }
         if !wc.try_exclude(include_lower, include_upper) {
@@ -75,8 +71,8 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn build(mut self) -> Query {
         if self.where_clauses.is_empty() {
-            self.where_clauses
-                .push(self.collection.new_primary_where_clause())
+            let default_wc = self.collection.new_primary_where_clause(Sort::Ascending);
+            self.where_clauses.push(default_wc);
         }
         let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();
         let distinct_unique = self.distinct.into_iter().unique_by(|p| p.offset).collect();
