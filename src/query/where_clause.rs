@@ -198,7 +198,7 @@ impl WhereClause {
         };
 
         if lower_unbound {
-            self.lower_key.extend_from_slice(b"\0");
+            self.lower_key.extend_from_slice(&0u64.to_le_bytes());
         } else {
             let key = match index_type {
                 IndexType::Value => Index::create_string_value_key(lower.as_deref()),
@@ -209,7 +209,7 @@ impl WhereClause {
         }
 
         if upper_unbound {
-            self.upper_key.extend_from_slice("\u{FFFF}".as_bytes());
+            self.upper_key.extend_from_slice(&u64::MAX.to_le_bytes());
         } else {
             let key = match index_type {
                 IndexType::Value => Index::create_string_value_key(upper.as_deref()),

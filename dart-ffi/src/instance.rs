@@ -71,14 +71,10 @@ pub unsafe extern "C" fn isar_get_collection<'a>(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_get_property_offset(
-    collection: &IsarCollection,
-    property_index: u32,
-) -> i32 {
-    let property = collection.get_properties().get(property_index as usize);
-    if let Some(property) = property {
-        property.1.offset as i32
-    } else {
-        -1
+pub unsafe extern "C" fn isar_get_property_offsets(collection: &IsarCollection, offsets: *mut u32) {
+    let properties = collection.get_properties();
+    let offsets = std::slice::from_raw_parts_mut(offsets, properties.len());
+    for (i, (_, p)) in properties.iter().enumerate() {
+        offsets[i] = p.offset as u32;
     }
 }

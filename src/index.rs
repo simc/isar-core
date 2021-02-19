@@ -10,8 +10,9 @@ use itertools::Itertools;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::mem::transmute;
 use unicode_segmentation::UnicodeSegmentation;
-use wyhash::wyhash;
+use wyhash::{wyhash, WyHash};
 
+use std::hash::Hasher;
 #[cfg(test)]
 use {crate::txn::IsarTxn, crate::utils::debug::dump_db, hashbrown::HashSet};
 
@@ -281,7 +282,10 @@ impl Index {
 
     pub fn create_string_hash_key(value: Option<&str>) -> Vec<u8> {
         let hash = if let Some(value) = value {
-            wyhash(value.as_ref(), 0)
+            let mut hasher = WyHash::default();
+            hasher.write_usize(value.len());
+            hasher.write(value.as_bytes());
+            hasher.finish()
         } else {
             0
         };
@@ -553,22 +557,23 @@ mod tests {
 
     #[test]
     fn test_get_string_hash_key() {
-        let long_str = (0..1500).map(|_| "a").collect::<String>();
+        let long_str = (0..1700).map(|_| "a").collect::<String>();
 
-        let pairs: Vec<(&str, Vec<u8>)> = vec![
-            ("hello", vec![196, 78, 229, 110, 148, 114, 106, 255]),
+        let pairs: Vec<(Option<&str>, Vec<u8>)> = vec![
+            (None, vec![0, 0, 0, 0, 0, 0, 0, 0]),
+            (Some(""), vec![183, 56, 242, 170, 183, 88, 42, 211]),
+            (Some("hello"), vec![255, 175, 47, 252, 56, 169, 22, 4]),
             (
-                "this is just a test",
-                vec![35, 152, 168, 2, 106, 235, 53, 50],
+                Some("this is just a test"),
+                vec![156, 13, 228, 133, 209, 47, 168, 125],
             ),
             (
-                &long_str[..1499],
-                vec![241, 58, 121, 152, 47, 193, 215, 217],
+                Some(&long_str[..]),
+                vec![188, 104, 253, 203, 125, 112, 236, 55],
             ),
-            (&long_str[..], vec![107, 96, 243, 122, 159, 148, 180, 244]),
         ];
         for (str, hash) in pairs {
-            assert_eq!(hash, Index::create_string_hash_key(Some(str)));
+            assert_eq!(hash, Index::create_string_hash_key(str));
         }
     }
 
