@@ -121,19 +121,67 @@ impl<'txn> Cursor<'txn> {
         Ok(())
     }
 
-    fn iter_between_asc(
+    #[inline(never)]
+    fn iter_between_first(
+        &mut self,
+        lower_key: Key,
+        upper_key: Key,
+        ascending: bool,
+    ) -> Result<Option<KeyVal<'txn>>> {
+        if upper_key < lower_key {
+            return Ok(None);
+        }
+
+        let first_entry = if !ascending {
+            if let Some(first_entry) = self.move_to_gte(upper_key)? {
+                Some(first_entry)
+            } else {
+                // If some key between upper_key and lower_key happens to be the last key in the db
+                self.move_to_last()?
+            }
+        } else {
+            self.move_to_gte(lower_key)?
+        };
+
+        if let Some((key, _)) = first_entry {
+            if key > upper_key {
+                if !ascending {
+                    if let Some((prev_key, prev_val)) = self.move_to_prev()? {
+                        if prev_key >= lower_key {
+                            return Ok(Some((prev_key, prev_val)));
+                        }
+                    }
+                }
+                Ok(None)
+            } else {
+                Ok(first_entry)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn iter_between(
         &mut self,
         lower_key: Key,
         upper_key: Key,
         skip_duplicates: bool,
+        ascending: bool,
         mut callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
-        if let Some((key, val)) = self.move_to_gte(lower_key)? {
-            if key > upper_key {
-                return Ok(true);
-            } else if !callback(self, key, val)? {
+        if upper_key < lower_key {
+            return Ok(true);
+        }
+
+        if let Some((key, val)) = self.iter_between_first(lower_key, upper_key, ascending)? {
+            if !callback(self, key, val)? {
                 return Ok(false);
             }
+        } else {
+            return Ok(true);
+        }
+
+        if ascending {
             loop {
                 let next = if skip_duplicates {
                     self.move_to_next_key()
@@ -150,38 +198,7 @@ impl<'txn> Cursor<'txn> {
                     return Ok(true);
                 }
             }
-        }
-        Ok(true)
-    }
-
-    pub fn iter_between_desc(
-        &mut self,
-        lower_key: Key,
-        upper_key: Key,
-        skip_duplicates: bool,
-        mut callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,
-    ) -> Result<bool> {
-        let mut first_entry = self.move_to_gte(upper_key)?;
-        if first_entry.is_none() {
-            // If some key between upper_key and lower_key happens to be the last key in the db
-            first_entry = self.move_to_last()?;
-        }
-
-        if let Some((mut key, mut val)) = first_entry {
-            if key > upper_key {
-                if let Some((prev_key, prev_val)) = self.move_to_prev()? {
-                    key = prev_key;
-                    val = prev_val;
-                    if key < lower_key {
-                        return Ok(true);
-                    }
-                }
-            }
-            if key > upper_key {
-                return Ok(true);
-            } else if !callback(self, key, val)? {
-                return Ok(false);
-            }
+        } else {
             loop {
                 let prev = if skip_duplicates {
                     self.move_to_prev_key()
@@ -198,26 +215,6 @@ impl<'txn> Cursor<'txn> {
                     return Ok(true);
                 }
             }
-        }
-        Ok(true)
-    }
-
-    #[inline(never)]
-    pub fn iter_between(
-        &mut self,
-        lower_key: Key,
-        upper_key: Key,
-        skip_duplicates: bool,
-        ascending: bool,
-        callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,
-    ) -> Result<bool> {
-        if upper_key < lower_key {
-            return Ok(true);
-        }
-        if ascending {
-            self.iter_between_asc(lower_key, upper_key, skip_duplicates, callback)
-        } else {
-            self.iter_between_desc(lower_key, upper_key, skip_duplicates, callback)
         }
     }
 }
