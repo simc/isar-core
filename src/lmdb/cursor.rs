@@ -121,22 +121,54 @@ impl<'txn> Cursor<'txn> {
         Ok(())
     }
 
-    pub fn iter_between(
+    fn iter_between_asc(
         &mut self,
         lower_key: Key,
         upper_key: Key,
         skip_duplicates: bool,
-        ascending: bool,
+        mut callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,
+    ) -> Result<bool> {
+        if let Some((key, val)) = self.move_to_gte(lower_key)? {
+            if key > upper_key {
+                return Ok(true);
+            } else if !callback(self, key, val)? {
+                return Ok(false);
+            }
+            loop {
+                let next = if skip_duplicates {
+                    self.move_to_next_key()
+                } else {
+                    self.move_to_next()
+                }?;
+                if let Some((key, val)) = next {
+                    if key > upper_key {
+                        return Ok(true);
+                    } else if !callback(self, key, val)? {
+                        return Ok(false);
+                    }
+                } else {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    pub fn iter_between_desc(
+        &mut self,
+        lower_key: Key,
+        upper_key: Key,
+        skip_duplicates: bool,
         mut callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
         let mut first_entry = self.move_to_gte(upper_key)?;
-        if !ascending && first_entry.is_none() {
+        if first_entry.is_none() {
             // If some key between upper_key and lower_key happens to be the last key in the db
             first_entry = self.move_to_last()?;
         }
 
         if let Some((mut key, mut val)) = first_entry {
-            if !ascending && key > upper_key {
+            if key > upper_key {
                 if let Some((prev_key, prev_val)) = self.move_to_prev()? {
                     key = prev_key;
                     val = prev_val;
@@ -151,19 +183,13 @@ impl<'txn> Cursor<'txn> {
                 return Ok(false);
             }
             loop {
-                let next = match (ascending, skip_duplicates) {
-                    (true, true) => self.move_to_next_key(),
-                    (true, false) => self.move_to_next(),
-                    (false, true) => self.move_to_next_key(),
-                    (false, false) => self.move_to_prev(),
+                let prev = if skip_duplicates {
+                    self.move_to_prev_key()
+                } else {
+                    self.move_to_prev()
                 }?;
-                if let Some((key, val)) = next {
-                    let within_bounds = if ascending {
-                        key <= upper_key
-                    } else {
-                        key >= lower_key
-                    };
-                    if !within_bounds {
+                if let Some((key, val)) = prev {
+                    if key < lower_key {
                         return Ok(true);
                     } else if !callback(self, key, val)? {
                         return Ok(false);
@@ -174,6 +200,25 @@ impl<'txn> Cursor<'txn> {
             }
         }
         Ok(true)
+    }
+
+    #[inline(never)]
+    pub fn iter_between(
+        &mut self,
+        lower_key: Key,
+        upper_key: Key,
+        skip_duplicates: bool,
+        ascending: bool,
+        callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,
+    ) -> Result<bool> {
+        if upper_key < lower_key {
+            return Ok(true);
+        }
+        if ascending {
+            self.iter_between_asc(lower_key, upper_key, skip_duplicates, callback)
+        } else {
+            self.iter_between_desc(lower_key, upper_key, skip_duplicates, callback)
+        }
     }
 }
 

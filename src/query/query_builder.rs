@@ -71,7 +71,8 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn build(mut self) -> Query {
         if self.where_clauses.is_empty() {
-            let default_wc = self.collection.new_primary_where_clause(Sort::Ascending);
+            let mut default_wc = self.collection.new_primary_where_clause(Sort::Ascending);
+            default_wc.add_max_upper();
             self.where_clauses.push(default_wc);
         }
         let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();

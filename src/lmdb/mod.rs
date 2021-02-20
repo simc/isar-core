@@ -45,11 +45,7 @@ impl<'a> Ord for Key<'a> {
         let len = min(self.0.len(), other.0.len());
         let cmp = (&self.0[0..len]).cmp(&other.0[0..len]);
         if cmp == Ordering::Equal {
-            if self.0.len() < other.0.len() {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            }
+            self.0.len().cmp(&other.0.len())
         } else {
             cmp
         }

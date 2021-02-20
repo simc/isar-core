@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use crate::lmdb::cursor::Cursor;
+use crate::lmdb::Key;
 use hashbrown::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -116,13 +117,16 @@ pub fn ref_map<K: Eq + Hash, V>(map: &HashMap<K, V>) -> HashMap<&K, &V> {
 pub fn dump_db(cursor: &mut Cursor, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, Vec<u8>)> {
     let mut set = HashSet::new();
 
+    let mut upper = prefix.unwrap_or(&[]).to_vec();
+    upper.extend_from_slice(&u64::MAX.to_le_bytes());
     cursor
         .iter_between(
-            prefix.unwrap_or(&[]),
-            prefix.unwrap_or(&[]),
+            Key(prefix.unwrap_or(&[])),
+            Key(&upper),
             false,
+            true,
             |_, k, v| {
-                set.insert((k.to_vec(), v.to_vec()));
+                set.insert((k.0.to_vec(), v.to_vec()));
                 Ok(true)
             },
         )

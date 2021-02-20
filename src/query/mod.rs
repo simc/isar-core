@@ -346,7 +346,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let mut wc = col.new_primary_where_clause();
+        let mut wc = col.new_primary_where_clause(Sort::Ascending);
         wc.add_int(2, 4);
         let mut qb = col.new_query_builder();
         qb.add_where_clause(wc, true, true)?;
@@ -361,7 +361,9 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
+        let mut wc = col
+            .new_secondary_where_clause(0, false, Sort::Ascending)
+            .unwrap();
         wc.add_int(2, 3);
         let mut qb = col.new_query_builder();
         qb.add_where_clause(wc, true, true)?;
@@ -376,7 +378,9 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let mut wc = col.new_secondary_where_clause(0, false).unwrap();
+        let mut wc = col
+            .new_secondary_where_clause(0, false, Sort::Ascending)
+            .unwrap();
         wc.add_int(2, 3);
         let mut qb = col.new_query_builder();
         qb.add_where_clause(wc, true, true)?;
@@ -385,7 +389,9 @@ mod tests {
             vec![(2, 2), (3, 2), (4, 3), (5, 3), (6, 3)]
         );
 
-        let mut wc = col.new_secondary_where_clause(0, true).unwrap();
+        let mut wc = col
+            .new_secondary_where_clause(0, true, Sort::Ascending)
+            .unwrap();
         wc.add_int(2, 4);
         let mut qb = col.new_query_builder();
         qb.add_where_clause(wc, true, true)?;
@@ -400,13 +406,15 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let mut primary_wc = col.new_primary_where_clause();
+        let mut primary_wc = col.new_primary_where_clause(Sort::Ascending);
         primary_wc.add_int(1, 1);
 
-        let mut primary_wc2 = col.new_primary_where_clause();
+        let mut primary_wc2 = col.new_primary_where_clause(Sort::Ascending);
         primary_wc2.add_int(5, 9);
 
-        let mut secondary_dup_wc = col.new_secondary_where_clause(0, false).unwrap();
+        let mut secondary_dup_wc = col
+            .new_secondary_where_clause(0, false, Sort::Ascending)
+            .unwrap();
         secondary_dup_wc.add_int(3, 5);
 
         let mut qb = col.new_query_builder();

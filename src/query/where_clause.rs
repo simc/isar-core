@@ -236,6 +236,10 @@ impl WhereClause {
         self.lower_key.extend_from_slice(lower.as_bytes());
         self.upper_key.extend_from_slice(upper.as_bytes());
     }
+
+    pub fn add_max_upper(&mut self) {
+        self.upper_key.extend_from_slice(&u64::MAX.to_le_bytes());
+    }
 }
 
 /*#[cfg(test)]
