@@ -181,39 +181,21 @@ impl<'txn> Cursor<'txn> {
             return Ok(true);
         }
 
-        if ascending {
-            loop {
-                let next = if skip_duplicates {
-                    self.move_to_next_key()
-                } else {
-                    self.move_to_next()
-                }?;
-                if let Some((key, val)) = next {
-                    if key > upper_key {
-                        return Ok(true);
-                    } else if !callback(self, key, val)? {
-                        return Ok(false);
-                    }
-                } else {
+        let next = match (ascending, skip_duplicates) {
+            (true, true) => ffi::MDB_NEXT_NODUP,
+            (true, false) => ffi::MDB_NEXT,
+            (false, true) => ffi::MDB_PREV_NODUP,
+            (false, false) => ffi::MDB_PREV,
+        };
+        loop {
+            if let Some((key, val)) = self.op_get(next, None, None)? {
+                if (ascending && key > upper_key) || (!ascending && key < lower_key) {
                     return Ok(true);
+                } else if !callback(self, key, val)? {
+                    return Ok(false);
                 }
-            }
-        } else {
-            loop {
-                let prev = if skip_duplicates {
-                    self.move_to_prev_key()
-                } else {
-                    self.move_to_prev()
-                }?;
-                if let Some((key, val)) = prev {
-                    if key < lower_key {
-                        return Ok(true);
-                    } else if !callback(self, key, val)? {
-                        return Ok(false);
-                    }
-                } else {
-                    return Ok(true);
-                }
+            } else {
+                return Ok(true);
             }
         }
     }
