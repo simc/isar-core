@@ -55,7 +55,7 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDB_SET_KEY, Some(key), None)
     }
 
-    pub fn move_to_dup(&mut self, key: Key, val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
+    pub fn move_to_key_val(&mut self, key: Key, val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDB_GET_BOTH, Some(key), Some(val))
     }
 
@@ -63,12 +63,8 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDB_SET_RANGE, Some(key), None)
     }
 
-    pub fn move_to_next(&mut self) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_NEXT, None, None)
-    }
-
-    pub fn move_to_next_key(&mut self) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_NEXT_NODUP, None, None)
+    pub fn move_to_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDB_NEXT_DUP, None, None)
     }
 
     pub fn move_to_prev(&mut self) -> Result<Option<KeyVal<'txn>>> {
@@ -192,6 +188,29 @@ impl<'txn> Cursor<'txn> {
                 if (ascending && key > upper_key) || (!ascending && key < lower_key) {
                     return Ok(true);
                 } else if !callback(self, key, val)? {
+                    return Ok(false);
+                }
+            } else {
+                return Ok(true);
+            }
+        }
+    }
+
+    pub fn iter_dups(
+        &mut self,
+        key: Key,
+        mut callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,
+    ) -> Result<bool> {
+        if let Some((key, val)) = self.move_to(key)? {
+            if !callback(self, key, val)? {
+                return Ok(true);
+            }
+        } else {
+            return Ok(true);
+        }
+        loop {
+            if let Some((key, val)) = self.move_to_dup()? {
+                if !callback(self, key, val)? {
                     return Ok(false);
                 }
             } else {

@@ -1,6 +1,4 @@
-use crate::collection::IsarCollection;
 use crate::object::data_type::DataType;
-use crate::object::object_id::ObjectId;
 use byteorder::{ByteOrder, LittleEndian};
 use std::cmp::Ordering;
 use std::hash::Hasher;
@@ -32,7 +30,7 @@ impl<'a> IsarObject<'a> {
     pub const NULL_FLOAT: f32 = f32::NAN;
     pub const NULL_DOUBLE: f64 = f64::NAN;
 
-    pub fn new(bytes: &'a [u8]) -> Self {
+    pub fn from_bytes(bytes: &'a [u8]) -> Self {
         let static_size = LittleEndian::read_u16(bytes) as usize;
         IsarObject { bytes, static_size }
     }
@@ -58,21 +56,6 @@ impl<'a> IsarObject<'a> {
             DataType::Double => self.read_double(property).is_nan(),
             _ => self.get_offset_length(property.offset, false).is_none(),
         }
-    }
-
-    pub fn read_oid(&self, collection: &IsarCollection) -> Option<ObjectId> {
-        let property = collection.get_oid_property();
-
-        if self.is_null(property) {
-            return None;
-        }
-        let oid = match property.data_type {
-            DataType::Int => collection.new_int_oid(self.read_int(property)),
-            DataType::Long => collection.new_long_oid(self.read_long(property)),
-            DataType::String => collection.new_string_oid(self.read_string(property)?),
-            _ => unreachable!(),
-        };
-        Some(oid.unwrap())
     }
 
     pub fn read_byte(&self, property: Property) -> u8 {
@@ -296,10 +279,10 @@ mod tests {
 
     macro_rules! builder {
         ($var:ident, $p:ident, $type:ident) => {
-            isar!(isar, col => col!("oid" => Int, "field" => $type));
+            isar!(isar, col => col!("oid" => Long, "field" => $type));
             let $p = col.get_properties().get(1).unwrap().1;
             let mut $var = col.new_object_builder(None);
-            $var.write_int(1);
+            $var.write_long(1);
         };
     }
 
@@ -312,7 +295,7 @@ mod tests {
         for data_type in data_types {
             builder!(_b, p, data_type);
             let empty = vec![0, 0];
-            let object = IsarObject::new(&empty);
+            let object = IsarObject::from_bytes(&empty);
             assert!(object.is_null(p));
         }
     }

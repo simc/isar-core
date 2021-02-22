@@ -36,7 +36,7 @@ impl<'a> QueryBuilder<'a> {
         if !wc.is_from_collection(self.collection) {
             return illegal_arg("Wrong WhereClause for this collection.");
         }
-        if !wc.try_exclude(include_lower, include_upper) {
+        if !wc.is_primary() && !wc.try_exclude(include_lower, include_upper) {
             wc = WhereClause::new_empty();
         }
         if self.where_clauses.is_empty() || !wc.is_empty() {
@@ -71,14 +71,15 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn build(mut self) -> Query {
         if self.where_clauses.is_empty() {
-            let mut default_wc = self.collection.new_primary_where_clause(Sort::Ascending);
-            default_wc.add_max_upper();
+            let default_wc = self
+                .collection
+                .new_primary_where_clause(None, None, Sort::Ascending)
+                .unwrap();
             self.where_clauses.push(default_wc);
         }
         let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();
         let distinct_unique = self.distinct.into_iter().unique_by(|p| p.offset).collect();
         Query::new(
-            self.collection.get_oid_property().data_type,
             self.where_clauses,
             self.filter,
             sort_unique,

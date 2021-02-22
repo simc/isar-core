@@ -10,6 +10,7 @@ pub mod collection;
 pub mod error;
 pub mod index;
 pub mod instance;
+mod link;
 mod lmdb;
 pub mod object;
 pub mod query;

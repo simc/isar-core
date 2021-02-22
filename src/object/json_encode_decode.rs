@@ -10,7 +10,7 @@ pub(crate) struct JsonEncodeDecode {}
 impl<'a> JsonEncodeDecode {
     pub fn encode(
         collection: &IsarCollection,
-        object: &IsarObject,
+        object: IsarObject,
         primitive_null: bool,
         byte_as_bool: bool,
     ) -> Value {

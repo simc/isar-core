@@ -2,12 +2,11 @@ use crate::collection::IsarCollection;
 use crate::error::{IsarError, Result};
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::Key;
-use crate::object::data_type::DataType;
-use crate::object::object_id::ObjectId;
 use crate::query::Sort;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
 use crate::txn::Cursors;
+use crate::utils::oid_from_bytes;
 use std::convert::TryInto;
 
 const ISAR_VERSION: u64 = 1;
@@ -17,13 +16,15 @@ const INFO_SCHEMA_KEY: Key = Key(b"schema");
 pub(crate) struct SchemaManger<'env> {
     info_cursor: Cursor<'env>,
     cursors: Cursors<'env>,
+    cursors2: Cursors<'env>,
 }
 
 impl<'env> SchemaManger<'env> {
-    pub fn new(info_cursor: Cursor<'env>, cursors: Cursors<'env>) -> Self {
+    pub fn new(info_cursor: Cursor<'env>, cursors: Cursors<'env>, cursors2: Cursors<'env>) -> Self {
         SchemaManger {
             info_cursor,
             cursors,
+            cursors2,
         }
     }
 
@@ -47,8 +48,7 @@ impl<'env> SchemaManger<'env> {
         let existing_collections = if let Some((_, existing_schema_bytes)) = existing_schema_bytes {
             let existing_schema = serde_json::from_slice(existing_schema_bytes).map_err(|e| {
                 IsarError::DbCorrupted {
-                    source: Some(Box::new(e)),
-                    message: "Could not deserialize existing schema.".to_string(),
+                    message: format!("Could not deserialize existing schema: {}", e).to_string(),
                 }
             })?;
             schema.update_with_existing_schema(Some(&existing_schema))?;
@@ -69,9 +69,6 @@ impl<'env> SchemaManger<'env> {
     }
 
     fn update_oid_counter(&mut self, collection: &IsarCollection) -> Result<()> {
-        if collection.get_oid_property().data_type == DataType::String {
-            return Ok(());
-        }
         let id = collection.get_id();
         let next_prefix = (id + 1).to_be_bytes();
         let next_entry = self.cursors.primary.move_to_gte(Key(&next_prefix))?;
@@ -82,15 +79,9 @@ impl<'env> SchemaManger<'env> {
         };
 
         if let Some((oid, _)) = greatest_qualifying_oid {
-            let oid_type = collection.get_oid_property().data_type;
-            let oid = ObjectId::from_bytes(oid_type, oid.0);
-            if oid.get_col_id() == id {
-                let oid_counter = match oid.get_type() {
-                    DataType::Int => oid.get_int().unwrap() as i64,
-                    DataType::Long => oid.get_long().unwrap(),
-                    _ => unreachable!(),
-                };
-                collection.update_oid_counter(oid_counter);
+            let (oid, prefix) = oid_from_bytes(oid.0);
+            if prefix == id {
+                collection.update_oid_counter(oid);
             }
         }
         Ok(())
@@ -117,7 +108,7 @@ impl<'env> SchemaManger<'env> {
             for index in col.get_indexes() {
                 index.clear(&mut self.cursors)?;
             }
-            col.new_primary_where_clause(Sort::Ascending)
+            col.new_primary_where_clause(None, None, Sort::Ascending)?
                 .iter(&mut self.cursors, |c, _, _| {
                     c.primary.delete_current()?;
                     Ok(true)
@@ -131,7 +122,7 @@ impl<'env> SchemaManger<'env> {
 
             if let Some(existing) = existing {
                 let migrator = CollectionMigrator::create(col, existing);
-                migrator.migrate(&mut self.cursors)?;
+                migrator.migrate(&mut self.cursors, &mut self.cursors2)?;
             }
         }
 

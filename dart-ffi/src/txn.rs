@@ -8,9 +8,10 @@ pub unsafe extern "C" fn isar_txn_begin<'env>(
     isar: &'env IsarInstance,
     txn: *mut *const IsarTxn<'env>,
     write: bool,
+    silent: bool,
 ) -> i32 {
     isar_try! {
-        let new_txn = isar.begin_txn(write)?;
+        let new_txn = isar.begin_txn(write,silent)?;
         let txn_ptr = Box::into_raw(Box::new(new_txn));
         txn.write(txn_ptr);
     }
@@ -21,9 +22,10 @@ pub unsafe extern "C" fn isar_txn_begin_async(
     isar: &'static IsarInstance,
     txn: *mut *const IsarAsyncTxn,
     write: bool,
+    silent: bool,
     port: DartPort,
 ) {
-    let new_txn = IsarAsyncTxn::new(isar, write, port);
+    let new_txn = IsarAsyncTxn::new(isar, write, silent, port);
     let txn_ptr = Box::into_raw(Box::new(new_txn));
     txn.write(txn_ptr);
 }

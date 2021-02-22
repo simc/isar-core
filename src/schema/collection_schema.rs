@@ -12,7 +12,7 @@ pub struct PropertySchema {
     pub(crate) name: String,
     #[serde(rename = "type")]
     pub(crate) data_type: DataType,
-    #[serde(rename = "isObjectId")]
+    #[serde(rename = "objectId")]
     pub(crate) is_oid: bool,
     pub(crate) offset: Option<usize>,
 }
@@ -57,14 +57,25 @@ pub struct IndexSchema {
     pub(crate) id: Option<u16>,
     pub(crate) properties: Vec<IndexPropertySchema>,
     pub(crate) unique: bool,
+    pub(crate) replace: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LinkSchema {
+    pub(crate) id: Option<u16>,
+    pub(crate) name: Option<String>,
+    pub(crate) target_collection: String,
+    pub(crate) target_link: Option<String>,
+    pub(crate) strong: bool,
 }
 
 impl IndexSchema {
-    pub fn new(properties: Vec<IndexPropertySchema>, unique: bool) -> IndexSchema {
+    pub fn new(properties: Vec<IndexPropertySchema>, unique: bool, replace: bool) -> IndexSchema {
         IndexSchema {
             id: None,
             properties,
             unique,
+            replace,
         }
     }
 }
@@ -108,10 +119,7 @@ impl CollectionSchema {
                 if has_oid {
                     schema_error("Only one ObjectId property is allowed")?;
                 }
-                if property.data_type != DataType::Int
-                    && property.data_type != DataType::Long
-                    && property.data_type != DataType::String
-                {
+                if property.data_type != DataType::Long {
                     schema_error("Illegal ObjectId type")?;
                 }
                 has_oid = true;
@@ -182,7 +190,7 @@ impl CollectionSchema {
             .unwrap();
 
         let oi = ObjectInfo::new(*oid_property, properties);
-        IsarCollection::new(self.id.unwrap(), self.name.clone(), oi, indexes)
+        IsarCollection::new(self.id.unwrap(), self.name.clone(), oi, indexes, vec![])
     }
 
     fn get_properties(&self) -> Vec<(String, Property)> {
@@ -211,7 +219,13 @@ impl CollectionSchema {
                     })
                     .collect_vec();
 
-                Index::new(index.id.unwrap(), properties, index.unique)
+                Index::new(
+                    index.id.unwrap(),
+                    self.id.unwrap(),
+                    properties,
+                    index.unique,
+                    index.replace,
+                )
             })
             .collect()
     }

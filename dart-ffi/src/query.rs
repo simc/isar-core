@@ -16,6 +16,25 @@ pub extern "C" fn isar_qb_create(collection: &IsarCollection) -> *mut QueryBuild
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_qb_add_primary_where_clause(
+    collection: &IsarCollection,
+    builder: &mut QueryBuilder,
+    lower_oid: i64,
+    upper_oid: i64,
+    ascending: bool,
+) -> i32 {
+    let sort = if ascending {
+        Sort::Ascending
+    } else {
+        Sort::Descending
+    };
+    isar_try! {
+        let where_clause = collection.new_primary_where_clause(Some(lower_oid), Some(upper_oid), sort)?;
+        builder.add_where_clause(where_clause,true,true)?;
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_where_clause(
     builder: &mut QueryBuilder,
     where_clause: *mut WhereClause,
@@ -157,7 +176,7 @@ pub unsafe extern "C" fn isar_q_delete(
 ) -> i32 {
     isar_try! {
         let mut deleted_count = 0;
-        query.delete_while(txn, collection, |_,_| {
+        query.delete_while(txn, collection, |_| {
             deleted_count += 1;
             deleted_count <= limit
         })?;
@@ -176,7 +195,7 @@ pub unsafe extern "C" fn isar_q_delete_async(
     let count = UintSend(count);
     txn.exec(move |txn| -> Result<()> {
         let mut deleted_count = 0;
-        query.delete_while(txn, collection, |_, _| {
+        query.delete_while(txn, collection, |_| {
             deleted_count += 1;
             deleted_count <= limit
         })?;

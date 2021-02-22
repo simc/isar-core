@@ -1,17 +1,12 @@
-use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
-use isar_core::object::data_type::DataType;
 use isar_core::object::isar_object::IsarObject;
-use isar_core::object::object_id::ObjectId;
 use isar_core::query::Query;
 use isar_core::txn::IsarTxn;
 use std::{ptr, slice};
 
 #[repr(C)]
 pub struct RawObject {
-    oid_str: *const u8,
-    oid_str_length: u32,
-    oid_num: i64,
+    oid: i64,
     buffer: *mut u8,
     buffer_length: u32,
 }
@@ -24,53 +19,23 @@ unsafe impl Send for RawObjectSend {}
 impl RawObject {
     pub fn new() -> Self {
         RawObject {
-            oid_num: i64::MIN,
-            oid_str: std::ptr::null_mut(),
-            oid_str_length: 0,
+            oid: i64::MIN,
             buffer: std::ptr::null_mut(),
             buffer_length: 0,
-        }
-    }
-
-    pub fn get_object_id(&self, col: &IsarCollection) -> Option<ObjectId<'static>> {
-        match col.get_oid_property().data_type {
-            DataType::Int => {
-                if self.oid_num == i32::MIN as i64 {
-                    None
-                } else {
-                    Some(col.new_int_oid(self.oid_num as i32).unwrap())
-                }
-            }
-            DataType::Long => {
-                if self.oid_num == i64::MIN {
-                    None
-                } else {
-                    Some(col.new_long_oid(self.oid_num).unwrap())
-                }
-            }
-            DataType::String => unsafe {
-                if self.oid_str.is_null() {
-                    None
-                } else {
-                    let slice =
-                        std::slice::from_raw_parts(self.oid_str, self.oid_str_length as usize);
-                    let str = std::str::from_utf8(slice).unwrap();
-                    Some(col.new_string_oid(str).unwrap())
-                }
-            },
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn set_auto_increment(&mut self, auto_increment: Option<i64>) {
-        if let Some(auto_increment) = auto_increment {
-            self.oid_num = auto_increment;
         }
     }
 
     #[allow(clippy::mut_from_ref)]
     pub fn get_bytes(&self) -> &mut [u8] {
         unsafe { slice::from_raw_parts_mut(self.buffer, self.buffer_length as usize) }
+    }
+
+    pub fn get_oid(&mut self) -> i64 {
+        self.oid
+    }
+
+    pub fn set_oid(&mut self, oid: i64) {
+        self.oid = oid;
     }
 
     pub fn set_object(&mut self, object: Option<IsarObject>) {
@@ -107,7 +72,7 @@ impl RawObjectSet {
     ) -> Result<()> {
         let mut objects = vec![];
         let mut count = 0;
-        query.find_while(txn, |_, object| {
+        query.find_while(txn, |object| {
             let mut raw_obj = RawObject::new();
             raw_obj.set_object(Some(object));
             objects.push(raw_obj);
@@ -129,6 +94,10 @@ impl RawObjectSet {
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn get_objects(&self) -> &mut [RawObject] {
         std::slice::from_raw_parts_mut(self.objects, self.length as usize)
+    }
+
+    pub fn get_length(&self) -> usize {
+        self.length as usize
     }
 }
 

@@ -5,7 +5,7 @@ use crate::lmdb::Key;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
 use crate::txn::Cursors;
-use std::convert::TryInto;
+use crate::utils::{oid_from_bytes, oid_to_bytes};
 use std::mem::ManuallyDrop;
 
 #[derive(Clone)]
@@ -20,14 +20,19 @@ pub struct WhereClause {
 impl WhereClause {
     const PREFIX_LEN: usize = 2;
 
-    pub(crate) fn new_primary(prefix: &[u8], sort: Sort) -> Self {
-        WhereClause {
-            lower_key: prefix.to_vec(),
-            upper_key: prefix.to_vec(),
+    pub(crate) fn new_primary(
+        prefix: u16,
+        lower_oid: i64,
+        upper_oid: i64,
+        sort: Sort,
+    ) -> Result<Self> {
+        Ok(WhereClause {
+            lower_key: oid_to_bytes(lower_oid, prefix)?.to_vec(),
+            upper_key: oid_to_bytes(upper_oid, prefix)?.to_vec(),
             index: None,
             skip_duplicates: false,
             sort,
-        }
+        })
     }
 
     pub(crate) fn new_secondary(
@@ -70,23 +75,15 @@ impl WhereClause {
         self.index.as_ref().map_or(true, |i| i.is_unique())
     }
 
-    pub fn get_prefix(&self) -> u16 {
-        if self.lower_key.len() < 2 {
-            0 // empty
-        } else {
-            u16::from_be_bytes(self.lower_key[0..2].try_into().unwrap())
-        }
-    }
-
     pub fn is_from_collection(&self, collection: &IsarCollection) -> bool {
         if let Some(index) = &self.index {
             collection.get_indexes().contains(index)
         } else {
-            collection.get_id() == self.get_prefix()
+            collection.get_id() == oid_from_bytes(&self.lower_key).1
         }
     }
 
-    pub(crate) fn object_matches(&self, oid: &[u8], object: IsarObject) -> bool {
+    pub(crate) fn object_matches(&self, oid: i64, object: IsarObject) -> bool {
         if let Some(index) = &self.index {
             let mut key_matches = false;
             index
@@ -98,7 +95,9 @@ impl WhereClause {
                 .unwrap();
             key_matches
         } else {
-            Key(oid) >= Key(&self.lower_key) && Key(oid) <= Key(&self.upper_key)
+            let (lower_oid, _) = oid_from_bytes(&self.lower_key);
+            let (upper_oid, _) = oid_from_bytes(&self.upper_key);
+            oid >= lower_oid && oid <= upper_oid
         }
     }
 
@@ -129,6 +128,8 @@ impl WhereClause {
     }
 
     pub(crate) fn try_exclude(&mut self, include_lower: bool, include_upper: bool) -> bool {
+        assert!(self.index.is_some());
+
         if !include_lower {
             let mut increased = false;
             for i in (Self::PREFIX_LEN..self.lower_key.len()).rev() {
@@ -159,6 +160,7 @@ impl WhereClause {
     }
 
     pub fn add_byte(&mut self, lower: u8, upper: u8) {
+        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_byte_key(lower));
         self.upper_key
@@ -166,6 +168,7 @@ impl WhereClause {
     }
 
     pub fn add_int(&mut self, lower: i32, upper: i32) {
+        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_int_key(lower));
         self.upper_key
@@ -173,6 +176,7 @@ impl WhereClause {
     }
 
     pub fn add_float(&mut self, lower: f32, upper: f32) {
+        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_float_key(lower));
         self.upper_key
@@ -180,6 +184,7 @@ impl WhereClause {
     }
 
     pub fn add_long(&mut self, lower: i64, upper: i64) {
+        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_long_key(lower));
         self.upper_key
@@ -187,6 +192,7 @@ impl WhereClause {
     }
 
     pub fn add_double(&mut self, lower: f64, upper: f64) {
+        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_double_key(lower));
         self.upper_key
@@ -202,6 +208,7 @@ impl WhereClause {
         case_sensitive: bool,
         index_type: IndexType,
     ) {
+        assert!(self.index.is_some());
         let get_bytes = |value: Option<&str>| {
             let value = if case_sensitive {
                 value.map(|s| s.to_string())
@@ -230,11 +237,6 @@ impl WhereClause {
         } else {
             self.upper_key.extend_from_slice(&get_bytes(upper));
         }
-    }
-
-    pub fn add_oid_string(&mut self, lower: &str, upper: &str) {
-        self.lower_key.extend_from_slice(lower.as_bytes());
-        self.upper_key.extend_from_slice(upper.as_bytes());
     }
 
     pub fn add_max_upper(&mut self) {
@@ -269,7 +271,7 @@ mod tests {
     fn test_iter() {
         /*isar!(isar, col => col!(field => String; ind!(field)));
 
-        let txn = isar.begin_txn(true).unwrap();
+        let txn = isar.begin_txn(true, false).unwrap();
         let oid1 = col.put(&txn, None, &get_str_obj(&col, "aaaa")).unwrap();
         let oid2 = col.put(&txn, None, &get_str_obj(&col, "aabb")).unwrap();
         let oid3 = col.put(&txn, None, &get_str_obj(&col, "bbaa")).unwrap();

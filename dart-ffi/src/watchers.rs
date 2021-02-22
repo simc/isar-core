@@ -1,5 +1,4 @@
 use crate::dart::{dart_post_int, DartPort};
-use crate::raw_object_set::RawObject;
 use isar_core::collection::IsarCollection;
 use isar_core::instance::IsarInstance;
 use isar_core::query::Query;
@@ -24,12 +23,12 @@ pub extern "C" fn isar_watch_collection(
 pub unsafe extern "C" fn isar_watch_object(
     isar: &IsarInstance,
     collection: &IsarCollection,
-    oid: &RawObject,
+    oid: i64,
     port: DartPort,
 ) -> *mut WatchHandle {
     let handle = isar.watch_object(
         collection,
-        oid.get_object_id(collection).unwrap(),
+        oid,
         Box::new(move || {
             dart_post_int(port, 1);
         }),

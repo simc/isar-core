@@ -35,7 +35,7 @@ impl<'a> CollectionMigrator<'a> {
         diff_indexes
     }
 
-    pub fn migrate(self, cursors: &mut Cursors) -> Result<()> {
+    pub fn migrate<'b>(self, cursors: &mut Cursors<'b>, cursors2: &mut Cursors<'b>) -> Result<()> {
         for removed_index in &self.removed_indexes {
             removed_index.clear(cursors)?;
         }
@@ -44,9 +44,10 @@ impl<'a> CollectionMigrator<'a> {
             self.collection
                 .new_query_builder()
                 .build()
-                .find_all_internal(cursors, false, |cursors, oid, object| {
+                .find_all_internal(cursors, cursors2, false, |cursors, object| {
+                    let oid = object.read_long(self.collection.get_oid_property());
                     for index in &self.added_indexes {
-                        index.create_for_object(cursors, &oid, object)?;
+                        index.create_for_object(cursors, oid, object)?;
                     }
                     Ok(true)
                 })?;

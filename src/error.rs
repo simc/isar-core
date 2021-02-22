@@ -1,5 +1,4 @@
 use crate::lmdb::error::LmdbError;
-use std::error::Error;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, IsarError>;
@@ -40,10 +39,7 @@ pub enum IsarError {
     InvalidJson {},
 
     #[error("DbCorrupted: {message:?}")]
-    DbCorrupted {
-        source: Option<Box<dyn Error>>,
-        message: String,
-    },
+    DbCorrupted { message: String },
 
     #[error("SchemaError: {message:?}")]
     SchemaError { message: String },

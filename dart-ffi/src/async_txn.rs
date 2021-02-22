@@ -29,7 +29,7 @@ pub struct IsarAsyncTxn {
 }
 
 impl IsarAsyncTxn {
-    pub fn new(isar: &'static IsarInstance, write: bool, port: DartPort) -> Self {
+    pub fn new(isar: &'static IsarInstance, write: bool, silent: bool, port: DartPort) -> Self {
         let (tx, rx): (Sender<AsyncJob>, Receiver<AsyncJob>) = mpsc::channel();
         let async_txn = IsarAsyncTxn {
             tx,
@@ -38,7 +38,7 @@ impl IsarAsyncTxn {
         };
         let txn = async_txn.txn.clone();
         run_async(move || {
-            let new_txn = isar.begin_txn(write);
+            let new_txn = isar.begin_txn(write, silent);
             match new_txn {
                 Ok(new_txn) => {
                     txn.lock().unwrap().replace(IsarTxnSend(new_txn));

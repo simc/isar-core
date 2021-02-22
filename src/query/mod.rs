@@ -1,8 +1,6 @@
 use crate::collection::IsarCollection;
 use crate::error::Result;
-use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
-use crate::object::object_id::ObjectId;
 use crate::query::filter::{Condition, Filter, StaticCond};
 use crate::query::where_clause::WhereClause;
 use crate::query::where_executor::WhereExecutor;
@@ -31,7 +29,6 @@ pub enum Case {
 
 #[derive(Clone)]
 pub struct Query {
-    oid_type: DataType,
     where_clauses: Vec<WhereClause>,
     where_clauses_overlapping: bool,
     filter: Option<Filter>,
@@ -43,7 +40,6 @@ pub struct Query {
 impl<'txn> Query {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        oid_type: DataType,
         where_clauses: Vec<WhereClause>,
         filter: Option<Filter>,
         sort: Vec<(Property, Sort)>,
@@ -51,7 +47,6 @@ impl<'txn> Query {
         offset_limit: Option<(usize, usize)>,
     ) -> Self {
         Query {
-            oid_type,
             where_clauses,
             where_clauses_overlapping: true,
             filter,
@@ -61,58 +56,74 @@ impl<'txn> Query {
         }
     }
 
-    pub(crate) fn execute_raw<F>(&self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<()>
+    pub(crate) fn execute_raw<F>(
+        &self,
+        cursors: &mut Cursors<'txn>,
+        cursors2: &mut Cursors<'txn>,
+        mut callback: F,
+    ) -> Result<()>
     where
-        F: FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
-        let mut executor = WhereExecutor::new(
-            self.oid_type,
-            &self.where_clauses,
-            self.where_clauses_overlapping,
-        );
+        let mut executor = WhereExecutor::new(&self.where_clauses, self.where_clauses_overlapping);
 
         let static_filter = StaticCond::filter(true);
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
-        executor.execute(cursors, |cursors, oid, object| {
-            if filter.evaluate(object) {
-                callback(cursors, oid, object)
+        executor.execute(cursors, |object| {
+            if filter.evaluate(object, Some(cursors2))? {
+                callback(cursors2, object)
             } else {
                 Ok(true)
             }
         })
     }
 
-    fn execute_unsorted<F>(&self, cursors: &mut Cursors<'txn>, callback: F) -> Result<()>
+    pub(crate) fn get_linked_collections(&self) -> Option<HashSet<u16>> {
+        if let Some(filter) = &self.filter {
+            let mut col_ids = HashSet::<u16>::new();
+            filter.get_linked_collections(&mut col_ids);
+            Some(col_ids)
+        } else {
+            None
+        }
+    }
+
+    fn execute_unsorted<F>(
+        &self,
+        cursors: &mut Cursors<'txn>,
+        cursors2: &mut Cursors<'txn>,
+        callback: F,
+    ) -> Result<()>
     where
-        F: FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         if !self.distinct.is_empty() {
             let callback = self.add_distinct_unsorted(callback);
             let callback = self.add_offset_limit_unsorted(callback);
-            self.execute_raw(cursors, callback)
+            self.execute_raw(cursors, cursors2, callback)
         } else {
             let callback = self.add_offset_limit_unsorted(callback);
-            self.execute_raw(cursors, callback)
+            self.execute_raw(cursors, cursors2, callback)
         }
     }
 
     fn add_distinct_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>
+    ) -> impl FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>
     where
-        F: FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         let properties = self.distinct.clone();
         let mut hashes = HashSet::new();
-        move |cursors, oid, object| {
+        move |cursors, object| {
             let mut hasher = WyHash::default();
             for property in &properties {
                 object.hash_property(*property, &mut hasher);
             }
             let hash = hasher.finish();
             if hashes.insert(hash) {
-                callback(cursors, oid, object)
+                callback(cursors, object)
             } else {
                 Ok(true)
             }
@@ -122,15 +133,15 @@ impl<'txn> Query {
     fn add_offset_limit_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>
+    ) -> impl FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>
     where
-        F: FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         let (offset, limit) = self.offset_limit.unwrap_or((0, usize::MAX));
         let mut count = 0;
-        move |cursors, key, value| {
+        move |cursors, value| {
             let result = if count >= offset {
-                callback(cursors, key, value)?
+                callback(cursors, value)?
             } else {
                 true
             };
@@ -143,14 +154,15 @@ impl<'txn> Query {
     fn execute_sorted(
         &self,
         cursors: &mut Cursors<'txn>,
-    ) -> Result<Vec<(ObjectId<'txn>, IsarObject<'txn>)>> {
+        cursors2: &mut Cursors<'txn>,
+    ) -> Result<Vec<IsarObject<'txn>>> {
         let mut results = vec![];
-        self.execute_raw(cursors, |_, key, val| {
-            results.push((key, val));
+        self.execute_raw(cursors, cursors2, |_, object| {
+            results.push(object);
             Ok(true)
         })?;
 
-        results.sort_unstable_by(|(_, o1), (_, o2)| {
+        results.sort_unstable_by(|o1, o2| {
             for (p, sort) in &self.sort {
                 let ord = o1.compare_property(o2, *p);
                 if ord != Ordering::Equal {
@@ -171,15 +183,12 @@ impl<'txn> Query {
         }
     }
 
-    fn add_distinct_sorted(
-        &self,
-        results: Vec<(ObjectId<'txn>, IsarObject<'txn>)>,
-    ) -> Vec<(ObjectId<'txn>, IsarObject<'txn>)> {
+    fn add_distinct_sorted(&self, results: Vec<IsarObject<'txn>>) -> Vec<IsarObject<'txn>> {
         let properties = self.distinct.clone();
         let mut hashes = HashSet::new();
         results
             .into_iter()
-            .filter(|(_, object)| {
+            .filter(|object| {
                 let mut hasher = WyHash::default();
                 for property in &properties {
                     object.hash_property(*property, &mut hasher);
@@ -192,24 +201,23 @@ impl<'txn> Query {
 
     fn add_offset_limit_sorted(
         &self,
-        results: Vec<(ObjectId<'txn>, IsarObject<'txn>)>,
-    ) -> impl IntoIterator<Item = (ObjectId<'txn>, IsarObject<'txn>)> {
+        results: Vec<IsarObject<'txn>>,
+    ) -> impl IntoIterator<Item = IsarObject<'txn>> {
         let (offset, limit) = self.offset_limit.unwrap_or((0, usize::MAX));
         results.into_iter().skip(offset).take(limit)
     }
 
-    pub(crate) fn matches_wc_filter(&self, oid: &ObjectId, object: IsarObject) -> bool {
-        let oid_bytes = oid.as_bytes();
+    pub(crate) fn matches_wc_filter(&self, oid: i64, object: IsarObject) -> bool {
         let wc_matches = self
             .where_clauses
             .iter()
-            .any(|wc| wc.object_matches(oid_bytes, object));
+            .any(|wc| wc.object_matches(oid, object));
         if !wc_matches {
             return false;
         }
 
         if let Some(filter) = &self.filter {
-            filter.evaluate(object)
+            filter.evaluate(object, None).unwrap_or(true)
         } else {
             true
         }
@@ -218,19 +226,20 @@ impl<'txn> Query {
     pub(crate) fn find_all_internal<F>(
         &self,
         cursors: &mut Cursors<'txn>,
+        cursors2: &mut Cursors<'txn>,
         skip_sorting: bool,
         mut callback: F,
     ) -> Result<()>
     where
-        F: FnMut(&mut Cursors<'txn>, ObjectId<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         if self.sort.is_empty() || skip_sorting {
-            self.execute_unsorted(cursors, callback)?;
+            self.execute_unsorted(cursors, cursors2, callback)?;
         } else {
-            let results = self.execute_sorted(cursors)?;
+            let results = self.execute_sorted(cursors, cursors2)?;
             let results_iter = self.add_offset_limit_sorted(results);
-            for (oid, object) in results_iter {
-                if !callback(cursors, oid, object)? {
+            for object in results_iter {
+                if !callback(cursors, object)? {
                     break;
                 }
             }
@@ -240,10 +249,10 @@ impl<'txn> Query {
 
     pub fn find_while<F>(&self, txn: &mut IsarTxn<'txn>, mut callback: F) -> Result<()>
     where
-        F: FnMut(ObjectId<'txn>, IsarObject<'txn>) -> bool,
+        F: FnMut(IsarObject<'txn>) -> bool,
     {
-        txn.read(|cursors| {
-            self.find_all_internal(cursors, false, |_, oid, object| Ok(callback(oid, object)))
+        txn.read(|cursors, cursors2| {
+            self.find_all_internal(cursors, cursors2, false, |_, object| Ok(callback(object)))
         })
     }
 
@@ -254,27 +263,25 @@ impl<'txn> Query {
         mut callback: F,
     ) -> Result<()>
     where
-        F: FnMut(&ObjectId<'txn>, IsarObject<'txn>) -> bool,
+        F: FnMut(IsarObject<'txn>) -> bool,
     {
         let skip_sorting = self.offset_limit.is_none() && self.distinct.is_empty();
-        txn.write(|cursors, change_set| {
-            self.find_all_internal(cursors, skip_sorting, |cursors, oid, object| {
-                if !callback(&oid, object) {
+        txn.write(|cursors, cursors2, mut change_set| {
+            self.find_all_internal(cursors, cursors2, skip_sorting, |cursors, object| {
+                if !callback(object) {
                     return Ok(false);
                 }
-                collection.delete_current_object_internal(cursors, change_set, &oid, object)?;
+                let oid = object.read_long(collection.get_oid_property());
+                collection.delete_internal(cursors, change_set.as_deref_mut(), oid)?;
                 Ok(true)
             })
         })
     }
 
-    pub fn find_all_vec(
-        &self,
-        txn: &mut IsarTxn<'txn>,
-    ) -> Result<Vec<(ObjectId<'txn>, IsarObject<'txn>)>> {
+    pub fn find_all_vec(&self, txn: &mut IsarTxn<'txn>) -> Result<Vec<IsarObject<'txn>>> {
         let mut results = vec![];
-        self.find_while(txn, |oid, value| {
-            results.push((oid, value));
+        self.find_while(txn, |object| {
+            results.push(object);
             true
         })?;
         Ok(results)
@@ -282,7 +289,7 @@ impl<'txn> Query {
 
     pub fn count(&self, txn: &mut IsarTxn) -> Result<u32> {
         let mut counter = 0;
-        self.find_while(txn, |_, _| {
+        self.find_while(txn, |_| {
             counter += 1;
             true
         })?;
@@ -294,16 +301,17 @@ impl<'txn> Query {
 mod tests {
     use super::*;
     use crate::instance::IsarInstance;
+    use crate::object::data_type::DataType;
     use crate::query::filter::{IntBetweenCond, NotCond, OrCond};
     use crate::{col, ind, isar, set};
     use std::sync::Arc;
 
     fn fill_int_col(data: Vec<i32>, unique: bool) -> Arc<IsarInstance> {
-        isar!(isar, col => col!(oid => DataType::Int, field => DataType::Int; ind!(field; unique)));
-        let mut txn = isar.begin_txn(true).unwrap();
+        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Int; ind!(field; unique, false)));
+        let mut txn = isar.begin_txn(true, false).unwrap();
         for (i, int) in data.iter().enumerate() {
             let mut o = col.new_object_builder(None);
-            o.write_int(i as i32 + 1);
+            o.write_long(i as i64 + 1);
             o.write_int(*int);
             col.put(&mut txn, o.finish()).unwrap();
         }
@@ -311,16 +319,19 @@ mod tests {
         isar
     }
 
-    fn find(txn: &mut IsarTxn, query: Query) -> Vec<(i32, i32)> {
+    fn find(txn: &mut IsarTxn, query: Query) -> Vec<(i64, i32)> {
         query
             .find_all_vec(txn)
             .unwrap()
             .iter()
-            .map(|(oid, obj)| {
+            .map(|obj| {
                 (
-                    oid.get_int().unwrap(),
+                    obj.read_long(Property {
+                        offset: 2,
+                        data_type: DataType::Long,
+                    }),
                     obj.read_int(Property {
-                        offset: 6,
+                        offset: 10,
                         data_type: DataType::Int,
                     }),
                 )
@@ -346,8 +357,9 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let mut wc = col.new_primary_where_clause(Sort::Ascending);
-        wc.add_int(2, 4);
+        let wc = col
+            .new_primary_where_clause(Some(2), Some(4), Sort::Ascending)
+            .unwrap();
         let mut qb = col.new_query_builder();
         qb.add_where_clause(wc, true, true)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3), (4, 4)]);
@@ -406,11 +418,8 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false)?;
 
-        let mut primary_wc = col.new_primary_where_clause(Sort::Ascending);
-        primary_wc.add_int(1, 1);
-
-        let mut primary_wc2 = col.new_primary_where_clause(Sort::Ascending);
-        primary_wc2.add_int(5, 9);
+        let primary_wc = col.new_primary_where_clause(Some(1), Some(1), Sort::Ascending)?;
+        let primary_wc2 = col.new_primary_where_clause(Some(5), Some(9), Sort::Ascending)?;
 
         let mut secondary_dup_wc = col
             .new_secondary_where_clause(0, false, Sort::Ascending)
@@ -423,7 +432,7 @@ mod tests {
         qb.add_where_clause(secondary_dup_wc, true, true)?;
 
         let results = find(&mut txn, qb.build());
-        let results_set: HashSet<(i32, i32)> = results.into_iter().collect();
+        let results_set: HashSet<(i64, i32)> = results.into_iter().collect();
         assert_eq!(results_set, set![(1, 1), (4, 3), (5, 3), (6, 3), (7, 4)]);
         Ok(())
     }

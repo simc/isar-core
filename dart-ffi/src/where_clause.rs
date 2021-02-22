@@ -20,11 +20,7 @@ pub unsafe extern "C" fn isar_wc_create(
         Sort::Descending
     };
     isar_try! {
-        let where_clause = if index_index < 0 {
-            Some(collection.new_primary_where_clause(sort))
-        } else {
-            collection.new_secondary_where_clause(index_index as usize, skip_duplicates, sort)
-        };
+        let where_clause = collection.new_secondary_where_clause(index_index as usize, skip_duplicates, sort);
         if let Some(where_clause) = where_clause {
             let ptr = Box::into_raw(Box::new(where_clause));
             wc.write(ptr);
@@ -88,15 +84,4 @@ pub unsafe extern "C" fn isar_wc_add_string(
         case_sensitive,
         index_type,
     );
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_wc_add_oid_string(
-    where_clause: &mut WhereClause,
-    lower: *const c_char,
-    upper: *const c_char,
-) {
-    let lower_str = from_c_str(lower).unwrap();
-    let upper_str = from_c_str(upper).unwrap();
-    where_clause.add_oid_string(lower_str, upper_str);
 }

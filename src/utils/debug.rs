@@ -67,8 +67,8 @@ macro_rules! col (
             let mut indexes = vec![];
             indexes.clear();
             $(
-                let (fields, unique) = $index;
-                let index = crate::schema::collection_schema::IndexSchema::new(fields, unique);
+                let (fields, unique, replace) = $index;
+                let index = crate::schema::collection_schema::IndexSchema::new(fields, unique, replace);
                 indexes.push(index);
             )*
             crate::schema::collection_schema::CollectionSchema::new($name, properties, indexes)
@@ -87,25 +87,25 @@ macro_rules! col (
 #[macro_export]
 macro_rules! ind (
     ($($index:expr),+) => {
-        ind!($($index),+; false);
+        ind!($($index),+; false, false);
     };
 
-    ($($index:expr),+; $unique:expr) => {
-        ind!(str $($index, crate::index::IndexType::Value, None),+; $unique);
+    ($($index:expr),+; $unique:expr, $replace:expr) => {
+        ind!(str $($index, crate::index::IndexType::Value, None),+; $unique, $replace);
     };
 
     (str $($index:expr, $str_type:expr, $str_lc:expr),+) => {
-        ind!(str $($index, $str_type, $str_lc),+; false);
+        ind!(str $($index, $str_type, $str_lc),+; false, false);
     };
 
-    (str $($index:expr, $str_type:expr, $str_lc:expr),+; $unique:expr) => {
+    (str $($index:expr, $str_type:expr, $str_lc:expr),+; $unique:expr, $replace:expr) => {
         {
             let properties = vec![
                 $(
                     crate::schema::collection_schema::IndexPropertySchema::new(stringify!($index), $str_type, $str_lc)
                 ),+
             ];
-            (properties, $unique)
+            (properties, $unique, $replace)
         }
     };
 );
