@@ -344,52 +344,6 @@ mod tests {
     use crate::{col, ind, isar, map, set};
     use crossbeam_channel::unbounded;
 
-    extern crate test;
-
-    use test::bench::Bencher;
-
-    #[bench]
-    fn a(bench: &mut Bencher) {
-        isar!(isar, col => col!(oid => DataType::Long, field2 => DataType::Int));
-
-        let mut txn = isar.begin_txn(false, false).unwrap();
-        col.get(&mut txn, 123).unwrap();
-        txn.abort();
-
-        bench.iter(|| {
-            let mut txn = isar.begin_txn(true, false).unwrap();
-            let mut builder = col.new_object_builder(None);
-            builder.write_long(123);
-            builder.write_int(555);
-            let object = builder.finish();
-            col.put(&mut txn, object).unwrap();
-            txn.commit().unwrap();
-        })
-    }
-
-    #[bench]
-    fn bb(bench: &mut Bencher) {
-        isar!(isar, col => col!(oid => DataType::Long, field2 => DataType::Int));
-        let mut txn = isar.begin_txn(true, false).unwrap();
-
-        let mut builder = col.new_object_builder(None);
-        builder.write_long(123);
-        builder.write_int(555);
-        let object = builder.finish();
-        col.put(&mut txn, object).unwrap();
-        txn.commit().unwrap();
-
-        let mut txn = isar.begin_txn(false, false).unwrap();
-        assert_eq!(col.get(&mut txn, 123).unwrap().unwrap(), object);
-        txn.abort();
-
-        bench.iter(|| {
-            let mut txn = isar.begin_txn(false, false).unwrap();
-            assert_eq!(col.get(&mut txn, 123).unwrap().unwrap(), object);
-            txn.abort();
-        })
-    }
-
     #[test]
     fn test_get() {
         isar!(isar, col => col!(oid => DataType::Long, field2 => DataType::Int));
