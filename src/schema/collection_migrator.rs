@@ -44,10 +44,10 @@ impl<'a> CollectionMigrator<'a> {
             self.collection
                 .new_query_builder()
                 .build()
-                .find_all_internal(cursors, cursors2, false, |cursors, object| {
+                .find_all_internal(cursors, false, |object| {
                     let oid = object.read_long(self.collection.get_oid_property());
                     for index in &self.added_indexes {
-                        index.create_for_object(cursors, oid, object)?;
+                        index.create_for_object(cursors2, oid, object)?;
                     }
                     Ok(true)
                 })?;

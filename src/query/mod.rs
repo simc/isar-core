@@ -1,5 +1,5 @@
-use crate::collection::IsarCollection;
 use crate::error::Result;
+use crate::link::LinkCursors;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::query::filter::{Condition, Filter, StaticCond};
 use crate::query::where_clause::WhereClause;
@@ -56,22 +56,18 @@ impl<'txn> Query {
         }
     }
 
-    pub(crate) fn execute_raw<F>(
-        &self,
-        cursors: &mut Cursors<'txn>,
-        cursors2: &mut Cursors<'txn>,
-        mut callback: F,
-    ) -> Result<()>
+    pub(crate) fn execute_raw<F>(&self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<()>
     where
-        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
         let mut executor = WhereExecutor::new(&self.where_clauses, self.where_clauses_overlapping);
 
         let static_filter = StaticCond::filter(true);
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
-        executor.execute(cursors, |object| {
-            if filter.evaluate(object, Some(cursors2))? {
-                callback(cursors2, object)
+        executor.execute(cursors, |cursors, object| {
+            let mut link_cursors = LinkCursors::new(&mut cursors.primary2, &mut cursors.links);
+            if filter.evaluate(object, Some(&mut link_cursors))? {
+                callback(object)
             } else {
                 Ok(true)
             }
@@ -88,42 +84,37 @@ impl<'txn> Query {
         }
     }
 
-    fn execute_unsorted<F>(
-        &self,
-        cursors: &mut Cursors<'txn>,
-        cursors2: &mut Cursors<'txn>,
-        callback: F,
-    ) -> Result<()>
+    fn execute_unsorted<F>(&self, cursors: &mut Cursors<'txn>, callback: F) -> Result<()>
     where
-        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
         if !self.distinct.is_empty() {
             let callback = self.add_distinct_unsorted(callback);
             let callback = self.add_offset_limit_unsorted(callback);
-            self.execute_raw(cursors, cursors2, callback)
+            self.execute_raw(cursors, callback)
         } else {
             let callback = self.add_offset_limit_unsorted(callback);
-            self.execute_raw(cursors, cursors2, callback)
+            self.execute_raw(cursors, callback)
         }
     }
 
     fn add_distinct_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>
+    ) -> impl FnMut(IsarObject<'txn>) -> Result<bool>
     where
-        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
         let properties = self.distinct.clone();
         let mut hashes = HashSet::new();
-        move |cursors, object| {
+        move |object| {
             let mut hasher = WyHash::default();
             for property in &properties {
                 object.hash_property(*property, &mut hasher);
             }
             let hash = hasher.finish();
             if hashes.insert(hash) {
-                callback(cursors, object)
+                callback(object)
             } else {
                 Ok(true)
             }
@@ -133,15 +124,15 @@ impl<'txn> Query {
     fn add_offset_limit_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>
+    ) -> impl FnMut(IsarObject<'txn>) -> Result<bool>
     where
-        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
         let (offset, limit) = self.offset_limit.unwrap_or((0, usize::MAX));
         let mut count = 0;
-        move |cursors, value| {
+        move |value| {
             let result = if count >= offset {
-                callback(cursors, value)?
+                callback(value)?
             } else {
                 true
             };
@@ -151,13 +142,9 @@ impl<'txn> Query {
         }
     }
 
-    fn execute_sorted(
-        &self,
-        cursors: &mut Cursors<'txn>,
-        cursors2: &mut Cursors<'txn>,
-    ) -> Result<Vec<IsarObject<'txn>>> {
+    fn execute_sorted(&self, cursors: &mut Cursors<'txn>) -> Result<Vec<IsarObject<'txn>>> {
         let mut results = vec![];
-        self.execute_raw(cursors, cursors2, |_, object| {
+        self.execute_raw(cursors, |object| {
             results.push(object);
             Ok(true)
         })?;
@@ -226,20 +213,19 @@ impl<'txn> Query {
     pub(crate) fn find_all_internal<F>(
         &self,
         cursors: &mut Cursors<'txn>,
-        cursors2: &mut Cursors<'txn>,
         skip_sorting: bool,
         mut callback: F,
     ) -> Result<()>
     where
-        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
         if self.sort.is_empty() || skip_sorting {
-            self.execute_unsorted(cursors, cursors2, callback)?;
+            self.execute_unsorted(cursors, callback)?;
         } else {
-            let results = self.execute_sorted(cursors, cursors2)?;
+            let results = self.execute_sorted(cursors)?;
             let results_iter = self.add_offset_limit_sorted(results);
             for object in results_iter {
-                if !callback(cursors, object)? {
+                if !callback(object)? {
                     break;
                 }
             }
@@ -251,31 +237,7 @@ impl<'txn> Query {
     where
         F: FnMut(IsarObject<'txn>) -> bool,
     {
-        txn.read(|cursors, cursors2| {
-            self.find_all_internal(cursors, cursors2, false, |_, object| Ok(callback(object)))
-        })
-    }
-
-    pub fn delete_while<F>(
-        &self,
-        txn: &mut IsarTxn<'txn>,
-        collection: &IsarCollection,
-        mut callback: F,
-    ) -> Result<()>
-    where
-        F: FnMut(IsarObject<'txn>) -> bool,
-    {
-        let skip_sorting = self.offset_limit.is_none() && self.distinct.is_empty();
-        txn.write(|cursors, cursors2, mut change_set| {
-            self.find_all_internal(cursors, cursors2, skip_sorting, |cursors, object| {
-                if !callback(object) {
-                    return Ok(false);
-                }
-                let oid = object.read_long(collection.get_oid_property());
-                collection.delete_internal(cursors, change_set.as_deref_mut(), oid)?;
-                Ok(true)
-            })
-        })
+        txn.read(|cursors| self.find_all_internal(cursors, false, |object| Ok(callback(object))))
     }
 
     pub fn find_all_vec(&self, txn: &mut IsarTxn<'txn>) -> Result<Vec<IsarObject<'txn>>> {
@@ -343,7 +305,7 @@ mod tests {
     fn test_no_where_clauses() -> Result<()> {
         let isar = fill_int_col(vec![1, 2, 3, 4], true);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let q = col.new_query_builder().build();
         assert_eq!(find(&mut txn, q), vec![(1, 1), (2, 2), (3, 3), (4, 4)]);
@@ -355,7 +317,7 @@ mod tests {
     fn test_single_primary_where_clause() -> Result<()> {
         let isar = fill_int_col(vec![1, 2, 3, 4, 5], true);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let wc = col
             .new_primary_where_clause(Some(2), Some(4), Sort::Ascending)
@@ -371,7 +333,7 @@ mod tests {
     fn test_single_secondary_where_clause() -> Result<()> {
         let isar = fill_int_col(vec![1, 2, 3, 4], true);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let mut wc = col
             .new_secondary_where_clause(0, false, Sort::Ascending)
@@ -388,7 +350,7 @@ mod tests {
     fn test_single_secondary_where_clause_dup() -> Result<()> {
         let isar = fill_int_col(vec![1, 2, 2, 3, 3, 3, 4], false);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let mut wc = col
             .new_secondary_where_clause(0, false, Sort::Ascending)
@@ -416,7 +378,7 @@ mod tests {
     fn test_multiple_where_clauses() -> Result<()> {
         let isar = fill_int_col(vec![1, 2, 2, 3, 3, 3, 4], false);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let primary_wc = col.new_primary_where_clause(Some(1), Some(1), Sort::Ascending)?;
         let primary_wc2 = col.new_primary_where_clause(Some(5), Some(9), Sort::Ascending)?;
@@ -441,7 +403,7 @@ mod tests {
     fn test_filter_unsorted() -> Result<()> {
         let isar = fill_int_col(vec![5, 4, 4, 3, 2, 2, 1], false);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
@@ -462,7 +424,7 @@ mod tests {
     fn test_filter_sorted() -> Result<()> {
         let isar = fill_int_col(vec![5, 4, 4, 3, 2, 2, 1], false);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
@@ -484,7 +446,7 @@ mod tests {
     fn test_distinct_unsorted() -> Result<()> {
         let isar = fill_int_col(vec![5, 4, 4, 3, 2, 2, 1], false);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
@@ -502,7 +464,7 @@ mod tests {
     fn test_distinct_sorted() -> Result<()> {
         let isar = fill_int_col(vec![5, 4, 4, 3, 2, 2, 1], false);
         let col = isar.get_collection(0).unwrap();
-        let mut txn = isar.begin_txn(false)?;
+        let mut txn = isar.begin_txn(false, false)?;
 
         let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();

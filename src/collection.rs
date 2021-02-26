@@ -1,6 +1,6 @@
 use crate::error::{IsarError, Result};
 use crate::index::Index;
-use crate::link::Link;
+use crate::link::{Link, LinkCursors};
 use crate::lmdb::Key;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
@@ -17,7 +17,7 @@ use std::cell::Cell;
 use std::ops::Add;
 
 #[cfg(test)]
-use {crate::utils::debug::dump_db, hashbrown::HashMap};
+use {crate::utils::debug::dump_db_oid, hashbrown::HashMap};
 
 pub struct IsarCollection {
     id: u16,
@@ -120,8 +120,8 @@ impl IsarCollection {
 
     pub fn get<'txn>(&self, txn: &'txn mut IsarTxn, oid: i64) -> Result<Option<IsarObject<'txn>>> {
         let oid_bytes = oid_to_bytes(oid, self.id)?;
-        txn.read(|c, _| {
-            let object = c
+        txn.read(|cursors| {
+            let object = cursors
                 .primary
                 .move_to(Key(&oid_bytes))?
                 .map(|(_, v)| IsarObject::from_bytes(v));
@@ -130,15 +130,12 @@ impl IsarCollection {
     }
 
     pub fn put(&self, txn: &mut IsarTxn, object: IsarObject) -> Result<()> {
-        txn.write(|r_cursors, w_cursors, change_set| {
-            self.put_internal(r_cursors, w_cursors, change_set, object)
-        })
+        txn.write(|cursors, change_set| self.put_internal(cursors, change_set, object))
     }
 
     fn put_internal(
         &self,
         cursors: &mut Cursors,
-        cursors2: &mut Cursors,
         mut change_set: Option<&mut ChangeSet>,
         object: IsarObject,
     ) -> Result<()> {
@@ -152,26 +149,30 @@ impl IsarCollection {
 
         for index in &self.indexes {
             if index.does_replace() {
+                let mut oids_to_delete = vec![];
                 let wc = index.new_where_clause(false, Sort::Ascending);
                 wc.iter(cursors, |_, _, oid| {
                     let (oid, _) = oid_from_bytes(oid);
-                    self.delete_internal(cursors2, change_set.as_deref_mut(), oid)?;
+                    oids_to_delete.push(oid);
                     Ok(true)
                 })?;
+                for oid in oids_to_delete {
+                    self.delete_internal(cursors, change_set.as_deref_mut(), oid)?;
+                }
             }
-            index.create_for_object(cursors2, oid, object)?;
+            index.create_for_object(cursors, oid, object)?;
         }
 
         let oid_bytes = oid_to_bytes(oid, self.id)?;
         cursors.primary.put(Key(&oid_bytes), object.as_bytes())?;
         if let Some(change_set) = change_set.as_deref_mut() {
-            change_set.register_change(self.id, oid, object);
+            change_set.register_change(self.id, oid, Some(object));
         }
         Ok(())
     }
 
     pub fn delete(&self, txn: &mut IsarTxn, oid: i64) -> Result<bool> {
-        txn.write(|_, cursors, change_set| self.delete_internal(cursors, change_set, oid))
+        txn.write(|cursors, change_set| self.delete_internal(cursors, change_set, oid))
     }
 
     pub(crate) fn delete_internal(
@@ -182,7 +183,7 @@ impl IsarCollection {
     ) -> Result<bool> {
         if self.delete_object_internal(cursors, change_set, oid)? {
             for link in &self.links {
-                link.delete_for_object(cursors, oid)?;
+                link.delete_all_for_object(cursors, oid)?;
             }
             Ok(true)
         } else {
@@ -204,7 +205,7 @@ impl IsarCollection {
             }
 
             if let Some(change_set) = change_set {
-                change_set.register_change(self.id, oid, object);
+                change_set.register_change(self.id, oid, Some(object));
             }
             cursors.primary.delete_current()?;
             Ok(true)
@@ -213,25 +214,89 @@ impl IsarCollection {
         }
     }
 
+    pub(crate) fn get_link(&self, link_index: usize) -> Result<&Link> {
+        self.links.get(link_index).ok_or(IsarError::IllegalArg {
+            message: "Link does not exist".to_string(),
+        })
+    }
+
+    pub fn link(
+        &self,
+        txn: &mut IsarTxn,
+        link_index: usize,
+        oid: i64,
+        target_oid: i64,
+    ) -> Result<()> {
+        let link = self.get_link(link_index)?;
+        txn.write(|cursors, change_set| {
+            if let Some(change_set) = change_set {
+                change_set.register_change(self.id, oid, None);
+                change_set.register_change(link.get_target_col_id(), oid, None);
+            }
+            link.create(cursors, oid, target_oid)
+        })
+    }
+
+    pub fn unlink(
+        &self,
+        txn: &mut IsarTxn,
+        link_index: usize,
+        oid: i64,
+        target_oid: i64,
+    ) -> Result<bool> {
+        let link = self.get_link(link_index)?;
+        txn.write(|cursors, change_set| {
+            if let Some(change_set) = change_set {
+                change_set.register_change(self.id, oid, None);
+                change_set.register_change(link.get_target_col_id(), oid, None);
+            }
+            link.delete(cursors, oid, target_oid)
+        })
+    }
+
+    pub fn get_linked_objects<'txn, F>(
+        &self,
+        txn: &'txn mut IsarTxn,
+        link_index: usize,
+        oid: i64,
+        mut callback: F,
+    ) -> Result<bool>
+    where
+        F: FnMut(IsarObject<'txn>) -> bool,
+    {
+        let link = self.get_link(link_index)?;
+        txn.read(|cursors| {
+            let primary = &mut cursors.primary;
+            let links = &mut cursors.links;
+            let mut link_cursors = LinkCursors::new(primary, links);
+            link.iter(&mut link_cursors, oid, |object| Ok(callback(object)))
+        })
+    }
+
     pub fn clear(&self, txn: &mut IsarTxn) -> Result<usize> {
-        let mut counter = 0;
-        self.new_query_builder()
-            .build()
-            .delete_while(txn, self, |_| {
-                counter += 1;
-                true
-            })?;
-        Ok(counter)
+        txn.write(|cursors, mut change_set| {
+            let mut counter = 0;
+            for index in &self.indexes {
+                index.clear(cursors)?;
+            }
+            self.new_primary_where_clause(None, None, Sort::Ascending)?
+                .iter(cursors, |cursors, oid, _| {
+                    cursors.primary.delete_current()?;
+                    counter += 1;
+                    Ok(true)
+                })?;
+            Ok(counter)
+        })
     }
 
     pub fn import_json(&self, txn: &mut IsarTxn, json: Value) -> Result<()> {
-        txn.write(|r_cursors, w_cursors, mut change_set| {
+        txn.write(|cursors, mut change_set| {
             let array = json.as_array().ok_or(IsarError::InvalidJson {})?;
             let mut ob_result_cache = None;
             for value in array {
                 let ob = JsonEncodeDecode::decode(self, value, ob_result_cache)?;
                 let object = ob.finish();
-                self.put_internal(r_cursors, w_cursors, change_set.as_deref_mut(), object)?;
+                self.put_internal(cursors, change_set.as_deref_mut(), object)?;
                 ob_result_cache = Some(ob.recycle());
             }
             Ok(())
@@ -255,8 +320,8 @@ impl IsarCollection {
 
     #[cfg(test)]
     pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashMap<i64, Vec<u8>> {
-        txn.read(|cursors, _| {
-            let map = dump_db(&mut cursors.primary, Some(&self.id.to_be_bytes()))
+        txn.read(|cursors| {
+            let map = dump_db_oid(&mut cursors.primary, self.id)
                 .into_iter()
                 .map(|(k, v)| (oid_from_bytes(&k).0, v))
                 .collect();
@@ -278,6 +343,52 @@ mod tests {
     use crate::utils::oid_to_bytes;
     use crate::{col, ind, isar, map, set};
     use crossbeam_channel::unbounded;
+
+    extern crate test;
+
+    use test::bench::Bencher;
+
+    #[bench]
+    fn a(bench: &mut Bencher) {
+        isar!(isar, col => col!(oid => DataType::Long, field2 => DataType::Int));
+
+        let mut txn = isar.begin_txn(false, false).unwrap();
+        col.get(&mut txn, 123).unwrap();
+        txn.abort();
+
+        bench.iter(|| {
+            let mut txn = isar.begin_txn(true, false).unwrap();
+            let mut builder = col.new_object_builder(None);
+            builder.write_long(123);
+            builder.write_int(555);
+            let object = builder.finish();
+            col.put(&mut txn, object).unwrap();
+            txn.commit().unwrap();
+        })
+    }
+
+    #[bench]
+    fn bb(bench: &mut Bencher) {
+        isar!(isar, col => col!(oid => DataType::Long, field2 => DataType::Int));
+        let mut txn = isar.begin_txn(true, false).unwrap();
+
+        let mut builder = col.new_object_builder(None);
+        builder.write_long(123);
+        builder.write_int(555);
+        let object = builder.finish();
+        col.put(&mut txn, object).unwrap();
+        txn.commit().unwrap();
+
+        let mut txn = isar.begin_txn(false, false).unwrap();
+        assert_eq!(col.get(&mut txn, 123).unwrap().unwrap(), object);
+        txn.abort();
+
+        bench.iter(|| {
+            let mut txn = isar.begin_txn(false, false).unwrap();
+            assert_eq!(col.get(&mut txn, 123).unwrap().unwrap(), object);
+            txn.abort();
+        })
+    }
 
     #[test]
     fn test_get() {

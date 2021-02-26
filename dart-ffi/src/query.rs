@@ -166,6 +166,27 @@ pub unsafe extern "C" fn isar_q_count_async(
     });
 }
 
+fn query_delete(
+    query: &Query,
+    txn: &mut IsarTxn,
+    collection: &IsarCollection,
+    limit: u32,
+) -> Result<u32> {
+    let mut oids_to_delete = vec![];
+    let mut deleted_count = 0;
+    query.find_while(txn, |object| {
+        let oid = object.read_long(collection.get_oid_property());
+        oids_to_delete.push(oid);
+        deleted_count += 1;
+        deleted_count <= limit
+    })?;
+    let count = oids_to_delete.len();
+    for oid in oids_to_delete {
+        collection.delete(txn, oid)?;
+    }
+    Ok(count as u32)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_delete(
     query: &Query,
@@ -175,12 +196,7 @@ pub unsafe extern "C" fn isar_q_delete(
     count: &mut u32,
 ) -> i32 {
     isar_try! {
-        let mut deleted_count = 0;
-        query.delete_while(txn, collection, |_| {
-            deleted_count += 1;
-            deleted_count <= limit
-        })?;
-        *count = deleted_count;
+        *count = query_delete(query,txn,collection,limit)?;
     }
 }
 
@@ -194,12 +210,7 @@ pub unsafe extern "C" fn isar_q_delete_async(
 ) {
     let count = UintSend(count);
     txn.exec(move |txn| -> Result<()> {
-        let mut deleted_count = 0;
-        query.delete_while(txn, collection, |_| {
-            deleted_count += 1;
-            deleted_count <= limit
-        })?;
-        *(count.0) = deleted_count;
+        *(count.0) = query_delete(query, txn, collection, limit)?;
         Ok(())
     });
 }

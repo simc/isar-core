@@ -251,6 +251,7 @@ impl DataDbs {
     fn open_cursors<'txn>(&self, txn: &'txn Txn) -> Result<Cursors<'txn>> {
         Ok(Cursors {
             primary: self.primary.cursor(&txn)?,
+            primary2: self.primary.cursor(&txn)?,
             secondary: self.secondary.cursor(&txn)?,
             secondary_dup: self.secondary_dup.cursor(&txn)?,
             links: self.links.cursor(&txn)?,

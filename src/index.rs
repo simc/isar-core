@@ -341,7 +341,7 @@ impl Index {
 
     #[cfg(test)]
     pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashSet<(Vec<u8>, Vec<u8>)> {
-        txn.read(|cursors, _| {
+        txn.read(|cursors| {
             let cursor = if self.unique {
                 &mut cursors.secondary
             } else {

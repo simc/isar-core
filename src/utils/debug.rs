@@ -2,6 +2,7 @@
 
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::Key;
+use crate::utils::{oid_to_bytes, MAX_OID, MIN_OID};
 use hashbrown::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -130,6 +131,21 @@ pub fn dump_db(cursor: &mut Cursor, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, 
                 Ok(true)
             },
         )
+        .unwrap();
+
+    set
+}
+
+pub fn dump_db_oid(cursor: &mut Cursor, prefix: u16) -> HashSet<(Vec<u8>, Vec<u8>)> {
+    let mut set = HashSet::new();
+
+    let lower = oid_to_bytes(MIN_OID, prefix).unwrap();
+    let upper = oid_to_bytes(MAX_OID, prefix).unwrap();
+    cursor
+        .iter_between(Key(&lower), Key(&upper), false, true, |_, k, v| {
+            set.insert((k.0.to_vec(), v.to_vec()));
+            Ok(true)
+        })
         .unwrap();
 
     set

@@ -21,7 +21,7 @@ impl<'a> WhereExecutor<'a> {
 
     pub fn execute<'txn, F>(&mut self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<()>
     where
-        F: FnMut(IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         let mut hash_set = HashSet::new();
         let mut result_ids = option!(self.where_clauses_overlapping, &mut hash_set);
@@ -56,15 +56,15 @@ impl<'a> WhereExecutor<'a> {
         callback: &mut F,
     ) -> Result<bool>
     where
-        F: FnMut(IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
-        where_clause.iter(cursors, |_, oid, object| {
+        where_clause.iter(cursors, |cursors, oid, object| {
             if let Some(result_ids) = result_ids {
                 if !result_ids.insert(oid) {
                     return Ok(true);
                 }
             }
-            callback(IsarObject::from_bytes(object))
+            callback(cursors, IsarObject::from_bytes(object))
         })
     }
 
@@ -76,7 +76,7 @@ impl<'a> WhereExecutor<'a> {
         callback: &mut F,
     ) -> Result<bool>
     where
-        F: FnMut(IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         where_clause.iter(cursors, |cursors, _, oid| {
             if let Some(result_ids) = result_ids {
@@ -88,7 +88,7 @@ impl<'a> WhereExecutor<'a> {
             let (_, object) = entry.ok_or(IsarError::DbCorrupted {
                 message: "Could not find object specified in index.".to_string(),
             })?;
-            if !callback(IsarObject::from_bytes(object))? {
+            if !callback(cursors, IsarObject::from_bytes(object))? {
                 return Ok(false);
             }
             Ok(true)

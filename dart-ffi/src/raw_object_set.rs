@@ -1,3 +1,4 @@
+use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::object::isar_object::IsarObject;
 use isar_core::query::Query;
@@ -78,6 +79,25 @@ impl RawObjectSet {
             objects.push(raw_obj);
             count += 1;
             count < limit
+        })?;
+
+        self.fill_from_vec(objects);
+        Ok(())
+    }
+
+    pub fn fill_from_link(
+        &mut self,
+        collection: &IsarCollection,
+        txn: &mut IsarTxn,
+        link_index: usize,
+        oid: i64,
+    ) -> Result<()> {
+        let mut objects = vec![];
+        collection.get_linked_objects(txn, link_index, oid, |object| {
+            let mut raw_obj = RawObject::new();
+            raw_obj.set_object(Some(object));
+            objects.push(raw_obj);
+            true
         })?;
 
         self.fill_from_vec(objects);

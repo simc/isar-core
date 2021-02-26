@@ -13,6 +13,7 @@ pub mod crud;
 mod dart;
 pub mod filter;
 pub mod instance;
+pub mod link;
 pub mod query;
 pub mod raw_object_set;
 pub mod txn;
