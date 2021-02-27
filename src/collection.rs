@@ -254,6 +254,16 @@ impl IsarCollection {
         })
     }
 
+    pub fn unlink_all(&self, txn: &mut IsarTxn, link_index: usize, oid: i64) -> Result<()> {
+        let link = self.get_link(link_index)?;
+        txn.write(|cursors, change_set| {
+            if let Some(change_set) = change_set {
+                change_set.register_change(self.id, oid, None);
+            }
+            link.delete_all_for_object(cursors, oid)
+        })
+    }
+
     pub fn get_linked_objects<'txn, F>(
         &self,
         txn: &'txn mut IsarTxn,

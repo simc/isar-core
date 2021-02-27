@@ -1,5 +1,5 @@
 use crate::async_txn::IsarAsyncTxn;
-use crate::raw_object_set::{RawObjectSet, RawObjectSetSend};
+use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
 use isar_core::collection::IsarCollection;
 use isar_core::txn::IsarTxn;
 
@@ -17,7 +17,7 @@ pub unsafe extern "C" fn isar_link(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_all_async(
+pub unsafe extern "C" fn isar_link_many_async(
     collection: &'static IsarCollection,
     txn: &mut IsarAsyncTxn,
     link_index: usize,
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn isar_link_all_async(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_unlink(
+pub unsafe extern "C" fn isar_link_unlink(
     collection: &IsarCollection,
     txn: &mut IsarTxn,
     link_index: usize,
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn isar_unlink(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_unlink_all_async(
+pub unsafe extern "C" fn isar_link_unlink_many_async(
     collection: &'static IsarCollection,
     txn: &mut IsarAsyncTxn,
     link_index: usize,
@@ -64,7 +64,63 @@ pub unsafe extern "C" fn isar_unlink_all_async(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_get_objects(
+pub unsafe extern "C" fn isar_link_unlink_all(
+    collection: &IsarCollection,
+    txn: &mut IsarTxn,
+    link_index: usize,
+    oid: i64,
+) -> i32 {
+    isar_try! {
+        collection.unlink_all(txn, link_index, oid)?;
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_link_unlink_all_async(
+    collection: &'static IsarCollection,
+    txn: &mut IsarAsyncTxn,
+    link_index: usize,
+    oid: i64,
+) {
+    txn.exec(move |txn| collection.unlink_all(txn, link_index, oid));
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_link_get_first(
+    collection: &IsarCollection,
+    txn: &mut IsarTxn,
+    link_index: usize,
+    oid: i64,
+    object: &mut RawObject,
+) -> i32 {
+    isar_try! {
+        collection.get_linked_objects(txn, link_index, oid, |o| {
+            object.set_object(Some(o));
+            false
+        })?;
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_link_get_first_async(
+    collection: &'static IsarCollection,
+    txn: &mut IsarAsyncTxn,
+    link_index: usize,
+    oid: i64,
+    object: &'static mut RawObject,
+) {
+    let object = RawObjectSend(object);
+    txn.exec(move |txn| {
+        collection.get_linked_objects(txn, link_index, oid, |o| {
+            object.0.set_object(Some(o));
+            false
+        })?;
+        Ok(())
+    });
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_link_get_all(
     collection: &IsarCollection,
     txn: &mut IsarTxn,
     link_index: usize,
@@ -77,7 +133,7 @@ pub unsafe extern "C" fn isar_link_get_objects(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_get_objects_async(
+pub unsafe extern "C" fn isar_link_get_all_async(
     collection: &'static IsarCollection,
     txn: &mut IsarAsyncTxn,
     link_index: usize,
