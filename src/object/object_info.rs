@@ -1,19 +1,29 @@
+use crate::link::Link;
 use crate::object::isar_object::{IsarObject, Property};
 
 #[cfg_attr(test, derive(Clone))]
 pub(crate) struct ObjectInfo {
-    oid_property: Property,
+    id_property: Property,
     properties: Vec<(String, Property)>,
+    links: Vec<(String, Link)>,
+    backlinks: Vec<(String, String, Link)>,
     static_size: usize,
 }
 
 impl ObjectInfo {
-    pub(crate) fn new(oid_property: Property, properties: Vec<(String, Property)>) -> ObjectInfo {
+    pub(crate) fn new(
+        id_property: Property,
+        properties: Vec<(String, Property)>,
+        links: Vec<(String, Link)>,
+        backlinks: Vec<(String, String, Link)>,
+    ) -> ObjectInfo {
         let static_size = Self::calculate_static_size(&properties);
         ObjectInfo {
-            oid_property,
+            id_property,
             properties,
             static_size,
+            links,
+            backlinks,
         }
     }
 
@@ -30,11 +40,19 @@ impl ObjectInfo {
     }
 
     pub fn get_oid_property(&self) -> Property {
-        self.oid_property
+        self.id_property
     }
 
     pub fn get_properties(&self) -> &[(String, Property)] {
         &self.properties
+    }
+
+    pub fn get_links(&self) -> &[(String, Link)] {
+        &self.links
+    }
+
+    pub fn get_backlinks(&self) -> &[(String, String, Link)] {
+        &self.backlinks
     }
 
     pub fn verify_object(&self, object: IsarObject) -> bool {

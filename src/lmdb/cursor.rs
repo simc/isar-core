@@ -196,7 +196,7 @@ impl<'txn> Cursor<'txn> {
         }
     }
 
-    pub fn iter_dups(
+    pub fn iter_dups<'a>(
         &mut self,
         key: Key,
         mut callback: impl FnMut(&mut Cursor<'txn>, Key<'txn>, &'txn [u8]) -> Result<bool>,

@@ -5,16 +5,14 @@ use crate::object::isar_object::{IsarObject, Property};
 use crate::query::where_clause::WhereClause;
 use crate::query::Sort;
 use crate::txn::Cursors;
-use crate::utils::{oid_to_bytes, signed_to_unsigned, unsigned_to_signed};
-use byteorder::{BigEndian, ByteOrder};
-use enum_ordinalize::Ordinalize;
+use crate::utils::oid_to_bytes;
 use itertools::Itertools;
-use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::hash::Hasher;
 use std::mem::transmute;
 use unicode_segmentation::UnicodeSegmentation;
 use wyhash::{wyhash, WyHash};
 
+use crate::schema::collection_schema::IndexType;
 #[cfg(test)]
 use {crate::txn::IsarTxn, crate::utils::debug::dump_db, hashbrown::HashSet};
 
@@ -25,14 +23,6 @@ pub const MAX_STRING_INDEX_SIZE: usize = 1500;
 Null values are always considered the "smallest" element.
 
  */
-
-#[derive(Copy, Clone, Eq, PartialEq, Serialize_repr, Deserialize_repr, Debug, Ordinalize)]
-#[repr(u8)]
-pub enum IndexType {
-    Value,
-    Hash,
-    Words,
-}
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct IndexProperty {
@@ -253,19 +243,9 @@ impl Index {
         (unsigned ^ 1 << 31).to_be_bytes().to_vec()
     }
 
-    pub fn get_int_from_key(bytes: &[u8]) -> i32 {
-        let unsigned = BigEndian::read_u32(bytes);
-        unsafe { transmute::<u32, i32>(unsigned ^ 1 << 31) }
-    }
-
     pub fn create_long_key(value: i64) -> Vec<u8> {
-        let unsigned = signed_to_unsigned(value);
-        unsigned.to_be_bytes().to_vec()
-    }
-
-    pub fn get_long_from_key(bytes: &[u8]) -> i64 {
-        let unsigned = BigEndian::read_u64(bytes);
-        unsigned_to_signed(unsigned)
+        let unsigned = unsafe { transmute::<i64, u64>(value) };
+        u64::to_be_bytes(unsigned ^ 1 << 63).to_vec()
     }
 
     pub fn create_float_key(value: f32) -> Vec<u8> {

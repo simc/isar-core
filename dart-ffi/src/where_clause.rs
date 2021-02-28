@@ -1,9 +1,9 @@
 use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
-use isar_core::index::IndexType;
 use isar_core::query::where_clause::WhereClause;
 use isar_core::query::Sort;
+use isar_core::schema::collection_schema::IndexType;
 use std::os::raw::c_char;
 
 #[no_mangle]

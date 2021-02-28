@@ -49,7 +49,7 @@ impl Schema {
     pub(crate) fn build_collections(self) -> Vec<IsarCollection> {
         self.collections
             .iter()
-            .map(|c| c.get_isar_collection())
+            .map(|c| c.get_isar_collection(&self.collections))
             .collect()
     }
 
@@ -79,20 +79,18 @@ impl Schema {
             HashSet::new()
         };
 
-        let mut find_id = || loop {
+        let mut get_id = || loop {
             let id = random();
             if ids.insert(id) {
                 return id;
             }
         };
 
-        let empty = vec![];
-        let existing_collections = existing_schema.map_or(&empty, |c| &c.collections);
-        for collection in &mut self.collections {
-            let existing_collection = existing_collections
-                .iter()
-                .find(|c| c.name == collection.name);
-            collection.update_with_existing_collections(existing_collection, &mut find_id)?;
+        let existing_collections: &[CollectionSchema] =
+            existing_schema.map_or(&[], |c| &c.collections);
+        for col in &mut self.collections {
+            let existing_col = existing_collections.iter().find(|c| c.name == col.name);
+            col.update_with_existing_collection(existing_col, &mut get_id)?;
         }
         Ok(())
     }

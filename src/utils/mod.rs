@@ -19,13 +19,13 @@ macro_rules! option (
 );
 
 #[inline]
-pub fn signed_to_unsigned(value: i64) -> u64 {
+fn signed_to_unsigned(value: i64) -> u64 {
     let unsigned = unsafe { transmute::<i64, u64>(value) };
     unsigned ^ 1 << 63
 }
 
 #[inline]
-pub fn unsigned_to_signed(value: u64) -> i64 {
+fn unsigned_to_signed(value: u64) -> i64 {
     unsafe { transmute::<u64, i64>(value ^ 1 << 63) }
 }
 

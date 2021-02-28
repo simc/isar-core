@@ -1,6 +1,6 @@
 use crate::error::{IsarError, Result};
 use crate::index::Index;
-use crate::link::{Link, LinkCursors};
+use crate::link::Link;
 use crate::lmdb::Key;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
@@ -24,7 +24,6 @@ pub struct IsarCollection {
     name: String,
     object_info: ObjectInfo,
     indexes: Vec<Index>,
-    links: Vec<Link>,
     oid_counter: Cell<i64>,
 }
 
@@ -32,19 +31,12 @@ unsafe impl Send for IsarCollection {}
 unsafe impl Sync for IsarCollection {}
 
 impl IsarCollection {
-    pub(crate) fn new(
-        id: u16,
-        name: String,
-        object_info: ObjectInfo,
-        indexes: Vec<Index>,
-        links: Vec<Link>,
-    ) -> Self {
+    pub(crate) fn new(id: u16, name: String, object_info: ObjectInfo, indexes: Vec<Index>) -> Self {
         IsarCollection {
             id,
             name,
             object_info,
             indexes,
-            links,
             oid_counter: Cell::new(0),
         }
     }
@@ -61,6 +53,19 @@ impl IsarCollection {
         if counter > self.oid_counter.get() {
             self.oid_counter.set(counter);
         }
+    }
+
+    fn get_links_backlinks(&self) -> impl Iterator<Item = &Link> {
+        self.object_info
+            .get_links()
+            .iter()
+            .map(|(_, link)| link)
+            .chain(
+                self.object_info
+                    .get_backlinks()
+                    .iter()
+                    .map(|(_, _, link)| link),
+            )
     }
 
     pub fn get_name(&self) -> &str {
@@ -140,7 +145,7 @@ impl IsarCollection {
         object: IsarObject,
     ) -> Result<()> {
         let oid = object.read_long(self.get_oid_property());
-        self.delete_object_internal(cursors, change_set.as_deref_mut(), oid)?;
+        self.delete_internal(cursors, change_set.as_deref_mut(), oid)?;
         self.update_oid_counter(oid);
 
         if !self.object_info.verify_object(object) {
@@ -181,27 +186,14 @@ impl IsarCollection {
         change_set: Option<&mut ChangeSet>,
         oid: i64,
     ) -> Result<bool> {
-        if self.delete_object_internal(cursors, change_set, oid)? {
-            for link in &self.links {
-                link.delete_all_for_object(cursors, oid)?;
-            }
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn delete_object_internal(
-        &self,
-        cursors: &mut Cursors,
-        change_set: Option<&mut ChangeSet>,
-        oid: i64,
-    ) -> Result<bool> {
         let oid_bytes = oid_to_bytes(oid, self.id)?;
         if let Some((_, object)) = cursors.primary.move_to(Key(&oid_bytes))? {
             let object = IsarObject::from_bytes(object);
             for index in &self.indexes {
                 index.delete_for_object(cursors, oid, object)?;
+            }
+            for link in self.get_links_backlinks() {
+                link.delete_all_for_object(&mut cursors.links, oid)?;
             }
 
             if let Some(change_set) = change_set {
@@ -214,10 +206,12 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn get_link(&self, link_index: usize) -> Result<&Link> {
-        self.links.get(link_index).ok_or(IsarError::IllegalArg {
-            message: "Link does not exist".to_string(),
-        })
+    pub(crate) fn get_link_backlink(&self, link_index: usize) -> Result<&Link> {
+        self.get_links_backlinks()
+            .nth(link_index)
+            .ok_or(IsarError::IllegalArg {
+                message: "Link does not exist".to_string(),
+            })
     }
 
     pub fn link(
@@ -226,14 +220,14 @@ impl IsarCollection {
         link_index: usize,
         oid: i64,
         target_oid: i64,
-    ) -> Result<()> {
-        let link = self.get_link(link_index)?;
+    ) -> Result<bool> {
+        let link = self.get_link_backlink(link_index)?;
         txn.write(|cursors, change_set| {
             if let Some(change_set) = change_set {
                 change_set.register_change(self.id, oid, None);
                 change_set.register_change(link.get_target_col_id(), oid, None);
             }
-            link.create(cursors, oid, target_oid)
+            link.create(&mut cursors.primary, &mut cursors.links, oid, target_oid)
         })
     }
 
@@ -244,23 +238,23 @@ impl IsarCollection {
         oid: i64,
         target_oid: i64,
     ) -> Result<bool> {
-        let link = self.get_link(link_index)?;
+        let link = self.get_link_backlink(link_index)?;
         txn.write(|cursors, change_set| {
             if let Some(change_set) = change_set {
                 change_set.register_change(self.id, oid, None);
                 change_set.register_change(link.get_target_col_id(), oid, None);
             }
-            link.delete(cursors, oid, target_oid)
+            link.delete(&mut cursors.links, oid, target_oid)
         })
     }
 
     pub fn unlink_all(&self, txn: &mut IsarTxn, link_index: usize, oid: i64) -> Result<()> {
-        let link = self.get_link(link_index)?;
+        let link = self.get_link_backlink(link_index)?;
         txn.write(|cursors, change_set| {
             if let Some(change_set) = change_set {
                 change_set.register_change(self.id, oid, None);
             }
-            link.delete_all_for_object(cursors, oid)
+            link.delete_all_for_object(&mut cursors.links, oid)
         })
     }
 
@@ -274,12 +268,11 @@ impl IsarCollection {
     where
         F: FnMut(IsarObject<'txn>) -> bool,
     {
-        let link = self.get_link(link_index)?;
+        let link = self.get_link_backlink(link_index)?;
         txn.read(|cursors| {
-            let primary = &mut cursors.primary;
-            let links = &mut cursors.links;
-            let mut link_cursors = LinkCursors::new(primary, links);
-            link.iter(&mut link_cursors, oid, |object| Ok(callback(object)))
+            link.iter(&mut cursors.primary, &mut cursors.links, oid, |object| {
+                Ok(callback(object))
+            })
         })
     }
 
@@ -288,6 +281,9 @@ impl IsarCollection {
             let mut counter = 0;
             for index in &self.indexes {
                 index.clear(cursors)?;
+            }
+            for link in self.get_links_backlinks() {
+                link.clear(&mut cursors.links)?;
             }
             self.new_primary_where_clause(None, None, Sort::Ascending)?
                 .iter(cursors, |cursors, oid, _| {

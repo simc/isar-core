@@ -17,7 +17,7 @@ pub unsafe extern "C" fn isar_link(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_many_async(
+pub unsafe extern "C" fn isar_link_all_async(
     collection: &'static IsarCollection,
     txn: &mut IsarAsyncTxn,
     link_index: usize,
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn isar_link_unlink(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_unlink_many_async(
+pub unsafe extern "C" fn isar_link_unlink_all_async(
     collection: &'static IsarCollection,
     txn: &mut IsarAsyncTxn,
     link_index: usize,
@@ -64,25 +64,32 @@ pub unsafe extern "C" fn isar_link_unlink_many_async(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_unlink_all(
+pub unsafe extern "C" fn isar_link_replace(
     collection: &IsarCollection,
     txn: &mut IsarTxn,
     link_index: usize,
     oid: i64,
+    target_oid: i64,
 ) -> i32 {
     isar_try! {
         collection.unlink_all(txn, link_index, oid)?;
+        collection.link(txn, link_index, oid, target_oid)?;
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_unlink_all_async(
+pub unsafe extern "C" fn isar_link_replace_async(
     collection: &'static IsarCollection,
     txn: &mut IsarAsyncTxn,
     link_index: usize,
     oid: i64,
+    target_oid: i64,
 ) {
-    txn.exec(move |txn| collection.unlink_all(txn, link_index, oid));
+    txn.exec(move |txn| {
+        collection.unlink_all(txn, link_index, oid)?;
+        collection.link(txn, link_index, oid, target_oid)?;
+        Ok(())
+    });
 }
 
 #[no_mangle]

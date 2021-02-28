@@ -1,7 +1,6 @@
 use crate::error::Result;
-use crate::link::LinkCursors;
 use crate::object::isar_object::{IsarObject, Property};
-use crate::query::filter::{Condition, Filter, StaticCond};
+use crate::query::filter::{Condition, Filter, FilterCursors, StaticCond};
 use crate::query::where_clause::WhereClause;
 use crate::query::where_executor::WhereExecutor;
 use crate::txn::{Cursors, IsarTxn};
@@ -65,8 +64,8 @@ impl<'txn> Query {
         let static_filter = StaticCond::filter(true);
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
         executor.execute(cursors, |cursors, object| {
-            let mut link_cursors = LinkCursors::new(&mut cursors.primary2, &mut cursors.links);
-            if filter.evaluate(object, Some(&mut link_cursors))? {
+            let mut filter_cursors = FilterCursors::new(&mut cursors.primary2, &mut cursors.links);
+            if filter.evaluate(object, Some(&mut filter_cursors))? {
                 callback(object)
             } else {
                 Ok(true)

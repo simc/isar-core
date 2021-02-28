@@ -1,9 +1,10 @@
 use crate::collection::IsarCollection;
 use crate::error::Result;
-use crate::index::{Index, IndexType};
+use crate::index::Index;
 use crate::lmdb::Key;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
+use crate::schema::collection_schema::IndexType;
 use crate::txn::Cursors;
 use crate::utils::{oid_from_bytes, oid_to_bytes};
 use std::mem::ManuallyDrop;

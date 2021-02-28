@@ -8,7 +8,7 @@ compile_error!("Only 64-bit systems are supported at this time.");
 
 pub mod collection;
 pub mod error;
-pub mod index;
+mod index;
 pub mod instance;
 mod link;
 mod lmdb;
@@ -16,5 +16,5 @@ pub mod object;
 pub mod query;
 pub mod schema;
 pub mod txn;
-pub mod utils;
+mod utils;
 pub mod watch;
