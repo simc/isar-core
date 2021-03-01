@@ -132,12 +132,18 @@ impl Link {
     }
 
     fn create_backlink(&self, links_cursor: &mut Cursor, oid: i64, target_oid: i64) -> Result<()> {
+        if self.col_id == self.target_col_id {
+            return Ok(());
+        }
         let bl_bytes = self.get_bl_bytes(target_oid)?;
         let bl_target_bytes = self.get_bl_target_bytes(oid)?;
         links_cursor.put(Key(&bl_bytes), &bl_target_bytes)
     }
 
     fn delete_backlink(&self, links_cursor: &mut Cursor, oid: i64, target_oid: i64) -> Result<()> {
+        if self.col_id == self.target_col_id {
+            return Ok(());
+        }
         let bl_bytes = self.get_bl_bytes(target_oid)?;
         let bl_target_bytes = self.get_bl_target_bytes(oid)?;
         let backlink_exists = links_cursor
@@ -166,6 +172,9 @@ impl Link {
                 Ok(true)
             },
         )?;
+        if self.col_id == self.target_col_id {
+            return Ok(());
+        }
         let min_bl_bytes = self.get_bl_bytes(MIN_OID)?;
         let max_bl_bytes = self.get_bl_bytes(MAX_OID)?;
         links_cursor.iter_between(

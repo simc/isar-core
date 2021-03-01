@@ -404,13 +404,13 @@ impl StaticCond {
 #[derive(Clone)]
 pub struct LinkCond {
     link: Link,
-    oid_property: Property,
+    id_property: Property,
     filter: Box<Filter>,
 }
 
 impl Condition for LinkCond {
     fn evaluate(&self, object: IsarObject, cursors: Option<&mut FilterCursors>) -> Result<bool> {
-        let oid = object.read_long(self.oid_property);
+        let oid = object.read_long(self.id_property);
         if let Some(cursors) = cursors {
             self.link
                 .iter(cursors.0, cursors.1, oid, |object| {
@@ -430,15 +430,16 @@ impl Condition for LinkCond {
 impl LinkCond {
     pub fn filter(
         collection: &IsarCollection,
+        target_collection: &IsarCollection,
         link_index: usize,
-        oid_property: Property,
-        filter: Box<Filter>,
+        filter: Filter,
     ) -> Result<Filter> {
         let link = *collection.get_link_backlink(link_index)?;
+        let id_property = target_collection.get_oid_property();
         Ok(Filter::Link(LinkCond {
             link,
-            oid_property,
-            filter,
+            id_property,
+            filter: Box::new(filter),
         }))
     }
 }

@@ -65,11 +65,8 @@ mod tests {
     #[test]
     fn test_wild() {
         let wild_cases = vec![
-            // Case with first wildcard after total match.
             ("Hi", "Hi*", true),
-            // Case with mismatch after '*'
             ("abc", "ab*d", false),
-            // Cases with repeating character sequences.
             ("abcccd", "*ccd", true),
             ("mississipissippi", "*issip*ss*", true),
             ("xxxx*zzzzzzzzy*f", "xxxx*zzy*fffff", false),
@@ -86,14 +83,11 @@ mod tests {
             ("a12b12", "*12*23", false),
             ("a12b12", "a12b", false),
             ("a12b12", "*12*12*", true),
-            // From DDJ reader Andy Belf
             ("caaab", "*a?b", true),
-            // Additional cases where the '*' char appears in the tame string.
             ("*", "*", true),
             ("a*abab", "a*b", true),
             ("a*r", "a*", true),
             ("a*ar", "a*aar", false),
-            // More double wildcard scenarios.
             ("XYXYXYZYXYz", "XY*Z*XYz", true),
             ("missisSIPpi", "*SIP*", true),
             ("mississipPI", "*issip*PI", true),
@@ -106,14 +100,11 @@ mod tests {
             ("A12b12", "*12*23", false),
             ("a12B12", "*12*12*", true),
             ("oWn", "*oWn*", true),
-            // Completely tame (no wildcards) cases.
             ("bLah", "bLah", true),
             ("bLah", "bLaH", false),
-            // Simple mixed wildcard tests suggested by Marlin Deckert.
             ("a", "*?", true),
             ("ab", "*?", true),
             ("abc", "*?", true),
-            // More mixed wildcard tests including coverage for false positives.
             ("a", "??", false),
             ("ab", "?*?", true),
             ("ab", "*?*?*", true),
@@ -124,14 +115,11 @@ mod tests {
             ("abcd", "?**?c?", true),
             ("abcd", "?**?d?", false),
             ("abcde", "?*b*?*d*?", true),
-            // Single-character-match cases.
             ("bLah", "bL?h", true),
             ("bLaaa", "bLa?", false),
             ("bLah", "bLa?", true),
             ("bLaH", "?Lah", false),
             ("bLaH", "?LaH", true),
-
-            // Many-wildcard scenarios.
             ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab", "a*a*a*a*a*a*aa*aaa*a*a*b", true),
             ("abababababababababababababababababababaacacacacacacacadaeafagahaiajakalaaaaaaaaaaaaaaaaaffafagaagggagaaaaaaaab", "*a*b*ba*ca*a*aa*aaa*fa*ga*b*", true),
             ("abababababababababababababababababababaacacacacacacacadaeafagahaiajakalaaaaaaaaaaaaaaaaaffafagaagggagaaaaaaaab", "*a*b*ba*ca*a*x*aaa*fa*ga*b*", false),
@@ -149,11 +137,6 @@ mod tests {
             ("********a********b********c********", "abc", false),
             ("abc", "********a********b********b********", false),
             ("*abc*", "***a*b*c***", true),
-
-            // A case-insensitive algorithm test.
-            // ("mississippi", "*issip*PI", true),
-
-            // Tests suggested by other DDJ readers
             ("", "?", false),
             ("", "*?", false),
             ("", "", true),
@@ -169,9 +152,7 @@ mod tests {
     #[test]
     fn test_tame() {
         let tame_cases = vec![
-            // Case with last character mismatch.
             ("abc", "abd", false),
-            // Cases with repeating character sequences.
             ("abcccd", "abcccd", true),
             ("mississipissippi", "mississipissippi", true),
             ("xxxxzzzzzzzzyf", "xxxxzzzzzzzzyfffff", false),
@@ -188,7 +169,6 @@ mod tests {
             ("a12b12", "1212", false),
             ("a12b12", "a12b", false),
             ("a12b12", "a12b12", true),
-            // A mix of cases
             ("n", "n", true),
             ("aabab", "aabab", true),
             ("ar", "ar", true),
@@ -207,11 +187,9 @@ mod tests {
             ("oWn", "oWn", true),
             ("bLah", "bLah", true),
             ("bLah", "bLaH", false),
-            // Single '?' cases.
             ("a", "a", true),
             ("ab", "a?", true),
             ("abc", "ab?", true),
-            // Mixed '?' cases.
             ("a", "??", false),
             ("ab", "??", true),
             ("abc", "???", true),
@@ -222,7 +200,6 @@ mod tests {
             ("abcd", "??c?", true),
             ("abcd", "??d?", false),
             ("abcde", "?b?d*?", true),
-            // Longer string scenarios.
             (
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
@@ -280,9 +257,7 @@ mod tests {
     #[test]
     fn test_empty() {
         let empty_cases = vec![
-            // A simple case
             ("", "abd", false),
-            // Cases with repeating character sequences
             ("", "abcccd", false),
             ("", "mississipissippi", false),
             ("", "xxxxzzzzzzzzyfffff", false),
@@ -318,11 +293,8 @@ mod tests {
             ("", "oWn", false),
             ("", "bLah", false),
             ("", "bLaH", false),
-            // Both strings empty
             ("", "", true),
-            // Another simple case
             ("abc", "", false),
-            // Cases with repeating character sequences.
             ("abcccd", "", false),
             ("mississipissippi", "", false),
             ("xxxxzzzzzzzzyf", "", false),
@@ -339,7 +311,6 @@ mod tests {
             ("a12b12", "", false),
             ("a12b12", "", false),
             ("a12b12", "", false),
-            // A mix of cases
             ("n", "", false),
             ("aabab", "", false),
             ("ar", "", false),

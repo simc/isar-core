@@ -17,23 +17,6 @@ pub unsafe extern "C" fn isar_link(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_all_async(
-    collection: &'static IsarCollection,
-    txn: &mut IsarAsyncTxn,
-    link_index: usize,
-    ids: *const i64,
-    ids_length: u32,
-) {
-    let ids = std::slice::from_raw_parts(ids, ids_length as usize);
-    txn.exec(move |txn| {
-        for i in (0..ids_length as usize).step_by(2) {
-            collection.link(txn, link_index, ids[i], ids[i + 1])?;
-        }
-        Ok(())
-    });
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn isar_link_unlink(
     collection: &IsarCollection,
     txn: &mut IsarTxn,
@@ -47,17 +30,22 @@ pub unsafe extern "C" fn isar_link_unlink(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_link_unlink_all_async(
+pub unsafe extern "C" fn isar_link_update_all_async(
     collection: &'static IsarCollection,
     txn: &mut IsarAsyncTxn,
     link_index: usize,
     ids: *const i64,
-    ids_length: u32,
+    link_count: u32,
+    unlink_count: u32,
 ) {
-    let ids = std::slice::from_raw_parts(ids, ids_length as usize);
+    let ids = std::slice::from_raw_parts(ids, (link_count * 2 + unlink_count * 2) as usize);
     txn.exec(move |txn| {
-        for i in (0..ids_length as usize).step_by(2) {
-            collection.unlink(txn, link_index, ids[i], ids[i + 1])?;
+        for i in 0..link_count as usize {
+            collection.link(txn, link_index, ids[i], ids[link_count as usize + i])?;
+        }
+        let offset = (link_count * 2) as usize;
+        for i in offset..(offset + unlink_count as usize) {
+            collection.unlink(txn, link_index, ids[i], ids[unlink_count as usize + i])?;
         }
         Ok(())
     });

@@ -85,7 +85,7 @@ pub struct LinkSchema {
     #[serde(rename = "backlinkId")]
     pub(crate) backlink_id: Option<u16>,
     pub(crate) name: String,
-    #[serde(rename = "targetCollectionName")]
+    #[serde(rename = "collection")]
     pub(crate) target_col: String,
 }
 
@@ -104,8 +104,8 @@ impl LinkSchema {
 pub struct CollectionSchema {
     pub(crate) id: Option<u16>,
     pub(crate) name: String,
-    #[serde(rename = "idPropertyName")]
-    pub(crate) id_property_name: String,
+    #[serde(rename = "idProperty")]
+    pub(crate) id_property: String,
     pub(crate) properties: Vec<PropertySchema>,
     pub(crate) indexes: Vec<IndexSchema>,
     pub(crate) links: Vec<LinkSchema>,
@@ -114,7 +114,7 @@ pub struct CollectionSchema {
 impl CollectionSchema {
     pub fn new(
         name: &str,
-        id_property_name: &str,
+        id_property: &str,
         properties: Vec<PropertySchema>,
         indexes: Vec<IndexSchema>,
         links: Vec<LinkSchema>,
@@ -122,7 +122,7 @@ impl CollectionSchema {
         CollectionSchema {
             id: None,
             name: name.to_string(),
-            id_property_name: id_property_name.to_string(),
+            id_property: id_property.to_string(),
             properties,
             indexes,
             links,
@@ -148,7 +148,7 @@ impl CollectionSchema {
             if property.name.is_empty() {
                 schema_error("Empty property names are not allowed")?;
             }
-            if property.name == self.id_property_name {
+            if property.name == self.id_property {
                 if property.data_type != DataType::Long {
                     schema_error("Illegal ObjectId type")?;
                 }
@@ -223,7 +223,7 @@ impl CollectionSchema {
 
         let (_, id_property) = properties
             .iter()
-            .find(|(name, _)| name == &self.id_property_name)
+            .find(|(name, _)| name == &self.id_property)
             .unwrap();
 
         let oi = ObjectInfo::new(*id_property, properties, links, backlinks);
@@ -285,6 +285,7 @@ impl CollectionSchema {
 
     fn get_backlinks(&self, cols: &[CollectionSchema]) -> Vec<(String, String, Link)> {
         cols.iter()
+            .filter(|c| c.id != self.id)
             .flat_map(|c| {
                 c.links
                     .iter()
@@ -340,7 +341,7 @@ impl CollectionSchema {
     ) -> Result<()> {
         if let Some(existing_col) = existing_col {
             self.id = existing_col.id;
-            if existing_col.id_property_name != self.id_property_name {
+            if existing_col.id_property != self.id_property {
                 return schema_error("The id property must not change between versions.");
             }
         } else {
