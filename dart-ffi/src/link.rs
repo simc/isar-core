@@ -34,18 +34,22 @@ pub unsafe extern "C" fn isar_link_update_all_async(
     collection: &'static IsarCollection,
     txn: &mut IsarAsyncTxn,
     link_index: usize,
+    oid: i64,
     ids: *const i64,
     link_count: u32,
     unlink_count: u32,
 ) {
-    let ids = std::slice::from_raw_parts(ids, (link_count * 2 + unlink_count * 2) as usize);
+    let ids = std::slice::from_raw_parts(ids, (link_count + unlink_count) as usize);
     txn.exec(move |txn| {
-        for i in 0..link_count as usize {
-            collection.link(txn, link_index, ids[i], ids[link_count as usize + i])?;
+        for target_oid in ids.iter().take(link_count as usize) {
+            collection.link(txn, link_index, oid, *target_oid)?;
         }
-        let offset = (link_count * 2) as usize;
-        for i in offset..(offset + unlink_count as usize) {
-            collection.unlink(txn, link_index, ids[i], ids[unlink_count as usize + i])?;
+        for target_oid in ids
+            .iter()
+            .skip(link_count as usize)
+            .take(unlink_count as usize)
+        {
+            collection.unlink(txn, link_index, oid, *target_oid)?;
         }
         Ok(())
     });
