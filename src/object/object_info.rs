@@ -5,8 +5,6 @@ use crate::object::isar_object::{IsarObject, Property};
 pub(crate) struct ObjectInfo {
     id_property: Property,
     properties: Vec<(String, Property)>,
-    links: Vec<(String, Link)>,
-    backlinks: Vec<(String, String, Link)>,
     static_size: usize,
 }
 
@@ -14,16 +12,12 @@ impl ObjectInfo {
     pub(crate) fn new(
         id_property: Property,
         properties: Vec<(String, Property)>,
-        links: Vec<(String, Link)>,
-        backlinks: Vec<(String, String, Link)>,
     ) -> ObjectInfo {
         let static_size = Self::calculate_static_size(&properties);
         ObjectInfo {
             id_property,
             properties,
             static_size,
-            links,
-            backlinks,
         }
     }
 
@@ -45,14 +39,6 @@ impl ObjectInfo {
 
     pub fn get_properties(&self) -> &[(String, Property)] {
         &self.properties
-    }
-
-    pub fn get_links(&self) -> &[(String, Link)] {
-        &self.links
-    }
-
-    pub fn get_backlinks(&self) -> &[(String, String, Link)] {
-        &self.backlinks
     }
 
     pub fn verify_object(&self, object: IsarObject) -> bool {

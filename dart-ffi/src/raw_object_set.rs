@@ -90,10 +90,11 @@ impl RawObjectSet {
         collection: &IsarCollection,
         txn: &mut IsarTxn,
         link_index: usize,
+        backlink: bool,
         oid: i64,
     ) -> Result<()> {
         let mut objects = vec![];
-        collection.get_linked_objects(txn, link_index, oid, |object| {
+        collection.get_linked_objects(txn, link_index, backlink, oid, |object| {
             let mut raw_obj = RawObject::new();
             raw_obj.set_object(Some(object));
             objects.push(raw_obj);

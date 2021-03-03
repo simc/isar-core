@@ -43,10 +43,11 @@ pub unsafe extern "C" fn isar_filter_link(
     filter: *mut *const Filter,
     condition: *mut Filter,
     link_index: u32,
+    backlink: bool,
 ) -> i32 {
     isar_try! {
         let condition = *Box::from_raw(condition);
-        let query_filter = LinkCond::filter(collection, target_collection, link_index as usize, condition)?;
+        let query_filter = LinkCond::filter(collection, target_collection, link_index as usize, backlink, condition)?;
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
     }

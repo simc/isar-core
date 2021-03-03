@@ -432,9 +432,10 @@ impl LinkCond {
         collection: &IsarCollection,
         target_collection: &IsarCollection,
         link_index: usize,
+        backlink: bool,
         filter: Filter,
     ) -> Result<Filter> {
-        let link = *collection.get_link_backlink(link_index)?;
+        let link = collection.get_link_backlink(link_index, backlink)?;
         let id_property = target_collection.get_oid_property();
         Ok(Filter::Link(LinkCond {
             link,

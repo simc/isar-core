@@ -27,6 +27,15 @@ impl Link {
         self.target_col_id
     }
 
+    pub fn as_backlink(&self) -> Link {
+        Link {
+            id: self.backlink_id,
+            col_id: self.target_col_id,
+            backlink_id: self.id,
+            target_col_id: self.col_id,
+        }
+    }
+
     fn get_link_bytes(&self, oid: i64) -> Result<[u8; 8]> {
         oid_to_bytes(oid, self.id)
     }
@@ -87,7 +96,10 @@ impl Link {
         target_oid: i64,
     ) -> Result<bool> {
         let oid_bytes = oid_to_bytes(oid, self.col_id)?;
-        if primary_cursor.move_to(Key(&oid_bytes))?.is_none() {
+        let target_oid_bytes = oid_to_bytes(target_oid, self.target_col_id)?;
+        if primary_cursor.move_to(Key(&oid_bytes))?.is_none()
+            || primary_cursor.move_to(Key(&target_oid_bytes))?.is_none()
+        {
             return Ok(false);
         }
 

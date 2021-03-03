@@ -226,8 +226,15 @@ impl CollectionSchema {
             .find(|(name, _)| name == &self.id_property)
             .unwrap();
 
-        let oi = ObjectInfo::new(*id_property, properties, links, backlinks);
-        IsarCollection::new(self.id.unwrap(), self.name.clone(), oi, indexes)
+        let oi = ObjectInfo::new(*id_property, properties);
+        IsarCollection::new(
+            self.id.unwrap(),
+            self.name.clone(),
+            oi,
+            indexes,
+            links,
+            backlinks,
+        )
     }
 
     fn get_properties(&self) -> Vec<(String, Property)> {
@@ -267,23 +274,27 @@ impl CollectionSchema {
             .collect()
     }
 
-    fn get_links(&self, cols: &[CollectionSchema]) -> Vec<(String, Link)> {
+    fn get_links(&self, cols: &[CollectionSchema]) -> Vec<Link> {
         self.links
             .iter()
             .map(|l| {
-                let target_col_id = cols.iter().find(|c| c.name == l.name).unwrap().id.unwrap();
-                let link = Link::new(
+                let target_col_id = cols
+                    .iter()
+                    .find(|c| c.name == l.target_col)
+                    .unwrap()
+                    .id
+                    .unwrap();
+                Link::new(
                     l.id.unwrap(),
                     l.backlink_id.unwrap(),
                     self.id.unwrap(),
                     target_col_id,
-                );
-                (l.name.clone(), link)
+                )
             })
             .collect()
     }
 
-    fn get_backlinks(&self, cols: &[CollectionSchema]) -> Vec<(String, String, Link)> {
+    fn get_backlinks(&self, cols: &[CollectionSchema]) -> Vec<Link> {
         cols.iter()
             .filter(|c| c.id != self.id)
             .flat_map(|c| {
@@ -291,13 +302,12 @@ impl CollectionSchema {
                     .iter()
                     .filter(|l| l.target_col == self.name)
                     .map(|l| {
-                        let link = Link::new(
+                        Link::new(
                             l.backlink_id.unwrap(),
                             l.id.unwrap(),
                             c.id.unwrap(),
                             self.id.unwrap(),
-                        );
-                        (c.name.clone(), l.name.clone(), link)
+                        )
                     })
                     .collect_vec()
             })

@@ -24,6 +24,8 @@ pub struct IsarCollection {
     name: String,
     object_info: ObjectInfo,
     indexes: Vec<Index>,
+    links: Vec<Link>,
+    backlinks: Vec<Link>,
     oid_counter: Cell<i64>,
 }
 
@@ -31,12 +33,21 @@ unsafe impl Send for IsarCollection {}
 unsafe impl Sync for IsarCollection {}
 
 impl IsarCollection {
-    pub(crate) fn new(id: u16, name: String, object_info: ObjectInfo, indexes: Vec<Index>) -> Self {
+    pub(crate) fn new(
+        id: u16,
+        name: String,
+        object_info: ObjectInfo,
+        indexes: Vec<Index>,
+        links: Vec<Link>,
+        backlinks: Vec<Link>,
+    ) -> Self {
         IsarCollection {
             id,
             name,
             object_info,
             indexes,
+            links,
+            backlinks,
             oid_counter: Cell::new(0),
         }
     }
@@ -55,17 +66,8 @@ impl IsarCollection {
         }
     }
 
-    fn get_links_backlinks(&self) -> impl Iterator<Item = &Link> {
-        self.object_info
-            .get_links()
-            .iter()
-            .map(|(_, link)| link)
-            .chain(
-                self.object_info
-                    .get_backlinks()
-                    .iter()
-                    .map(|(_, _, link)| link),
-            )
+    fn get_links_and_backlinks(&self) -> impl Iterator<Item = &Link> {
+        self.links.iter().chain(self.backlinks.iter())
     }
 
     pub fn get_name(&self) -> &str {
@@ -192,7 +194,7 @@ impl IsarCollection {
             for index in &self.indexes {
                 index.delete_for_object(cursors, oid, object)?;
             }
-            for link in self.get_links_backlinks() {
+            for link in self.get_links_and_backlinks() {
                 link.delete_all_for_object(&mut cursors.links, oid)?;
             }
 
@@ -206,9 +208,10 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn get_link_backlink(&self, link_index: usize) -> Result<&Link> {
-        self.get_links_backlinks()
-            .nth(link_index)
+    pub(crate) fn get_link_backlink(&self, link_index: usize, backlink: bool) -> Result<Link> {
+        self.links
+            .get(link_index)
+            .map(|l| if backlink { l.as_backlink() } else { *l })
             .ok_or(IsarError::IllegalArg {
                 message: "Link does not exist".to_string(),
             })
@@ -218,10 +221,11 @@ impl IsarCollection {
         &self,
         txn: &mut IsarTxn,
         link_index: usize,
+        backlink: bool,
         oid: i64,
         target_oid: i64,
     ) -> Result<bool> {
-        let link = self.get_link_backlink(link_index)?;
+        let link = self.get_link_backlink(link_index, backlink)?;
         txn.write(|cursors, change_set| {
             if let Some(change_set) = change_set {
                 change_set.register_change(self.id, oid, None);
@@ -235,10 +239,11 @@ impl IsarCollection {
         &self,
         txn: &mut IsarTxn,
         link_index: usize,
+        backlink: bool,
         oid: i64,
         target_oid: i64,
     ) -> Result<bool> {
-        let link = self.get_link_backlink(link_index)?;
+        let link = self.get_link_backlink(link_index, backlink)?;
         txn.write(|cursors, change_set| {
             if let Some(change_set) = change_set {
                 change_set.register_change(self.id, oid, None);
@@ -248,8 +253,14 @@ impl IsarCollection {
         })
     }
 
-    pub fn unlink_all(&self, txn: &mut IsarTxn, link_index: usize, oid: i64) -> Result<()> {
-        let link = self.get_link_backlink(link_index)?;
+    pub fn unlink_all(
+        &self,
+        txn: &mut IsarTxn,
+        link_index: usize,
+        backlink: bool,
+        oid: i64,
+    ) -> Result<()> {
+        let link = self.get_link_backlink(link_index, backlink)?;
         txn.write(|cursors, change_set| {
             if let Some(change_set) = change_set {
                 change_set.register_change(self.id, oid, None);
@@ -262,13 +273,14 @@ impl IsarCollection {
         &self,
         txn: &'txn mut IsarTxn,
         link_index: usize,
+        backlink: bool,
         oid: i64,
         mut callback: F,
     ) -> Result<bool>
     where
         F: FnMut(IsarObject<'txn>) -> bool,
     {
-        let link = self.get_link_backlink(link_index)?;
+        let link = self.get_link_backlink(link_index, backlink)?;
         txn.read(|cursors| {
             link.iter(&mut cursors.primary, &mut cursors.links, oid, |object| {
                 Ok(callback(object))
@@ -277,12 +289,12 @@ impl IsarCollection {
     }
 
     pub fn clear(&self, txn: &mut IsarTxn) -> Result<usize> {
-        txn.write(|cursors, mut change_set| {
+        txn.write(|cursors, change_set| {
             let mut counter = 0;
             for index in &self.indexes {
                 index.clear(cursors)?;
             }
-            for link in self.get_links_backlinks() {
+            for link in self.get_links_and_backlinks() {
                 link.clear(&mut cursors.links)?;
             }
             self.new_primary_where_clause(None, None, Sort::Ascending)?
