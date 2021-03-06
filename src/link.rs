@@ -77,7 +77,7 @@ impl Link {
     where
         F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
-        self.iter_ids_internal(links_cursor, oid, |_, link_target_bytes| {
+        self.iter_ids(links_cursor, oid, |_, link_target_bytes| {
             if let Some((_, object)) = primary_cursor.move_to(Key(&link_target_bytes))? {
                 callback(IsarObject::from_bytes(object))
             } else {
@@ -130,7 +130,7 @@ impl Link {
 
     pub fn delete_all_for_object(&self, links_cursor: &mut Cursor, oid: i64) -> Result<()> {
         let mut target_oids = vec![];
-        self.iter_ids_internal(links_cursor, oid, |links_cursor, link_target_bytes| {
+        self.iter_ids(links_cursor, oid, |links_cursor, link_target_bytes| {
             let (target_oid, _) = oid_from_bytes(link_target_bytes);
             target_oids.push(target_oid);
             links_cursor.delete_current()?;
