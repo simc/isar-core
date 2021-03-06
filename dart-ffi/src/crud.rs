@@ -165,13 +165,14 @@ pub unsafe extern "C" fn isar_json_export_async(
     collection: &'static IsarCollection,
     txn: &IsarAsyncTxn,
     primitive_null: bool,
+    include_links: bool,
     json_bytes: *mut *mut u8,
     json_length: *mut u32,
 ) {
     let json = JsonBytes(json_bytes);
     let json_length = JsonLen(json_length);
     txn.exec(move |txn| -> Result<()> {
-        let exported_json = collection.export_json(txn, primitive_null, true)?;
+        let exported_json = collection.export_json(txn, primitive_null, true, include_links)?;
         let bytes = serde_json::to_vec(&exported_json).unwrap();
         let mut bytes = bytes.into_boxed_slice();
         json_length.0.write(bytes.len() as u32);

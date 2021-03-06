@@ -274,7 +274,7 @@ impl CollectionSchema {
             .collect()
     }
 
-    fn get_links(&self, cols: &[CollectionSchema]) -> Vec<Link> {
+    fn get_links(&self, cols: &[CollectionSchema]) -> Vec<(String, Link)> {
         self.links
             .iter()
             .map(|l| {
@@ -284,12 +284,13 @@ impl CollectionSchema {
                     .unwrap()
                     .id
                     .unwrap();
-                Link::new(
+                let link = Link::new(
                     l.id.unwrap(),
                     l.backlink_id.unwrap(),
                     self.id.unwrap(),
                     target_col_id,
-                )
+                );
+                (l.name.clone(), link)
             })
             .collect()
     }

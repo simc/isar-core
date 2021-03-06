@@ -13,7 +13,7 @@ impl<'a> JsonEncodeDecode {
         object: IsarObject,
         primitive_null: bool,
         byte_as_bool: bool,
-    ) -> Value {
+    ) -> Map<String, Value> {
         let mut object_map = Map::new();
 
         for (property_name, property) in collection.get_properties() {
@@ -45,7 +45,8 @@ impl<'a> JsonEncodeDecode {
                 };
             object_map.insert(property_name.clone(), value);
         }
-        json!(object_map)
+
+        object_map
     }
 
     pub fn decode(
@@ -62,7 +63,13 @@ impl<'a> JsonEncodeDecode {
                     DataType::Byte => ob.write_byte(Self::value_to_byte(value)?),
                     DataType::Int => ob.write_int(Self::value_to_int(value)?),
                     DataType::Float => ob.write_float(Self::value_to_float(value)?),
-                    DataType::Long => ob.write_long(Self::value_to_long(value)?),
+                    DataType::Long => {
+                        let mut long_value = Self::value_to_long(value)?;
+                        if property == &collection.get_oid_property() && value.is_null() {
+                            long_value = collection.auto_increment_internal()?;
+                        }
+                        ob.write_long(long_value)
+                    }
                     DataType::Double => ob.write_double(Self::value_to_double(value)?),
                     DataType::String => ob.write_string(Self::value_to_string(value)?),
                     DataType::ByteList => {

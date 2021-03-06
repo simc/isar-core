@@ -24,7 +24,7 @@ pub struct IsarCollection {
     name: String,
     object_info: ObjectInfo,
     indexes: Vec<Index>,
-    links: Vec<Link>,
+    links: Vec<(String, Link)>,
     backlinks: Vec<Link>,
     oid_counter: Cell<i64>,
 }
@@ -38,7 +38,7 @@ impl IsarCollection {
         name: String,
         object_info: ObjectInfo,
         indexes: Vec<Index>,
-        links: Vec<Link>,
+        links: Vec<(String, Link)>,
         backlinks: Vec<Link>,
     ) -> Self {
         IsarCollection {
@@ -67,7 +67,10 @@ impl IsarCollection {
     }
 
     fn get_links_and_backlinks(&self) -> impl Iterator<Item = &Link> {
-        self.links.iter().chain(self.backlinks.iter())
+        self.links
+            .iter()
+            .map(|(_, l)| l)
+            .chain(self.backlinks.iter())
     }
 
     pub fn get_name(&self) -> &str {
@@ -116,6 +119,10 @@ impl IsarCollection {
     }
 
     pub fn auto_increment(&self, _txn: &mut IsarTxn) -> Result<i64> {
+        self.auto_increment_internal()
+    }
+
+    pub(crate) fn auto_increment_internal(&self) -> Result<i64> {
         let counter = self.oid_counter.get().add(1);
         if counter <= MAX_OID {
             self.oid_counter.set(counter);
@@ -211,7 +218,7 @@ impl IsarCollection {
     pub(crate) fn get_link_backlink(&self, link_index: usize, backlink: bool) -> Result<Link> {
         self.links
             .get(link_index)
-            .map(|l| if backlink { l.as_backlink() } else { *l })
+            .map(|(_, l)| if backlink { l.as_backlink() } else { *l })
             .ok_or(IsarError::IllegalArg {
                 message: "Link does not exist".to_string(),
             })
@@ -326,14 +333,33 @@ impl IsarCollection {
         txn: &mut IsarTxn,
         primitive_null: bool,
         byte_as_bool: bool,
+        include_links: bool,
     ) -> Result<Value> {
         let mut items = vec![];
-        self.new_query_builder().build().find_while(txn, |object| {
-            let entry = JsonEncodeDecode::encode(self, object, primitive_null, byte_as_bool);
-            items.push(entry);
-            true
-        })?;
-        Ok(json!(items))
+        txn.read(|cursors| {
+            let wc = self.new_primary_where_clause(None, None, Sort::Ascending)?;
+            wc.iter(cursors, |cursors, _, bytes| {
+                let object = IsarObject::from_bytes(bytes);
+                let mut json = JsonEncodeDecode::encode(self, object, primitive_null, byte_as_bool);
+
+                if include_links {
+                    let oid = object.read_long(self.get_oid_property());
+                    for (name, link) in &self.links {
+                        let mut target_oids = vec![];
+                        link.iter_ids(&mut cursors.links, oid, |_, oid_bytes| {
+                            let (target_oid, _) = oid_from_bytes(oid_bytes);
+                            target_oids.push(target_oid);
+                            Ok(true)
+                        })?;
+                        json.insert(name.clone(), json!(target_oids));
+                    }
+                }
+
+                items.push(json!(json));
+                Ok(true)
+            });
+            Ok(json!(items))
+        })
     }
 
     #[cfg(test)]

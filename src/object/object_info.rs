@@ -1,4 +1,3 @@
-use crate::link::Link;
 use crate::object::isar_object::{IsarObject, Property};
 
 #[cfg_attr(test, derive(Clone))]
@@ -9,10 +8,7 @@ pub(crate) struct ObjectInfo {
 }
 
 impl ObjectInfo {
-    pub(crate) fn new(
-        id_property: Property,
-        properties: Vec<(String, Property)>,
-    ) -> ObjectInfo {
+    pub(crate) fn new(id_property: Property, properties: Vec<(String, Property)>) -> ObjectInfo {
         let static_size = Self::calculate_static_size(&properties);
         ObjectInfo {
             id_property,

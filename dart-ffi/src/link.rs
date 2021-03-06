@@ -139,7 +139,7 @@ pub unsafe extern "C" fn isar_link_get_all(
     result: &mut RawObjectSet,
 ) -> i32 {
     isar_try! {
-        result.fill_from_link(collection, txn, link_index, backlink,oid)?;
+        result.fill_from_link(collection, txn, link_index, backlink, oid)?;
     }
 }
 

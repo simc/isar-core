@@ -52,7 +52,7 @@ impl Link {
         oid_to_bytes(oid, self.col_id)
     }
 
-    fn iter_ids_internal<'txn, F>(
+    pub(crate) fn iter_ids<'txn, F>(
         &self,
         links_cursor: &mut Cursor<'txn>,
         oid: i64,
