@@ -1,9 +1,5 @@
 #![allow(clippy::missing_safety_doc)]
 
-use crate::error::{IsarError, Result};
-use std::convert::TryInto;
-use std::mem::transmute;
-
 #[macro_use]
 pub mod debug;
 
@@ -18,8 +14,8 @@ macro_rules! option (
     };
 );
 
-#[inline]
-fn signed_to_unsigned(value: i64) -> u64 {
+/*#[inline]
+pub fn signed_to_unsigned(value: i64) -> u64 {
     let unsigned = unsafe { transmute::<i64, u64>(value) };
     unsigned ^ 1 << 63
 }
@@ -48,4 +44,4 @@ pub fn oid_from_bytes(bytes: &[u8]) -> (i64, u16) {
     let oid = unsigned_to_signed(unsigned & OID_PREFIX_MASK) - OID_OFFSET;
     let prefix = (unsigned >> 48) as u16;
     (oid, prefix)
-}
+}*/

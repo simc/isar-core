@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::query::filter::{Condition, Filter, FilterCursors, StaticCond};
-use crate::query::where_clause::WhereClause;
+use crate::query::where_clause::{IdWhereClause, IndexWhereClause};
 use crate::query::where_executor::WhereExecutor;
 use crate::txn::{Cursors, IsarTxn};
 use hashbrown::HashSet;
@@ -28,7 +28,8 @@ pub enum Case {
 
 #[derive(Clone)]
 pub struct Query {
-    where_clauses: Vec<WhereClause>,
+    id_where_clauses: Vec<IdWhereClause>,
+    index_where_clauses: Vec<IndexWhereClause>,
     where_clauses_overlapping: bool,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
@@ -39,14 +40,16 @@ pub struct Query {
 impl<'txn> Query {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        where_clauses: Vec<WhereClause>,
+        id_where_clauses: Vec<IdWhereClause>,
+        index_where_clauses: Vec<IndexWhereClause>,
         filter: Option<Filter>,
         sort: Vec<(Property, Sort)>,
         distinct: Vec<Property>,
         offset_limit: Option<(usize, usize)>,
     ) -> Self {
         Query {
-            where_clauses,
+            id_where_clauses,
+            index_where_clauses,
             where_clauses_overlapping: true,
             filter,
             sort,
@@ -59,7 +62,11 @@ impl<'txn> Query {
     where
         F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
-        let mut executor = WhereExecutor::new(&self.where_clauses, self.where_clauses_overlapping);
+        let mut executor = WhereExecutor::new(
+            &self.id_where_clauses,
+            &self.index_where_clauses,
+            self.where_clauses_overlapping,
+        );
 
         let static_filter = StaticCond::filter(true);
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
@@ -194,11 +201,12 @@ impl<'txn> Query {
     }
 
     pub(crate) fn matches_wc_filter(&self, oid: i64, object: IsarObject) -> bool {
-        let wc_matches = self
-            .where_clauses
+        let wc_matches_id = self.id_where_clauses.iter().any(|wc| wc.id_matches(oid));
+        let wc_matches_index = self
+            .index_where_clauses
             .iter()
-            .any(|wc| wc.object_matches(oid, object));
-        if !wc_matches {
+            .any(|wc| wc.object_matches(object));
+        if !wc_matches_id && !wc_matches_index {
             return false;
         }
 
@@ -319,10 +327,10 @@ mod tests {
         let mut txn = isar.begin_txn(false, false)?;
 
         let wc = col
-            .new_primary_where_clause(Some(2), Some(4), Sort::Ascending)
+            .new_id_where_clause(Some(2), Some(4), Sort::Ascending)
             .unwrap();
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(wc, true, true)?;
+        qb.add_id_where_clause(wc)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3), (4, 4)]);
 
         Ok(())
@@ -335,11 +343,11 @@ mod tests {
         let mut txn = isar.begin_txn(false, false)?;
 
         let mut wc = col
-            .new_secondary_where_clause(0, false, Sort::Ascending)
+            .new_index_where_clause(0, false, Sort::Ascending)
             .unwrap();
         wc.add_int(2, 3);
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(wc, true, true)?;
+        qb.add_index_where_clause(wc, true, true)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3)]);
 
         Ok(())
@@ -352,22 +360,22 @@ mod tests {
         let mut txn = isar.begin_txn(false, false)?;
 
         let mut wc = col
-            .new_secondary_where_clause(0, false, Sort::Ascending)
+            .new_index_where_clause(0, false, Sort::Ascending)
             .unwrap();
         wc.add_int(2, 3);
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(wc, true, true)?;
+        qb.add_index_where_clause(wc, true, true)?;
         assert_eq!(
             find(&mut txn, qb.build()),
             vec![(2, 2), (3, 2), (4, 3), (5, 3), (6, 3)]
         );
 
         let mut wc = col
-            .new_secondary_where_clause(0, true, Sort::Ascending)
+            .new_index_where_clause(0, true, Sort::Ascending)
             .unwrap();
         wc.add_int(2, 4);
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(wc, true, true)?;
+        qb.add_index_where_clause(wc, true, true)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (4, 3), (7, 4)]);
 
         Ok(())
@@ -379,18 +387,18 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false, false)?;
 
-        let primary_wc = col.new_primary_where_clause(Some(1), Some(1), Sort::Ascending)?;
-        let primary_wc2 = col.new_primary_where_clause(Some(5), Some(9), Sort::Ascending)?;
+        let primary_wc = col.new_id_where_clause(Some(1), Some(1), Sort::Ascending)?;
+        let primary_wc2 = col.new_id_where_clause(Some(5), Some(9), Sort::Ascending)?;
 
         let mut secondary_dup_wc = col
-            .new_secondary_where_clause(0, false, Sort::Ascending)
+            .new_index_where_clause(0, false, Sort::Ascending)
             .unwrap();
         secondary_dup_wc.add_int(3, 5);
 
         let mut qb = col.new_query_builder();
-        qb.add_where_clause(primary_wc, true, true)?;
-        qb.add_where_clause(primary_wc2, true, true)?;
-        qb.add_where_clause(secondary_dup_wc, true, true)?;
+        qb.add_id_where_clause(primary_wc)?;
+        qb.add_id_where_clause(primary_wc2)?;
+        qb.add_index_where_clause(secondary_dup_wc, true, true)?;
 
         let results = find(&mut txn, qb.build());
         let results_set: HashSet<(i64, i32)> = results.into_iter().collect();

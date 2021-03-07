@@ -1,20 +1,25 @@
 use crate::error::{IsarError, Result};
-use crate::lmdb::Key;
 use crate::object::isar_object::IsarObject;
 use crate::option;
-use crate::query::where_clause::WhereClause;
+use crate::query::where_clause::{IdWhereClause, IndexWhereClause};
 use crate::txn::Cursors;
 use hashbrown::HashSet;
 
 pub(super) struct WhereExecutor<'a> {
-    where_clauses: &'a [WhereClause],
+    id_where_clauses: &'a [IdWhereClause],
+    index_where_clauses: &'a [IndexWhereClause],
     where_clauses_overlapping: bool,
 }
 
 impl<'a> WhereExecutor<'a> {
-    pub fn new(where_clauses: &'a [WhereClause], where_clauses_overlapping: bool) -> Self {
+    pub fn new(
+        id_where_clauses: &'a [IdWhereClause],
+        index_where_clauses: &'a [IndexWhereClause],
+        where_clauses_overlapping: bool,
+    ) -> Self {
         WhereExecutor {
-            where_clauses,
+            id_where_clauses,
+            index_where_clauses,
             where_clauses_overlapping,
         }
     }
@@ -25,22 +30,24 @@ impl<'a> WhereExecutor<'a> {
     {
         let mut hash_set = HashSet::new();
         let mut result_ids = option!(self.where_clauses_overlapping, &mut hash_set);
-        for where_clause in self.where_clauses {
-            let result = if where_clause.is_primary() {
-                self.execute_primary_where_clause(
-                    where_clause,
-                    cursors,
-                    &mut result_ids,
-                    &mut callback,
-                )?
-            } else {
-                self.execute_secondary_where_clause(
-                    where_clause,
-                    cursors,
-                    &mut result_ids,
-                    &mut callback,
-                )?
-            };
+        for where_clause in self.id_where_clauses {
+            let result = self.execute_id_where_clause(
+                where_clause,
+                cursors,
+                &mut result_ids,
+                &mut callback,
+            )?;
+            if !result {
+                return Ok(());
+            }
+        }
+        for where_clause in self.index_where_clauses {
+            let result = self.execute_index_where_clause(
+                where_clause,
+                cursors,
+                &mut result_ids,
+                &mut callback,
+            )?;
             if !result {
                 return Ok(());
             }
@@ -48,11 +55,11 @@ impl<'a> WhereExecutor<'a> {
         Ok(())
     }
 
-    fn execute_primary_where_clause<'txn, F>(
+    fn execute_id_where_clause<'txn, F>(
         &mut self,
-        where_clause: &WhereClause,
+        where_clause: &IdWhereClause,
         cursors: &mut Cursors<'txn>,
-        result_ids: &mut Option<&mut HashSet<&'txn [u8]>>,
+        result_ids: &mut Option<&mut HashSet<i64>>,
         callback: &mut F,
     ) -> Result<bool>
     where
@@ -60,7 +67,7 @@ impl<'a> WhereExecutor<'a> {
     {
         where_clause.iter(cursors, |cursors, oid, object| {
             if let Some(result_ids) = result_ids {
-                if !result_ids.insert(oid) {
+                if !result_ids.insert(oid.get_id()) {
                     return Ok(true);
                 }
             }
@@ -68,23 +75,23 @@ impl<'a> WhereExecutor<'a> {
         })
     }
 
-    fn execute_secondary_where_clause<'txn, F>(
+    fn execute_index_where_clause<'txn, F>(
         &mut self,
-        where_clause: &WhereClause,
+        where_clause: &IndexWhereClause,
         cursors: &mut Cursors<'txn>,
-        result_ids: &mut Option<&mut HashSet<&'txn [u8]>>,
+        result_ids: &mut Option<&mut HashSet<i64>>,
         callback: &mut F,
     ) -> Result<bool>
     where
         F: FnMut(&mut Cursors<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
-        where_clause.iter(cursors, |cursors, _, oid| {
+        where_clause.iter(cursors, |cursors, key| {
             if let Some(result_ids) = result_ids {
-                if !result_ids.insert(oid) {
+                if !result_ids.insert(key.get_id()) {
                     return Ok(true);
                 }
             }
-            let entry = cursors.primary.move_to(Key(oid))?;
+            let entry = cursors.primary.move_to(key)?;
             let (_, object) = entry.ok_or(IsarError::DbCorrupted {
                 message: "Could not find object specified in index.".to_string(),
             })?;

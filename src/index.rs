@@ -1,18 +1,17 @@
 use crate::error::{IsarError, Result};
-use crate::lmdb::Key;
+use crate::lmdb::{ByteKey, IntKey, Key};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
-use crate::query::where_clause::WhereClause;
+use crate::query::where_clause::IndexWhereClause;
 use crate::query::Sort;
+use crate::schema::collection_schema::IndexType;
 use crate::txn::Cursors;
-use crate::utils::oid_to_bytes;
 use itertools::Itertools;
 use std::hash::Hasher;
 use std::mem::transmute;
 use unicode_segmentation::UnicodeSegmentation;
 use wyhash::{wyhash, WyHash};
 
-use crate::schema::collection_schema::IndexType;
 #[cfg(test)]
 use {crate::txn::IsarTxn, crate::utils::debug::dump_db, hashbrown::HashSet};
 
@@ -80,8 +79,8 @@ impl Index {
         }
     }
 
-    pub fn new_where_clause(&self, skip_duplicates: bool, sort: Sort) -> WhereClause {
-        WhereClause::new_secondary(&self.get_prefix(), self.clone(), skip_duplicates, sort)
+    pub fn new_where_clause(&self, skip_duplicates: bool, sort: Sort) -> IndexWhereClause {
+        IndexWhereClause::new(&self.get_prefix(), self.clone(), skip_duplicates, sort)
     }
 
     pub(crate) fn get_id(&self) -> u16 {
@@ -110,15 +109,18 @@ impl Index {
         oid: i64,
         object: IsarObject,
     ) -> Result<()> {
-        let oid_bytes = oid_to_bytes(oid, self.col_id)?;
+        let key = IntKey::new(self.col_id, oid);
+        let oid_bytes = key.as_bytes();
         self.create_keys(object, |key| {
             if self.unique {
-                let success = cursors.secondary.put_no_override(Key(key), &oid_bytes)?;
+                let success = cursors
+                    .secondary
+                    .put_no_override(ByteKey::new(key), &oid_bytes)?;
                 if !success {
                     return Err(IsarError::UniqueViolated {});
                 }
             } else {
-                cursors.secondary_dup.put(Key(key), &oid_bytes)?;
+                cursors.secondary_dup.put(ByteKey::new(key), &oid_bytes)?;
             }
             Ok(true)
         })
@@ -130,17 +132,18 @@ impl Index {
         oid: i64,
         object: IsarObject,
     ) -> Result<()> {
-        let oid_bytes = oid_to_bytes(oid, self.col_id)?;
+        let key = IntKey::new(self.col_id, oid);
+        let oid_bytes = key.as_bytes();
         self.create_keys(object, |key| {
             if self.unique {
-                let entry = cursors.secondary.move_to(Key(key))?;
+                let entry = cursors.secondary.move_to(ByteKey::new(key))?;
                 if entry.is_some() {
                     cursors.secondary.delete_current()?;
                 }
             } else {
                 let entry = cursors
                     .secondary_dup
-                    .move_to_key_val(Key(key), &oid_bytes)?;
+                    .move_to_key_val(ByteKey::new(key), &oid_bytes)?;
                 if entry.is_some() {
                     cursors.secondary_dup.delete_current()?;
                 }
@@ -151,7 +154,7 @@ impl Index {
 
     pub(crate) fn clear(&self, cursors: &mut Cursors) -> Result<()> {
         self.new_where_clause(false, Sort::Ascending)
-            .iter(cursors, |cursors, _, _| {
+            .iter(cursors, |cursors, _| {
                 if self.unique {
                     cursors.secondary.delete_current()?;
                 } else {
@@ -366,7 +369,7 @@ mod tests {
         let set: HashSet<(Vec<u8>, Vec<u8>)> = index
             .debug_create_keys(obj)
             .into_iter()
-            .map(|key| (key, oid_to_bytes(oid, col.get_id()).unwrap().to_vec()))
+            .map(|key| (key, IntKey::new(col.get_id(), oid).as_bytes().to_vec()))
             .collect();
 
         assert_eq!(index.debug_dump(&mut txn), set)

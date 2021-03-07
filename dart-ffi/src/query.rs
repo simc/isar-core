@@ -5,7 +5,7 @@ use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
 use isar_core::query::filter::Filter;
 use isar_core::query::query_builder::QueryBuilder;
-use isar_core::query::where_clause::WhereClause;
+use isar_core::query::where_clause::IndexWhereClause;
 use isar_core::query::{Query, Sort};
 use isar_core::txn::IsarTxn;
 
@@ -16,7 +16,7 @@ pub extern "C" fn isar_qb_create(collection: &IsarCollection) -> *mut QueryBuild
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_qb_add_primary_where_clause(
+pub unsafe extern "C" fn isar_qb_add_id_where_clause(
     collection: &IsarCollection,
     builder: &mut QueryBuilder,
     lower_oid: i64,
@@ -29,21 +29,21 @@ pub unsafe extern "C" fn isar_qb_add_primary_where_clause(
         Sort::Descending
     };
     isar_try! {
-        let where_clause = collection.new_primary_where_clause(Some(lower_oid), Some(upper_oid), sort)?;
-        builder.add_where_clause(where_clause,true,true)?;
+        let where_clause = collection.new_id_where_clause(Some(lower_oid), Some(upper_oid), sort)?;
+        builder.add_id_where_clause(where_clause)?;
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_qb_add_where_clause(
+pub unsafe extern "C" fn isar_qb_add_index_where_clause(
     builder: &mut QueryBuilder,
-    where_clause: *mut WhereClause,
+    where_clause: *mut IndexWhereClause,
     include_lower: bool,
     include_upper: bool,
 ) -> i32 {
     let wc = *Box::from_raw(where_clause);
     isar_try! {
-        builder.add_where_clause(wc, include_lower, include_upper)?;
+        builder.add_index_where_clause(wc, include_lower, include_upper)?;
     }
 }
 

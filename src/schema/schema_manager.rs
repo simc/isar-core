@@ -1,17 +1,16 @@
 use crate::collection::IsarCollection;
 use crate::error::{IsarError, Result};
 use crate::lmdb::cursor::Cursor;
-use crate::lmdb::Key;
+use crate::lmdb::{ByteKey, IntKey, MIN_ID};
 use crate::query::Sort;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
 use crate::txn::Cursors;
-use crate::utils::oid_from_bytes;
 use std::convert::TryInto;
 
 const ISAR_VERSION: u64 = 1;
-const INFO_VERSION_KEY: Key = Key(b"version");
-const INFO_SCHEMA_KEY: Key = Key(b"schema");
+const INFO_VERSION_KEY: ByteKey = ByteKey::new(b"version");
+const INFO_SCHEMA_KEY: ByteKey = ByteKey::new(b"schema");
 
 pub(crate) struct SchemaManger<'env> {
     info_cursor: Cursor<'env>,
@@ -69,9 +68,9 @@ impl<'env> SchemaManger<'env> {
     }
 
     fn update_oid_counter(&mut self, collection: &IsarCollection) -> Result<()> {
-        let id = collection.get_id();
-        let next_prefix = (id + 1).to_be_bytes();
-        let next_entry = self.cursors.primary.move_to_gte(Key(&next_prefix))?;
+        let col_id = collection.get_id();
+        let next_key = IntKey::new(col_id + 1, MIN_ID);
+        let next_entry = self.cursors.primary.move_to_gte(next_key)?;
         let greatest_qualifying_oid = if next_entry.is_some() {
             self.cursors.primary.move_to_prev_key()?
         } else {
@@ -79,9 +78,9 @@ impl<'env> SchemaManger<'env> {
         };
 
         if let Some((oid, _)) = greatest_qualifying_oid {
-            let (oid, prefix) = oid_from_bytes(oid.0);
-            if prefix == id {
-                collection.update_oid_counter(oid);
+            let key = IntKey::from_bytes(oid);
+            if key.get_prefix() == col_id {
+                collection.update_oid_counter(key.get_id());
             }
         }
         Ok(())
@@ -108,11 +107,13 @@ impl<'env> SchemaManger<'env> {
             for index in col.get_indexes() {
                 index.clear(&mut self.cursors)?;
             }
-            col.new_primary_where_clause(None, None, Sort::Ascending)?
-                .iter(&mut self.cursors, |c, _, _| {
+            col.new_id_where_clause(None, None, Sort::Ascending)?.iter(
+                &mut self.cursors,
+                |c, _, _| {
                     c.primary.delete_current()?;
                     Ok(true)
-                })?;
+                },
+            )?;
         }
 
         for col in collections {

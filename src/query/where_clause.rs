@@ -1,136 +1,132 @@
 use crate::collection::IsarCollection;
 use crate::error::Result;
 use crate::index::Index;
-use crate::lmdb::Key;
+use crate::lmdb::{ByteKey, IntKey};
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
 use crate::schema::collection_schema::IndexType;
 use crate::txn::Cursors;
-use crate::utils::{oid_from_bytes, oid_to_bytes};
 use std::mem::ManuallyDrop;
 
 #[derive(Clone)]
-pub struct WhereClause {
+pub struct IdWhereClause {
+    prefix: u16,
+    lower: i64,
+    upper: i64,
+    sort: Sort,
+}
+
+impl IdWhereClause {
+    pub(crate) fn new(prefix: u16, lower: i64, upper: i64, sort: Sort) -> Self {
+        IdWhereClause {
+            prefix,
+            lower,
+            upper,
+            sort,
+        }
+    }
+
+    pub(crate) fn get_prefix(&self) -> u16 {
+        self.prefix
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.upper < self.lower
+    }
+
+    pub(crate) fn id_matches(&self, oid: i64) -> bool {
+        self.lower <= oid && self.upper >= oid
+    }
+
+    pub(crate) fn iter<'txn, F>(&self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<bool>
+    where
+        F: FnMut(&mut Cursors<'txn>, IntKey, &'txn [u8]) -> Result<bool>,
+    {
+        let mut cursors_clone = ManuallyDrop::new(cursors.clone());
+        cursors.primary.iter_between(
+            IntKey::new(self.prefix, self.lower),
+            IntKey::new(self.prefix, self.upper),
+            false,
+            self.sort == Sort::Ascending,
+            |_, oid, object| callback(&mut cursors_clone, IntKey::from_bytes(oid), object),
+        )
+    }
+}
+
+#[derive(Clone)]
+pub struct IndexWhereClause {
     lower_key: Vec<u8>,
     upper_key: Vec<u8>,
-    index: Option<Index>,
+    index: Index,
     skip_duplicates: bool,
     sort: Sort,
 }
 
-impl WhereClause {
+impl IndexWhereClause {
     const PREFIX_LEN: usize = 2;
 
-    pub(crate) fn new_primary(
-        prefix: u16,
-        lower_oid: i64,
-        upper_oid: i64,
-        sort: Sort,
-    ) -> Result<Self> {
-        Ok(WhereClause {
-            lower_key: oid_to_bytes(lower_oid, prefix)?.to_vec(),
-            upper_key: oid_to_bytes(upper_oid, prefix)?.to_vec(),
-            index: None,
-            skip_duplicates: false,
-            sort,
-        })
-    }
-
-    pub(crate) fn new_secondary(
-        prefix: &[u8],
-        index: Index,
-        mut skip_duplicates: bool,
-        sort: Sort,
-    ) -> Self {
+    pub(crate) fn new(prefix: &[u8], index: Index, mut skip_duplicates: bool, sort: Sort) -> Self {
         if index.is_unique() {
             skip_duplicates = false;
         }
-        WhereClause {
+        IndexWhereClause {
             lower_key: prefix.to_vec(),
             upper_key: prefix.to_vec(),
-            index: Some(index),
+            index,
             skip_duplicates,
             sort,
         }
     }
 
-    pub(crate) fn new_empty() -> Self {
-        WhereClause {
-            lower_key: vec![1],
-            upper_key: vec![0],
-            index: None,
-            skip_duplicates: false,
-            sort: Sort::Ascending,
-        }
-    }
-
     pub fn is_empty(&self) -> bool {
-        Key(&self.lower_key) > Key(&self.upper_key)
-    }
-
-    pub fn is_primary(&self) -> bool {
-        self.index.is_none()
+        ByteKey::new(&self.lower_key) > ByteKey::new(&self.upper_key)
     }
 
     pub fn is_unique(&self) -> bool {
-        self.index.as_ref().map_or(true, |i| i.is_unique())
+        self.index.is_unique()
     }
 
     pub fn is_from_collection(&self, collection: &IsarCollection) -> bool {
-        if let Some(index) = &self.index {
-            collection.get_indexes().contains(index)
-        } else {
-            collection.get_id() == oid_from_bytes(&self.lower_key).1
-        }
+        collection.get_indexes().contains(&self.index)
     }
 
-    pub(crate) fn object_matches(&self, oid: i64, object: IsarObject) -> bool {
-        if let Some(index) = &self.index {
-            let mut key_matches = false;
-            index
-                .create_keys(object, |key| {
-                    key_matches =
-                        Key(key) >= Key(&self.lower_key) && Key(key) <= Key(&self.upper_key);
-                    Ok(!key_matches)
-                })
-                .unwrap();
-            key_matches
-        } else {
-            let (lower_oid, _) = oid_from_bytes(&self.lower_key);
-            let (upper_oid, _) = oid_from_bytes(&self.upper_key);
-            oid >= lower_oid && oid <= upper_oid
-        }
+    pub(crate) fn object_matches(&self, object: IsarObject) -> bool {
+        let mut key_matches = false;
+        self.index
+            .create_keys(object, |key| {
+                let key = ByteKey::new(key);
+                key_matches =
+                    key >= ByteKey::new(&self.lower_key) && key <= ByteKey::new(&self.upper_key);
+                Ok(!key_matches)
+            })
+            .unwrap();
+        key_matches
     }
 
     pub(crate) fn iter<'txn, F>(&self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<bool>
     where
-        F: FnMut(&mut Cursors<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
+        F: FnMut(&mut Cursors<'txn>, IntKey) -> Result<bool>,
     {
         let mut cursors_clone = ManuallyDrop::new(cursors.clone());
-        let primary = &mut cursors.primary;
         let secondary = &mut cursors.secondary;
         let secondary_dup = &mut cursors.secondary_dup;
 
-        let cursor = if self.is_primary() {
-            primary
-        } else if self.is_unique() {
+        let cursor = if self.index.is_unique() {
             secondary
         } else {
             secondary_dup
         };
 
         cursor.iter_between(
-            Key(&self.lower_key),
-            Key(&self.upper_key),
+            ByteKey::new(&self.lower_key),
+            ByteKey::new(&self.upper_key),
             self.skip_duplicates,
             self.sort == Sort::Ascending,
-            |_, oid, object| callback(&mut cursors_clone, oid.0, object),
+            |_, _, oid| callback(&mut cursors_clone, IntKey::from_bytes(oid)),
         )
     }
 
     pub(crate) fn try_exclude(&mut self, include_lower: bool, include_upper: bool) -> bool {
-        assert!(self.index.is_some());
-
         if !include_lower {
             let mut increased = false;
             for i in (Self::PREFIX_LEN..self.lower_key.len()).rev() {
@@ -161,7 +157,6 @@ impl WhereClause {
     }
 
     pub fn add_byte(&mut self, lower: u8, upper: u8) {
-        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_byte_key(lower));
         self.upper_key
@@ -169,7 +164,6 @@ impl WhereClause {
     }
 
     pub fn add_int(&mut self, lower: i32, upper: i32) {
-        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_int_key(lower));
         self.upper_key
@@ -177,7 +171,6 @@ impl WhereClause {
     }
 
     pub fn add_float(&mut self, lower: f32, upper: f32) {
-        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_float_key(lower));
         self.upper_key
@@ -185,7 +178,6 @@ impl WhereClause {
     }
 
     pub fn add_long(&mut self, lower: i64, upper: i64) {
-        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_long_key(lower));
         self.upper_key
@@ -193,7 +185,6 @@ impl WhereClause {
     }
 
     pub fn add_double(&mut self, lower: f64, upper: f64) {
-        assert!(self.index.is_some());
         self.lower_key
             .extend_from_slice(&Index::create_double_key(lower));
         self.upper_key
@@ -209,7 +200,6 @@ impl WhereClause {
         case_sensitive: bool,
         index_type: IndexType,
     ) {
-        assert!(self.index.is_some());
         let get_bytes = |value: Option<&str>| {
             let value = if case_sensitive {
                 value.map(|s| s.to_string())

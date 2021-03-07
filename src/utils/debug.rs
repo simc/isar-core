@@ -1,8 +1,7 @@
 #![cfg(test)]
 
 use crate::lmdb::cursor::Cursor;
-use crate::lmdb::Key;
-use crate::utils::{oid_to_bytes, MAX_OID, MIN_OID};
+use crate::lmdb::{ByteKey, IntKey, MAX_ID, MIN_ID};
 use hashbrown::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -64,7 +63,10 @@ macro_rules! col (
     ($name:expr, $($field:expr => $type:path),+; $($index:expr),*) => {
         {
             let mut properties = vec![];
-            col!(add_property properties, true, $($field => $type,)+);
+            $(
+                let property = crate::schema::collection_schema::PropertySchema::new(stringify!($field), $type);
+                properties.push(property);
+            )+
             let mut indexes = vec![];
             indexes.clear();
             $(
@@ -72,17 +74,9 @@ macro_rules! col (
                 let index = crate::schema::collection_schema::IndexSchema::new(fields, unique, replace);
                 indexes.push(index);
             )*
-            crate::schema::collection_schema::CollectionSchema::new($name, properties, indexes)
+            crate::schema::collection_schema::CollectionSchema::new($name, &properties[0].name.clone(), properties, indexes, vec![])
         }
     };
-
-    (add_property $vec:expr, $oid:expr, $field:expr => $type:path, $($fields:expr => $types:path,)*) => {
-        let property = crate::schema::collection_schema::PropertySchema::new(stringify!($field), $type, $oid);
-        $vec.push(property);
-        col!(add_property $vec, false, $($fields => $types,)*);
-    };
-
-    (add_property $col:expr, $oid:expr,) => {};
 );
 
 #[macro_export]
@@ -92,7 +86,7 @@ macro_rules! ind (
     };
 
     ($($index:expr),+; $unique:expr, $replace:expr) => {
-        ind!(str $($index, crate::index::IndexType::Value, None),+; $unique, $replace);
+        ind!(str $($index, crate::schema::collection_schema::IndexType::Value, None),+; $unique, $replace);
     };
 
     (str $($index:expr, $str_type:expr, $str_lc:expr),+) => {
@@ -111,10 +105,6 @@ macro_rules! ind (
     };
 );
 
-pub fn ref_map<K: Eq + Hash, V>(map: &HashMap<K, V>) -> HashMap<&K, &V> {
-    map.iter().map(|(k, v)| (k, v)).collect()
-}
-
 pub fn dump_db(cursor: &mut Cursor, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, Vec<u8>)> {
     let mut set = HashSet::new();
 
@@ -122,12 +112,12 @@ pub fn dump_db(cursor: &mut Cursor, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, 
     upper.extend_from_slice(&u64::MAX.to_le_bytes());
     cursor
         .iter_between(
-            Key(prefix.unwrap_or(&[])),
-            Key(&upper),
+            ByteKey::new(prefix.unwrap_or(&[])),
+            ByteKey::new(&upper),
             false,
             true,
             |_, k, v| {
-                set.insert((k.0.to_vec(), v.to_vec()));
+                set.insert((k.to_vec(), v.to_vec()));
                 Ok(true)
             },
         )
@@ -139,13 +129,17 @@ pub fn dump_db(cursor: &mut Cursor, prefix: Option<&[u8]>) -> HashSet<(Vec<u8>, 
 pub fn dump_db_oid(cursor: &mut Cursor, prefix: u16) -> HashSet<(Vec<u8>, Vec<u8>)> {
     let mut set = HashSet::new();
 
-    let lower = oid_to_bytes(MIN_OID, prefix).unwrap();
-    let upper = oid_to_bytes(MAX_OID, prefix).unwrap();
     cursor
-        .iter_between(Key(&lower), Key(&upper), false, true, |_, k, v| {
-            set.insert((k.0.to_vec(), v.to_vec()));
-            Ok(true)
-        })
+        .iter_between(
+            IntKey::new(prefix, MIN_ID),
+            IntKey::new(prefix, MAX_ID),
+            false,
+            true,
+            |_, k, v| {
+                set.insert((k.to_vec(), v.to_vec()));
+                Ok(true)
+            },
+        )
         .unwrap();
 
     set

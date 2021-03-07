@@ -1,4 +1,5 @@
 #![allow(clippy::new_without_default)]
+#![feature(num_as_ne_bytes)]
 
 #[cfg(not(target_endian = "little"))]
 compile_error!("Only little endian systems are supported.");

@@ -48,9 +48,7 @@ impl<'a> IsarTxn<'a> {
         if self.write && self.change_set.is_none() {
             Err(IsarError::TransactionClosed {})
         } else {
-            job(
-                self.cursors.as_mut().unwrap(),
-            )
+            job(self.cursors.as_mut().unwrap())
         }
     }
 
@@ -63,10 +61,7 @@ impl<'a> IsarTxn<'a> {
         }
         if self.active {
             self.active = false;
-            let result = job(
-                self.cursors.as_mut().unwrap(),
-                self.change_set.as_mut(),
-            );
+            let result = job(self.cursors.as_mut().unwrap(), self.change_set.as_mut());
             if result.is_ok() {
                 self.active = true;
             }
@@ -77,14 +72,16 @@ impl<'a> IsarTxn<'a> {
     }
 
     pub fn commit(mut self) -> Result<()> {
-        if self.write && self.change_set.is_none() {
+        if !self.active {
             return Err(IsarError::TransactionClosed {});
         }
         self.cursors.take(); // drop before txn
 
         if self.write {
             self.txn.commit()?;
-            self.change_set.unwrap().notify_watchers();
+            if let Some(change_set) = self.change_set {
+                change_set.notify_watchers();
+            }
         } else {
             self.txn.abort();
         }
