@@ -185,9 +185,7 @@ impl IsarCollection {
         cursors
             .primary
             .put(IntKey::new(self.id, oid), object.as_bytes())?;
-        if let Some(change_set) = change_set.as_deref_mut() {
-            change_set.register_change(self.id, oid, Some(object));
-        }
+        self.register_object_change(change_set, oid, object);
         Ok(())
     }
 
@@ -209,10 +207,7 @@ impl IsarCollection {
             for link in self.get_links_and_backlinks() {
                 link.delete_all_for_object(&mut cursors.links, oid)?;
             }
-
-            if let Some(change_set) = change_set {
-                change_set.register_change(self.id, oid, Some(object));
-            }
+            self.register_object_change(change_set, oid, object);
             cursors.primary.delete_current()?;
             Ok(true)
         } else {
@@ -239,10 +234,7 @@ impl IsarCollection {
     ) -> Result<bool> {
         let link = self.get_link_backlink(link_index, backlink)?;
         txn.write(|cursors, change_set| {
-            if let Some(change_set) = change_set {
-                change_set.register_change(self.id, oid, None);
-                change_set.register_change(link.get_target_col_id(), oid, None);
-            }
+            self.register_link_change(change_set, link);
             link.create(&mut cursors.primary, &mut cursors.links, oid, target_oid)
         })
     }
@@ -257,10 +249,7 @@ impl IsarCollection {
     ) -> Result<bool> {
         let link = self.get_link_backlink(link_index, backlink)?;
         txn.write(|cursors, change_set| {
-            if let Some(change_set) = change_set {
-                change_set.register_change(self.id, oid, None);
-                change_set.register_change(link.get_target_col_id(), oid, None);
-            }
+            self.register_link_change(change_set, link);
             link.delete(&mut cursors.links, oid, target_oid)
         })
     }
@@ -274,9 +263,7 @@ impl IsarCollection {
     ) -> Result<()> {
         let link = self.get_link_backlink(link_index, backlink)?;
         txn.write(|cursors, change_set| {
-            if let Some(change_set) = change_set {
-                change_set.register_change(self.id, oid, None);
-            }
+            self.register_link_change(change_set, link);
             link.delete_all_for_object(&mut cursors.links, oid)
         })
     }
@@ -301,7 +288,7 @@ impl IsarCollection {
     }
 
     pub fn clear(&self, txn: &mut IsarTxn) -> Result<usize> {
-        txn.write(|cursors, change_set| {
+        txn.write(|cursors, mut change_set| {
             let mut counter = 0;
             for index in &self.indexes {
                 index.clear(cursors)?;
@@ -310,7 +297,9 @@ impl IsarCollection {
                 link.clear(&mut cursors.links)?;
             }
             self.new_id_where_clause(None, None, Sort::Ascending)?
-                .iter(cursors, |cursors, oid, _| {
+                .iter(cursors, |cursors, oid, o| {
+                    let object = IsarObject::from_bytes(o);
+                    self.register_object_change(change_set.as_deref_mut(), oid.get_id(), object);
                     cursors.primary.delete_current()?;
                     counter += 1;
                     Ok(true)
@@ -364,6 +353,24 @@ impl IsarCollection {
             })?;
             Ok(json!(items))
         })
+    }
+
+    fn register_object_change(
+        &self,
+        change_set: Option<&mut ChangeSet>,
+        oid: i64,
+        object: IsarObject,
+    ) {
+        if let Some(change_set) = change_set {
+            change_set.register_change(self.id, Some(oid), Some(object));
+        }
+    }
+
+    fn register_link_change(&self, change_set: Option<&mut ChangeSet>, link: Link) {
+        if let Some(change_set) = change_set {
+            change_set.register_change(self.id, None, None);
+            change_set.register_change(link.get_target_col_id(), None, None);
+        }
     }
 
     #[cfg(test)]
@@ -520,7 +527,7 @@ mod tests {
 
     #[test]
     fn test_put_calls_notifiers() {
-        isar!(isar, col => col!(field1 => DataType::Long));
+        isar!(isar, col => col!(oid => DataType::Long));
         let p = col.get_properties().first().unwrap().1;
 
         let mut qb1 = col.new_query_builder();

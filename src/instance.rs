@@ -177,40 +177,15 @@ impl IsarInstance {
     ) -> WatchHandle {
         let watcher_id = random();
         let col_id = collection.get_id();
-        let linked_col_ids = query.get_linked_collections();
-        if let Some(mut linked_col_ids) = linked_col_ids {
-            linked_col_ids.insert(col_id);
-            let linked_col_ids_clone = linked_col_ids.clone();
-            self.new_watcher(
-                Box::new(move |iw| {
-                    let callback = Arc::new(callback);
-                    for col_id in linked_col_ids {
-                        let callback = callback.clone();
-                        iw.get_col_watchers(col_id).add_watcher(
-                            watcher_id,
-                            Box::new(move || {
-                                callback();
-                            }),
-                        );
-                    }
-                }),
-                Box::new(move |iw| {
-                    for col_id in linked_col_ids_clone {
-                        iw.get_col_watchers(col_id).remove_watcher(watcher_id);
-                    }
-                }),
-            )
-        } else {
-            self.new_watcher(
-                Box::new(move |iw| {
-                    iw.get_col_watchers(col_id)
-                        .add_query_watcher(watcher_id, query, callback);
-                }),
-                Box::new(move |iw| {
-                    iw.get_col_watchers(col_id).remove_query_watcher(watcher_id);
-                }),
-            )
-        }
+        self.new_watcher(
+            Box::new(move |iw| {
+                iw.get_col_watchers(col_id)
+                    .add_query_watcher(watcher_id, query, callback);
+            }),
+            Box::new(move |iw| {
+                iw.get_col_watchers(col_id).remove_query_watcher(watcher_id);
+            }),
+        )
     }
 
     pub fn close(self: Arc<Self>) -> Option<Arc<Self>> {
