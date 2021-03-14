@@ -1,4 +1,4 @@
 [submodule "lmdb-sys/lmdb"]
 	path = lmdb-sys/lmdb
-	url = https://github.com/LMDB/lmdb
+	url = https://github.com/isar/lmdb
 	branch = mdb.master3
