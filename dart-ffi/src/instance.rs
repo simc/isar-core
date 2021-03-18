@@ -55,6 +55,12 @@ pub unsafe extern "C" fn isar_get_instance(isar: *mut *const IsarInstance, path:
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_close_instance(isar: *const IsarInstance) {
+    let isar = Arc::from_raw(isar);
+    isar.close();
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_get_collection<'a>(
     isar: &'a IsarInstance,
     collection: *mut &'a IsarCollection,
