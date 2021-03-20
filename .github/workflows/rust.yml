@@ -22,9 +22,11 @@ jobs:
       with:
         toolchain: nightly
         override: true
-    - name: install nasm
+    - name: install windows dependencies
       if: matrix.os == 'windows-latest'
-      run: choco install nasm
+      run: |
+        choco install nasm
+        choco install llvm
     - uses: actions-rs/cargo@v1
       name: test
       with:

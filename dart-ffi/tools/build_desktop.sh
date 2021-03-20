@@ -18,6 +18,7 @@ case $(uname | tr '[:upper:]' '[:lower:]') in
     ;;
   *)
     choco install nasm
+    choco install llvm
     cargo build --release
     mv "target/release/isar_core_dart_ffi.dll" "isar_windows_x64.dll"
     ;;
