@@ -29,9 +29,9 @@ jobs:
           - os: macos-latest
             artifact_name: libisar_macos_x64.dylib
             script: build_desktop.sh x64
-          - os: windows-latest
-            artifact_name: isar_windows_x64.dll
-            script: build_desktop.sh
+         #- os: windows-latest
+          # artifact_name: isar_windows_x64.dll
+          # script: build_desktop.sh
     runs-on: ${{ matrix.os }}
     steps:
     - name: Checkout repository
