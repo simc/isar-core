@@ -51,7 +51,7 @@ macro_rules! isar (
         let schema = crate::schema::Schema::new(cols).unwrap();
         let mut path_buf = std::path::PathBuf::new();
         path_buf.push($path);
-        let optional_key = vec![5u8; 16];
+        let optional_key = vec![5u8; 32];
         let key = $key.or_else(|| {
             if cfg!(feature = "test-encryption") {
                 Some(&optional_key[..])
