@@ -172,90 +172,33 @@ impl IndexWhereClause {
         case_sensitive: bool,
         index_type: IndexType,
     ) {
-        let lower = if case_sensitive {
-            lower.map(|s| s.to_string())
-        } else {
-            lower.map(|s| s.to_lowercase())
+        let get_bytes = |value: Option<&str>| {
+            let value = if case_sensitive {
+                value.map(|s| s.to_string())
+            } else {
+                value.map(|s| s.to_lowercase())
+            };
+            match index_type {
+                IndexType::Value => Index::create_string_value_key(value.as_deref()),
+                IndexType::Hash => Index::create_string_hash_key(value.as_deref()),
+                IndexType::Words => value.map_or(vec![], |s| s.as_bytes().to_vec()),
+            }
         };
 
-        let upper = if case_sensitive {
-            upper.map(|s| s.to_string())
-        } else {
-            upper.map(|s| s.to_lowercase())
-        };
-
-        match index_type {
-            IndexType::Value => {
-                self.add_value_string(lower, lower_unbounded, upper, upper_unbounded)
-            }
-            IndexType::Hash => self.add_hash_string(lower, lower_unbounded, upper, upper_unbounded),
-            IndexType::Words => {
-                self.add_words_string(lower, lower_unbounded, upper, upper_unbounded)
-            }
-        }
-    }
-
-    fn add_value_string(
-        &mut self,
-        lower: Option<String>,
-        lower_unbounded: bool,
-        upper: Option<String>,
-        upper_unbounded: bool,
-    ) {
         if lower_unbounded {
-            self.lower_key.push(0);
+            match index_type {
+                IndexType::Value => self.lower_key.push(0),
+                IndexType::Hash => self.lower_key.extend_from_slice(&0u64.to_le_bytes()),
+                IndexType::Words => {}
+            };
         } else {
-            let key = Index::create_string_value_key(lower.as_deref());
-            self.lower_key.extend_from_slice(&key);
+            self.lower_key.extend_from_slice(&get_bytes(lower));
         }
 
         if upper_unbounded {
             self.upper_key.extend_from_slice(&u64::MAX.to_le_bytes());
         } else {
-            let key = Index::create_string_value_key(upper.as_deref());
-            self.upper_key.extend_from_slice(&key);
-        }
-    }
-
-    fn add_hash_string(
-        &mut self,
-        lower: Option<String>,
-        lower_unbounded: bool,
-        upper: Option<String>,
-        upper_unbounded: bool,
-    ) {
-        if lower_unbounded {
-            self.lower_key.extend_from_slice(&u64::MIN.to_le_bytes());
-        } else {
-            let key = Index::create_string_hash_key(lower.as_deref());
-            self.lower_key.extend_from_slice(&key);
-        }
-
-        if upper_unbounded {
-            self.upper_key.extend_from_slice(&u64::MAX.to_le_bytes());
-        } else {
-            let key = Index::create_string_hash_key(upper.as_deref());
-            self.upper_key.extend_from_slice(&key);
-        }
-    }
-
-    fn add_words_string(
-        &mut self,
-        lower: Option<String>,
-        lower_unbounded: bool,
-        upper: Option<String>,
-        upper_unbounded: bool,
-    ) {
-        if !lower_unbounded {
-            if let Some(lower) = lower {
-                self.lower_key.extend_from_slice(lower.as_bytes());
-            }
-        }
-
-        if upper_unbounded {
-            self.upper_key.extend_from_slice(&u64::MAX.to_le_bytes());
-        } else if let Some(upper) = upper {
-            self.lower_key.extend_from_slice(upper.as_bytes());
+            self.upper_key.extend_from_slice(&get_bytes(upper));
         }
     }
 
