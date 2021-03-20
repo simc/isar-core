@@ -47,7 +47,7 @@ impl<'env> SchemaManger<'env> {
         let existing_collections = if let Some((_, existing_schema_bytes)) = existing_schema_bytes {
             let existing_schema = serde_json::from_slice(existing_schema_bytes).map_err(|e| {
                 IsarError::DbCorrupted {
-                    message: format!("Could not deserialize existing schema: {}", e).to_string(),
+                    message: format!("Could not deserialize existing schema: {}", e),
                 }
             })?;
             schema.update_with_existing_schema(Some(&existing_schema))?;
@@ -70,11 +70,11 @@ impl<'env> SchemaManger<'env> {
     fn update_oid_counter(&mut self, collection: &IsarCollection) -> Result<()> {
         let col_id = collection.get_id();
         let next_key = IntKey::new(col_id + 1, MIN_ID);
-        let next_entry = self.cursors.primary.move_to_gte(next_key)?;
+        let next_entry = self.cursors.data.move_to_gte(next_key)?;
         let greatest_qualifying_oid = if next_entry.is_some() {
-            self.cursors.primary.move_to_prev_key()?
+            self.cursors.data.move_to_prev_key()?
         } else {
-            self.cursors.primary.move_to_last()?
+            self.cursors.data.move_to_last()?
         };
 
         if let Some((oid, _)) = greatest_qualifying_oid {
@@ -108,9 +108,10 @@ impl<'env> SchemaManger<'env> {
                 index.clear(&mut self.cursors)?;
             }
             col.new_id_where_clause(None, None, Sort::Ascending)?.iter(
-                &mut self.cursors,
+                &mut self.cursors.data,
+                None,
                 |c, _, _| {
-                    c.primary.delete_current()?;
+                    c.delete_current()?;
                     Ok(true)
                 },
             )?;

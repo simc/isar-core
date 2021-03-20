@@ -4,8 +4,8 @@ use crate::UintSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
 use isar_core::query::filter::Filter;
+use isar_core::query::index_where_clause::IndexWhereClause;
 use isar_core::query::query_builder::QueryBuilder;
-use isar_core::query::where_clause::IndexWhereClause;
 use isar_core::query::{Query, Sort};
 use isar_core::txn::IsarTxn;
 

@@ -2,14 +2,15 @@ use crate::collection::IsarCollection;
 use crate::error::{illegal_arg, Result};
 use crate::object::isar_object::Property;
 use crate::query::filter::Filter;
-use crate::query::where_clause::{IdWhereClause, IndexWhereClause};
+use crate::query::id_where_clause::IdWhereClause;
+use crate::query::index_where_clause::IndexWhereClause;
+use crate::query::where_clause::WhereClause;
 use crate::query::{Query, Sort};
 use itertools::Itertools;
 
 pub struct QueryBuilder<'a> {
     collection: &'a IsarCollection,
-    id_where_clauses: Option<Vec<IdWhereClause>>,
-    index_where_clauses: Option<Vec<IndexWhereClause>>,
+    where_clauses: Option<Vec<WhereClause>>,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
     distinct: Vec<Property>,
@@ -20,8 +21,7 @@ impl<'a> QueryBuilder<'a> {
     pub(crate) fn new(collection: &'a IsarCollection) -> QueryBuilder {
         QueryBuilder {
             collection,
-            id_where_clauses: None,
-            index_where_clauses: None,
+            where_clauses: None,
             filter: None,
             sort: vec![],
             distinct: vec![],
@@ -33,11 +33,14 @@ impl<'a> QueryBuilder<'a> {
         if wc.get_prefix() != self.collection.get_id() {
             return illegal_arg("Wrong WhereClause for this collection.");
         }
-        if self.id_where_clauses.is_none() {
-            self.id_where_clauses = Some(vec![]);
+        if self.where_clauses.is_none() {
+            self.where_clauses = Some(vec![]);
         }
         if !wc.is_empty() {
-            self.id_where_clauses.as_mut().unwrap().push(wc)
+            self.where_clauses
+                .as_mut()
+                .unwrap()
+                .push(WhereClause::Id(wc))
         }
         Ok(())
     }
@@ -51,11 +54,14 @@ impl<'a> QueryBuilder<'a> {
         if !wc.is_from_collection(self.collection) {
             return illegal_arg("Wrong WhereClause for this collection.");
         }
-        if self.index_where_clauses.is_none() {
-            self.index_where_clauses = Some(vec![]);
+        if self.where_clauses.is_none() {
+            self.where_clauses = Some(vec![]);
         }
         if wc.try_exclude(include_lower, include_upper) && !wc.is_empty() {
-            self.index_where_clauses.as_mut().unwrap().push(wc);
+            self.where_clauses
+                .as_mut()
+                .unwrap()
+                .push(WhereClause::Index(wc));
         }
         Ok(())
     }
@@ -85,7 +91,7 @@ impl<'a> QueryBuilder<'a> {
     }
 
     pub fn build(mut self) -> Query {
-        if self.id_where_clauses.is_none() && self.index_where_clauses.is_none() {
+        if self.where_clauses.is_none() {
             let default_wc = self
                 .collection
                 .new_id_where_clause(None, None, Sort::Ascending)
@@ -95,8 +101,7 @@ impl<'a> QueryBuilder<'a> {
         let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();
         let distinct_unique = self.distinct.into_iter().unique_by(|p| p.offset).collect();
         Query::new(
-            self.id_where_clauses.unwrap_or(vec![]),
-            self.index_where_clauses.unwrap_or(vec![]),
+            self.where_clauses.unwrap(),
             self.filter,
             sort_unique,
             distinct_unique,

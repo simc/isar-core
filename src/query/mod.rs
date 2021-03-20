@@ -1,8 +1,7 @@
 use crate::error::Result;
 use crate::object::isar_object::{IsarObject, Property};
-use crate::query::filter::{Condition, Filter, FilterCursors, StaticCond};
-use crate::query::where_clause::{IdWhereClause, IndexWhereClause};
-use crate::query::where_executor::WhereExecutor;
+use crate::query::filter::{Condition, Filter, StaticCond};
+use crate::query::where_clause::WhereClause;
 use crate::txn::{Cursors, IsarTxn};
 use hashbrown::HashSet;
 use std::cmp::Ordering;
@@ -11,9 +10,10 @@ use wyhash::WyHash;
 
 mod fast_wild_match;
 pub mod filter;
+pub mod id_where_clause;
+pub mod index_where_clause;
 pub mod query_builder;
-pub mod where_clause;
-pub mod where_executor;
+mod where_clause;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Sort {
@@ -28,8 +28,7 @@ pub enum Case {
 
 #[derive(Clone)]
 pub struct Query {
-    id_where_clauses: Vec<IdWhereClause>,
-    index_where_clauses: Vec<IndexWhereClause>,
+    where_clauses: Vec<WhereClause>,
     where_clauses_overlapping: bool,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
@@ -40,16 +39,14 @@ pub struct Query {
 impl<'txn> Query {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        id_where_clauses: Vec<IdWhereClause>,
-        index_where_clauses: Vec<IndexWhereClause>,
+        where_clauses: Vec<WhereClause>,
         filter: Option<Filter>,
         sort: Vec<(Property, Sort)>,
         distinct: Vec<Property>,
         offset_limit: Option<(usize, usize)>,
     ) -> Self {
         Query {
-            id_where_clauses,
-            index_where_clauses,
+            where_clauses,
             where_clauses_overlapping: true,
             filter,
             sort,
@@ -62,32 +59,30 @@ impl<'txn> Query {
     where
         F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
-        let mut executor = WhereExecutor::new(
-            &self.id_where_clauses,
-            &self.index_where_clauses,
-            self.where_clauses_overlapping,
-        );
+        let mut result_ids = if self.where_clauses_overlapping {
+            Some(HashSet::<i64>::new())
+        } else {
+            None
+        };
 
         let static_filter = StaticCond::filter(true);
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
-        executor.execute(cursors, |cursors, object| {
-            let mut filter_cursors = FilterCursors::new(&mut cursors.primary2, &mut cursors.links);
-            if filter.evaluate(object, Some(&mut filter_cursors))? {
-                callback(object)
-            } else {
-                Ok(true)
-            }
-        })
-    }
 
-    pub(crate) fn get_linked_collections(&self) -> Option<HashSet<u16>> {
-        if let Some(filter) = &self.filter {
-            let mut col_ids = HashSet::<u16>::new();
-            filter.get_linked_collections(&mut col_ids);
-            Some(col_ids)
-        } else {
-            None
+        for where_clause in &self.where_clauses {
+            let result =
+                where_clause.iter(cursors, result_ids.as_mut(), |filter_cursors, object| {
+                    if filter.evaluate(object, Some(filter_cursors))? {
+                        callback(object)
+                    } else {
+                        Ok(true)
+                    }
+                })?;
+            if !result {
+                return Ok(());
+            }
         }
+
+        Ok(())
     }
 
     fn execute_unsorted<F>(&self, cursors: &mut Cursors<'txn>, callback: F) -> Result<()>
@@ -200,13 +195,9 @@ impl<'txn> Query {
         results.into_iter().skip(offset).take(limit)
     }
 
-    pub(crate) fn matches_wc_filter(&self, oid: i64, object: IsarObject) -> bool {
-        let wc_matches_id = self.id_where_clauses.iter().any(|wc| wc.id_matches(oid));
-        let wc_matches_index = self
-            .index_where_clauses
-            .iter()
-            .any(|wc| wc.object_matches(object));
-        if !wc_matches_id && !wc_matches_index {
+    pub(crate) fn matches_wc_filter(&self, id: i64, object: IsarObject) -> bool {
+        let wc_matches = self.where_clauses.iter().any(|wc| wc.matches(id, object));
+        if !wc_matches {
             return false;
         }
 

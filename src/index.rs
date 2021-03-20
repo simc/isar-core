@@ -2,7 +2,7 @@ use crate::error::{IsarError, Result};
 use crate::lmdb::{ByteKey, IntKey, Key};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
-use crate::query::where_clause::IndexWhereClause;
+use crate::query::index_where_clause::IndexWhereClause;
 use crate::query::Sort;
 use crate::schema::collection_schema::IndexType;
 use crate::txn::Cursors;
@@ -15,7 +15,7 @@ use wyhash::{wyhash, WyHash};
 #[cfg(test)]
 use {crate::txn::IsarTxn, crate::utils::debug::dump_db, hashbrown::HashSet};
 
-pub const MAX_STRING_INDEX_SIZE: usize = 1500;
+pub const MAX_STRING_INDEX_SIZE: usize = 1024;
 
 /*
 
@@ -42,6 +42,7 @@ impl IndexProperty {
             case_sensitive,
         }
     }
+
     pub fn get_string_with_case(&self, object: IsarObject) -> Option<String> {
         object.read_string(self.property).map(|str| {
             if self.case_sensitive.unwrap() {
@@ -54,7 +55,7 @@ impl IndexProperty {
 }
 
 #[derive(Clone, Eq, PartialEq)]
-pub struct Index {
+pub(crate) struct Index {
     id: u16,
     col_id: u16,
     properties: Vec<IndexProperty>,
@@ -63,7 +64,7 @@ pub struct Index {
 }
 
 impl Index {
-    pub(crate) fn new(
+    pub fn new(
         id: u16,
         col_id: u16,
         properties: Vec<IndexProperty>,
@@ -83,95 +84,96 @@ impl Index {
         IndexWhereClause::new(&self.get_prefix(), self.clone(), skip_duplicates, sort)
     }
 
-    pub(crate) fn get_id(&self) -> u16 {
+    pub fn get_id(&self) -> u16 {
         self.id
     }
 
-    pub(crate) fn get_prefix(&self) -> Vec<u8> {
+    pub fn get_prefix(&self) -> Vec<u8> {
         self.id.to_be_bytes().to_vec()
     }
 
-    pub(crate) fn is_unique(&self) -> bool {
-        self.unique
-    }
-
-    pub(crate) fn does_replace(&self) -> bool {
-        self.replace
-    }
-
-    pub(crate) fn multiple(&self) -> bool {
+    pub fn multiple(&self) -> bool {
         self.properties.first().unwrap().index_type == IndexType::Words
     }
 
-    pub(crate) fn create_for_object(
+    pub fn create_for_object<F>(
         &self,
         cursors: &mut Cursors,
         oid: i64,
         object: IsarObject,
-    ) -> Result<()> {
-        let key = IntKey::new(self.col_id, oid);
-        let oid_bytes = key.as_bytes();
+        mut delete_existing: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&mut Cursors, i64) -> Result<()>,
+    {
+        let id_key = IntKey::new(self.col_id, oid);
         self.create_keys(object, |key| {
-            if self.unique {
-                let success = cursors
-                    .secondary
-                    .put_no_override(ByteKey::new(key), &oid_bytes)?;
-                if !success {
+            self.create_for_object_key(cursors, id_key, ByteKey::new(key), &mut delete_existing)?;
+            Ok(true)
+        })
+    }
+
+    fn create_for_object_key<F>(
+        &self,
+        cursors: &mut Cursors,
+        id_key: IntKey,
+        key: ByteKey,
+        mut delete_existing: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&mut Cursors, i64) -> Result<()>,
+    {
+        if self.unique {
+            let success = cursors.index.put_no_override(key, id_key.as_bytes())?;
+            if !success {
+                if self.replace {
+                    delete_existing(cursors, id_key.get_id())?;
+                } else {
                     return Err(IsarError::UniqueViolated {});
                 }
-            } else {
-                cursors.secondary_dup.put(ByteKey::new(key), &oid_bytes)?;
             }
-            Ok(true)
-        })
-    }
-
-    pub(crate) fn delete_for_object(
-        &self,
-        cursors: &mut Cursors,
-        oid: i64,
-        object: IsarObject,
-    ) -> Result<()> {
-        let key = IntKey::new(self.col_id, oid);
-        let oid_bytes = key.as_bytes();
-        self.create_keys(object, |key| {
-            if self.unique {
-                let entry = cursors.secondary.move_to(ByteKey::new(key))?;
-                if entry.is_some() {
-                    cursors.secondary.delete_current()?;
-                }
-            } else {
-                let entry = cursors
-                    .secondary_dup
-                    .move_to_key_val(ByteKey::new(key), &oid_bytes)?;
-                if entry.is_some() {
-                    cursors.secondary_dup.delete_current()?;
-                }
-            }
-            Ok(true)
-        })
-    }
-
-    pub(crate) fn clear(&self, cursors: &mut Cursors) -> Result<()> {
-        self.new_where_clause(false, Sort::Ascending)
-            .iter(cursors, |cursors, _| {
-                if self.unique {
-                    cursors.secondary.delete_current()?;
-                } else {
-                    cursors.secondary_dup.delete_current()?;
-                };
-                Ok(true)
-            })?;
+        } else {
+            cursors.index.put(key, id_key.as_bytes())?;
+        }
         Ok(())
     }
 
-    pub(crate) fn create_keys(
+    pub fn delete_for_object(
+        &self,
+        cursors: &mut Cursors,
+        oid: i64,
+        object: IsarObject,
+    ) -> Result<()> {
+        let key = IntKey::new(self.col_id, oid);
+        let oid_bytes = key.as_bytes();
+        self.create_keys(object, |key| {
+            let entry = cursors
+                .index
+                .move_to_key_val(ByteKey::new(key), &oid_bytes)?;
+            if entry.is_some() {
+                cursors.index.delete_current()?;
+            }
+            Ok(true)
+        })
+    }
+
+    pub fn clear(&self, cursors: &mut Cursors) -> Result<()> {
+        self.new_where_clause(false, Sort::Ascending).iter_ids(
+            &mut cursors.index,
+            |cursor, _| {
+                cursor.delete_current()?;
+                Ok(true)
+            },
+        )?;
+        Ok(())
+    }
+
+    pub fn create_keys(
         &self,
         object: IsarObject,
         mut callback: impl FnMut(&[u8]) -> Result<bool>,
     ) -> Result<()> {
         let mut bytes = self.get_prefix();
-        bytes.extend(self.create_single_key(object));
         if self.multiple() {
             let static_len = bytes.len();
             self.create_multiple_keys(object, |key| {
@@ -180,6 +182,7 @@ impl Index {
                 callback(&bytes)
             })
         } else {
+            bytes.extend(self.create_single_key(object));
             callback(&bytes)?;
             Ok(())
         }
@@ -188,7 +191,6 @@ impl Index {
     fn create_single_key(&self, object: IsarObject) -> Vec<u8> {
         self.properties
             .iter()
-            .filter(|ip| ip.index_type != IndexType::Words)
             .flat_map(|ip| match ip.property.data_type {
                 DataType::Byte => {
                     let value = object.read_byte(ip.property);
@@ -325,12 +327,7 @@ impl Index {
     #[cfg(test)]
     pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashSet<(Vec<u8>, Vec<u8>)> {
         txn.read(|cursors| {
-            let cursor = if self.unique {
-                &mut cursors.secondary
-            } else {
-                &mut cursors.secondary_dup
-            };
-            let set = dump_db(cursor, Some(&self.id.to_be_bytes()))
+            let set = dump_db(&mut cursors.index, Some(&self.id.to_be_bytes()))
                 .into_iter()
                 .map(|(key, val)| (key.to_vec(), val.to_vec()))
                 .collect();

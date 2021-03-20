@@ -14,10 +14,9 @@ pub struct IsarTxn<'a> {
 
 #[derive(Clone)]
 pub(crate) struct Cursors<'a> {
-    pub(crate) primary: Cursor<'a>,
-    pub(crate) primary2: Cursor<'a>,
-    pub(crate) secondary: Cursor<'a>,
-    pub(crate) secondary_dup: Cursor<'a>,
+    pub(crate) data: Cursor<'a>,
+    pub(crate) data2: Cursor<'a>,
+    pub(crate) index: Cursor<'a>,
     pub(crate) links: Cursor<'a>,
 }
 

@@ -35,18 +35,10 @@ impl Db {
     pub fn cursor<'txn>(&self, txn: &'txn Txn) -> Result<Cursor<'txn>> {
         Cursor::open(txn, &self)
     }
-
-    #[cfg(test)]
-    pub fn debug_new(dup: bool) -> Db {
-        Db { dbi: 0, dup }
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::lmdb::env::tests::get_env;
-
-    use super::*;
 
     /*#[test]
     fn test_open() {

@@ -6,8 +6,9 @@ use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::object::object_builder::ObjectBuilder;
 use crate::object::object_info::ObjectInfo;
+use crate::query::id_where_clause::IdWhereClause;
+use crate::query::index_where_clause::IndexWhereClause;
 use crate::query::query_builder::QueryBuilder;
-use crate::query::where_clause::{IdWhereClause, IndexWhereClause};
 use crate::query::Sort;
 use crate::txn::{Cursors, IsarTxn};
 use crate::watch::change_set::ChangeSet;
@@ -141,7 +142,7 @@ impl IsarCollection {
         verify_id(oid)?;
         txn.read(|cursors| {
             let object = cursors
-                .primary
+                .data
                 .move_to(IntKey::new(self.id, oid))?
                 .map(|(_, v)| IsarObject::from_bytes(v));
             Ok(object)
@@ -168,22 +169,14 @@ impl IsarCollection {
         }
 
         for index in &self.indexes {
-            if index.does_replace() {
-                let mut ids_to_delete = vec![];
-                let wc = index.new_where_clause(false, Sort::Ascending);
-                wc.iter(cursors, |_, key| {
-                    ids_to_delete.push(key.get_id());
-                    Ok(true)
-                })?;
-                for oid in ids_to_delete {
-                    self.delete_internal(cursors, change_set.as_deref_mut(), oid)?;
-                }
-            }
-            index.create_for_object(cursors, oid, object)?;
+            index.create_for_object(cursors, oid, object, |cursors, id| {
+                self.delete_internal(cursors, change_set.as_deref_mut(), id)?;
+                Ok(())
+            })?;
         }
 
         cursors
-            .primary
+            .data
             .put(IntKey::new(self.id, oid), object.as_bytes())?;
         self.register_object_change(change_set, oid, object);
         Ok(())
@@ -199,7 +192,7 @@ impl IsarCollection {
         change_set: Option<&mut ChangeSet>,
         oid: i64,
     ) -> Result<bool> {
-        if let Some((_, object)) = cursors.primary.move_to(IntKey::new(self.id, oid))? {
+        if let Some((_, object)) = cursors.data.move_to(IntKey::new(self.id, oid))? {
             let object = IsarObject::from_bytes(object);
             for index in &self.indexes {
                 index.delete_for_object(cursors, oid, object)?;
@@ -208,7 +201,7 @@ impl IsarCollection {
                 link.delete_all_for_object(&mut cursors.links, oid)?;
             }
             self.register_object_change(change_set, oid, object);
-            cursors.primary.delete_current()?;
+            cursors.data.delete_current()?;
             Ok(true)
         } else {
             Ok(false)
@@ -235,7 +228,7 @@ impl IsarCollection {
         let link = self.get_link_backlink(link_index, backlink)?;
         txn.write(|cursors, change_set| {
             self.register_link_change(change_set, link);
-            link.create(&mut cursors.primary, &mut cursors.links, oid, target_oid)
+            link.create(&mut cursors.data, &mut cursors.links, oid, target_oid)
         })
     }
 
@@ -281,7 +274,7 @@ impl IsarCollection {
     {
         let link = self.get_link_backlink(link_index, backlink)?;
         txn.read(|cursors| {
-            link.iter(&mut cursors.primary, &mut cursors.links, oid, |object| {
+            link.iter(&mut cursors.data, &mut cursors.links, oid, |object| {
                 Ok(callback(object))
             })
         })
@@ -297,10 +290,9 @@ impl IsarCollection {
                 link.clear(&mut cursors.links)?;
             }
             self.new_id_where_clause(None, None, Sort::Ascending)?
-                .iter(cursors, |cursors, oid, o| {
-                    let object = IsarObject::from_bytes(o);
-                    self.register_object_change(change_set.as_deref_mut(), oid.get_id(), object);
-                    cursors.primary.delete_current()?;
+                .iter(&mut cursors.data, None, |cursor, id, object| {
+                    self.register_object_change(change_set.as_deref_mut(), id.get_id(), object);
+                    cursor.delete_current()?;
                     counter += 1;
                     Ok(true)
                 })?;
@@ -332,15 +324,15 @@ impl IsarCollection {
         let mut items = vec![];
         txn.read(|cursors| {
             let wc = self.new_id_where_clause(None, None, Sort::Ascending)?;
-            wc.iter(cursors, |cursors, _, bytes| {
-                let object = IsarObject::from_bytes(bytes);
+            let links = &mut cursors.links;
+            wc.iter(&mut cursors.data, None, |_, _, object| {
                 let mut json = JsonEncodeDecode::encode(self, object, primitive_null, byte_as_bool);
 
                 if include_links {
                     let oid = object.read_long(self.get_oid_property());
                     for (name, link) in &self.links {
                         let mut target_ids = vec![];
-                        link.iter_ids(&mut cursors.links, oid, |_, target_id| {
+                        link.iter_ids(links, oid, |_, target_id| {
                             target_ids.push(target_id.get_id());
                             Ok(true)
                         })?;
@@ -376,7 +368,7 @@ impl IsarCollection {
     #[cfg(test)]
     pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashMap<i64, Vec<u8>> {
         txn.read(|cursors| {
-            let map = dump_db_oid(&mut cursors.primary, self.id)
+            let map = dump_db_oid(&mut cursors.data, self.id)
                 .into_iter()
                 .map(|(k, v)| (IntKey::from_bytes(&k).get_id(), v))
                 .collect();
@@ -386,7 +378,7 @@ impl IsarCollection {
     }
 
     #[cfg(test)]
-    pub fn debug_get_index(&self, index: usize) -> &Index {
+    pub(crate) fn debug_get_index(&self, index: usize) -> &Index {
         self.indexes.get(index).unwrap()
     }
 }

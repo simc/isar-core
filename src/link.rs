@@ -73,7 +73,7 @@ impl Link {
 
     pub fn iter<'txn, F>(
         &self,
-        primary_cursor: &mut Cursor<'txn>,
+        data_cursor: &mut Cursor<'txn>,
         links_cursor: &mut Cursor,
         oid: i64,
         mut callback: F,
@@ -82,7 +82,7 @@ impl Link {
         F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
         self.iter_ids(links_cursor, oid, |_, link_target_key| {
-            if let Some((_, object)) = primary_cursor.move_to(link_target_key)? {
+            if let Some((_, object)) = data_cursor.move_to(link_target_key)? {
                 callback(IsarObject::from_bytes(object))
             } else {
                 Err(IsarError::DbCorrupted {
@@ -94,16 +94,14 @@ impl Link {
 
     pub fn create(
         &self,
-        primary_cursor: &mut Cursor,
+        data_cursor: &mut Cursor,
         links_cursor: &mut Cursor,
         oid: i64,
         target_oid: i64,
     ) -> Result<bool> {
         let id_key = IntKey::new(self.col_id, oid);
         let target_id_key = IntKey::new(self.target_col_id, target_oid);
-        if primary_cursor.move_to(id_key)?.is_none()
-            || primary_cursor.move_to(target_id_key)?.is_none()
-        {
+        if data_cursor.move_to(id_key)?.is_none() || data_cursor.move_to(target_id_key)?.is_none() {
             return Ok(false);
         }
 
@@ -241,7 +239,7 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         let success = txn
-            .write(|c, _| link.create(&mut c.primary, &mut c.links, 555, 0))
+            .write(|c, _| link.create(&mut c.data, &mut c.links, 555, 0))
             .unwrap();
         assert_eq!(success, false);
         assert!(link.debug_dump(&mut txn).is_empty());
@@ -257,7 +255,7 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         let success = txn
-            .write(|c, _| link.create(&mut c.primary, &mut c.links, 0, 555))
+            .write(|c, _| link.create(&mut c.data, &mut c.links, 0, 555))
             .unwrap();
         assert_eq!(success, false);
         assert!(link.debug_dump(&mut txn).is_empty());
@@ -274,9 +272,9 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
-            assert!(link.create(&mut c.primary, &mut c.links, 1, 1).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 1, 2).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 2, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
             Ok(())
         })
         .unwrap();
@@ -302,9 +300,9 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
-            assert!(link.create(&mut c.primary, &mut c.links, 1, 1).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 1, 2).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 2, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
             Ok(())
         })
         .unwrap();
@@ -331,9 +329,9 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
-            assert!(link.create(&mut c.primary, &mut c.links, 1, 1).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 1, 2).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 2, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
 
             assert!(link.delete(&mut c.links, 1, 2).unwrap());
             assert!(link.delete(&mut c.links, 2, 2).unwrap());
@@ -358,9 +356,9 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
-            assert!(link.create(&mut c.primary, &mut c.links, 1, 1).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 1, 2).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 2, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
 
             assert!(link.delete(&mut c.links, 1, 2).unwrap());
             assert!(link.delete(&mut c.links, 2, 2).unwrap());
@@ -386,10 +384,10 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
-            assert!(link.create(&mut c.primary, &mut c.links, 2, 3).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 3, 2).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 3, 1).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 2, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 2, 3).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 3, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 3, 1).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
 
             link.delete_all_for_object(&mut c.links, 2).unwrap();
             Ok(())
@@ -414,10 +412,10 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
-            assert!(link.create(&mut c.primary, &mut c.links, 2, 3).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 3, 2).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 3, 1).unwrap());
-            assert!(link.create(&mut c.primary, &mut c.links, 2, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 2, 3).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 3, 2).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 3, 1).unwrap());
+            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
 
             link.clear(&mut c.links).unwrap();
             Ok(())
