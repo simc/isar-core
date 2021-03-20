@@ -3,9 +3,10 @@ use crate::instance::IsarInstance;
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::txn::Txn;
 use crate::watch::change_set::ChangeSet;
+use std::mem::ManuallyDrop;
 
 pub struct IsarTxn<'a> {
-    txn: Txn<'a>,
+    txn: Option<Txn<'a>>,
     active: bool,
     write: bool,
     change_set: Option<ChangeSet<'a>>,
@@ -32,7 +33,7 @@ impl<'a> IsarTxn<'a> {
         let cursors: Cursors<'static> = unsafe { std::mem::transmute(cursors) };
 
         Ok(IsarTxn {
-            txn,
+            txn: Some(txn),
             active: true,
             write,
             change_set,
@@ -74,21 +75,25 @@ impl<'a> IsarTxn<'a> {
         if !self.active {
             return Err(IsarError::TransactionClosed {});
         }
-        self.cursors.take(); // drop before txn
 
         if self.write {
-            self.txn.commit()?;
-            if let Some(change_set) = self.change_set {
+            self.cursors.take(); // drop before txn
+            self.txn.take().unwrap().commit()?;
+            if let Some(change_set) = self.change_set.take() {
                 change_set.notify_watchers();
             }
-        } else {
-            self.txn.abort();
         }
         Ok(())
     }
 
-    pub fn abort(mut self) {
-        self.cursors.take(); // drop before txn
-        self.txn.abort();
+    pub fn abort(self) {}
+}
+
+impl<'a> Drop for IsarTxn<'a> {
+    fn drop(&mut self) {
+        if self.cursors.is_some() {
+            self.cursors.take(); // drop before txn
+            self.txn.take().unwrap().abort();
+        }
     }
 }
