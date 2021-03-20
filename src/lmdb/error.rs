@@ -37,6 +37,7 @@ impl LmdbError {
             LmdbError::KeyExist {} => ffi::MDB_KEYEXIST,
             LmdbError::NotFound {} => ffi::MDB_NOTFOUND,
             LmdbError::MapFull {} => ffi::MDB_MAP_FULL,
+            LmdbError::CryptoFail {} => ffi::MDB_CRYPTO_FAIL,
             LmdbError::Other {
                 code: other,
                 message: _,
