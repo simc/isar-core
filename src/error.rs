@@ -44,6 +44,11 @@ pub enum IsarError {
     #[error("SchemaError: {message:?}")]
     SchemaError { message: String },
 
+    #[error(
+        "CryptoError: Error during encryption or decryption. Please check the encryption key."
+    )]
+    CryptoError {},
+
     #[error("LmdbError ({code:?}): {message:?}")]
     LmdbError { code: i32, message: String },
 }
@@ -54,6 +59,7 @@ impl From<LmdbError> for IsarError {
     fn from(e: LmdbError) -> Self {
         match e {
             LmdbError::MapFull {} => IsarError::DbFull {},
+            LmdbError::CryptoFail {} => IsarError::CryptoError {},
             LmdbError::Other { code, message } => IsarError::LmdbError { code, message },
             _ => IsarError::LmdbError {
                 code: e.to_err_code(),

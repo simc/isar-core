@@ -6,7 +6,6 @@ use crate::lmdb::{from_mdb_val, to_mdb_val, Key, KeyVal, EMPTY_KEY, EMPTY_VAL};
 use core::ptr;
 use lmdb_sys as ffi;
 use std::cmp::Ordering;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 
 #[derive(Clone)]
@@ -44,8 +43,8 @@ impl<'txn> Cursor<'txn> {
 
         match result {
             Ok(()) => {
-                let key = unsafe { from_mdb_val(key) };
-                let data = unsafe { from_mdb_val(data) };
+                let key = unsafe { from_mdb_val(&key) };
+                let data = unsafe { from_mdb_val(&data) };
                 Ok(Some((key, data)))
             }
             Err(LmdbError::NotFound { .. }) => Ok(None),

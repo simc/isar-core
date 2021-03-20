@@ -10,6 +10,7 @@ pub enum LmdbError {
     KeyExist {},
     NotFound {},
     MapFull {},
+    CryptoFail {},
     Other { code: i32, message: String },
 }
 
@@ -19,6 +20,7 @@ impl LmdbError {
             ffi::MDB_KEYEXIST => LmdbError::KeyExist {},
             ffi::MDB_NOTFOUND => LmdbError::NotFound {},
             ffi::MDB_MAP_FULL => LmdbError::MapFull {},
+            ffi::MDB_ENV_ENCRYPTION | ffi::MDB_CRYPTO_FAIL => LmdbError::CryptoFail {},
             other => unsafe {
                 let err_raw = mdb_strerror(other);
                 let err = CStr::from_ptr(err_raw);

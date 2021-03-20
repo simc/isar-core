@@ -17,6 +17,7 @@ use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use once_cell::sync::Lazy;
 use rand::random;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 static INSTANCES: Lazy<RwLock<HashMap<String, Arc<IsarInstance>>>> =
@@ -25,27 +26,50 @@ static INSTANCES: Lazy<RwLock<HashMap<String, Arc<IsarInstance>>>> =
 pub struct IsarInstance {
     env: Env,
     dbs: DataDbs,
-    path: String,
+    name: String,
     collections: Vec<IsarCollection>,
     watchers: Mutex<IsarWatchers>,
     watcher_modifier_sender: Sender<WatcherModifier>,
 }
 
 impl IsarInstance {
-    pub fn open(path: &str, max_size: usize, schema: Schema) -> Result<Arc<Self>> {
+    pub const ENCRYPTION_KEY_LEN: usize = 16;
+
+    pub fn open(
+        name: &str,
+        dir: PathBuf,
+        max_size: usize,
+        schema: Schema,
+        encryption_key: Option<&[u8]>,
+    ) -> Result<Arc<Self>> {
         let mut lock = INSTANCES.write().unwrap();
-        match lock.entry(path.to_string()) {
+        match lock.entry(name.to_string()) {
             Entry::Occupied(e) => Ok(e.get().clone()),
             Entry::Vacant(e) => {
-                let new_instance = Self::open_internal(e.key(), max_size, schema)?;
+                let new_instance =
+                    Self::open_internal(e.key(), dir, max_size, schema, encryption_key)?;
                 let instance_ref = e.insert(Arc::new(new_instance));
                 Ok(instance_ref.clone())
             }
         }
     }
 
-    fn open_internal(path: &str, max_size: usize, schema: Schema) -> Result<Self> {
-        let env = Env::create(path, 5, max_size)?;
+    fn open_internal(
+        name: &str,
+        mut dir: PathBuf,
+        max_size: usize,
+        schema: Schema,
+        encryption_key: Option<&[u8]>,
+    ) -> Result<Self> {
+        if let Some(encryption_key) = encryption_key {
+            if encryption_key.len() != 32 {
+                return illegal_arg("Encryption key needs to have 32 bytes.");
+            }
+        }
+
+        dir.push(name);
+        let path = dir.to_str().unwrap();
+        let env = Env::create(path, 4, max_size, encryption_key)?;
         let dbs = IsarInstance::open_databases(&env)?;
 
         let txn = env.txn(true)?;
@@ -65,7 +89,7 @@ impl IsarInstance {
         Ok(IsarInstance {
             env,
             dbs,
-            path: path.to_string(),
+            name: name.to_string(),
             collections,
             watchers: Mutex::new(IsarWatchers::new(rx)),
             watcher_modifier_sender: tx,
@@ -79,16 +103,14 @@ impl IsarInstance {
     fn open_databases(env: &Env) -> Result<DataDbs> {
         let txn = env.txn(true)?;
         let info = Db::open(&txn, "info", false, false, false)?;
-        let primary = Db::open(&txn, "data", true, false, false)?;
-        let secondary = Db::open(&txn, "index", false, false, false)?;
-        let secondary_dup = Db::open(&txn, "index_dup", false, true, true)?;
+        let data = Db::open(&txn, "data", true, false, false)?;
+        let index = Db::open(&txn, "index", false, true, true)?;
         let links = Db::open(&txn, "links", true, true, true)?;
         txn.commit()?;
         Ok(DataDbs {
             info,
-            primary,
-            secondary,
-            secondary_dup,
+            data,
+            index,
             links,
         })
     }
@@ -97,7 +119,6 @@ impl IsarInstance {
         self.dbs.open_cursors(txn)
     }
 
-    #[inline]
     pub fn begin_txn(&self, write: bool, silent: bool) -> Result<IsarTxn> {
         let change_set = if write && !silent {
             let mut watchers_lock = self.watchers.lock().unwrap();
@@ -190,45 +211,28 @@ impl IsarInstance {
 
     pub fn close(self: Arc<Self>) -> Option<Arc<Self>> {
         if Arc::strong_count(&self) == 2 {
-            INSTANCES.write().unwrap().remove(&self.path);
+            INSTANCES.write().unwrap().remove(&self.name);
             Arc::downgrade(&self);
             None
         } else {
             Some(self)
         }
     }
-
-    #[cfg(test)]
-    pub fn debug_get_primary_db(&self) -> Db {
-        self.dbs.primary
-    }
-
-    #[cfg(test)]
-    pub fn debug_get_secondary_db(&self) -> Db {
-        self.dbs.secondary
-    }
-
-    #[cfg(test)]
-    pub fn debug_get_secondary_dup_db(&self) -> Db {
-        self.dbs.secondary_dup
-    }
 }
 
 struct DataDbs {
     pub info: Db,
-    pub primary: Db,
-    pub secondary: Db,
-    pub secondary_dup: Db,
+    pub data: Db,
+    pub index: Db,
     pub links: Db,
 }
 
 impl DataDbs {
     fn open_cursors<'txn>(&self, txn: &'txn Txn) -> Result<Cursors<'txn>> {
         Ok(Cursors {
-            primary: self.primary.cursor(&txn)?,
-            primary2: self.primary.cursor(&txn)?,
-            secondary: self.secondary.cursor(&txn)?,
-            secondary_dup: self.secondary_dup.cursor(&txn)?,
+            data: self.data.cursor(&txn)?,
+            data2: self.data.cursor(&txn)?,
+            index: self.index.cursor(&txn)?,
             links: self.links.cursor(&txn)?,
         })
     }

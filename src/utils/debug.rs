@@ -2,8 +2,7 @@
 
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::{ByteKey, IntKey, MAX_ID, MIN_ID};
-use hashbrown::{HashMap, HashSet};
-use std::hash::Hash;
+use hashbrown::HashSet;
 
 #[macro_export]
 macro_rules! map (
@@ -30,19 +29,42 @@ macro_rules! set (
 #[macro_export]
 macro_rules! isar (
     (path: $path:ident, $isar:ident, $($col:ident => $schema:expr),+) => {
-        let cols = vec![$($schema,)+];
-        let schema = crate::schema::Schema::new(cols).unwrap();
-        let $isar = crate::instance::IsarInstance::open($path, 10000000, schema).unwrap();
-        $(
-            let col = $schema;
-            let $col = $isar.get_collection_by_name(&col.name).unwrap();
-        )+
+        let key = None;
+        isar!(_internal: $path, key, $isar, $($col => $schema),+);
+    };
+
+    (crypto: $key:ident, $isar:ident, $($col:ident => $schema:expr),+) => {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().to_str().unwrap();
+        let key = Some($key);
+        isar!(_internal: path, key, $isar, $($col => $schema),+);
     };
 
     ($isar:ident, $($col:ident => $schema:expr),+) => {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().to_str().unwrap();
         isar!(path: path, $isar, $($col => $schema),+);
+    };
+
+    (_internal: $path:ident, $key:ident, $isar:ident, $($col:ident => $schema:expr),+) => {
+        let cols = vec![$($schema,)+];
+        let schema = crate::schema::Schema::new(cols).unwrap();
+        let mut path_buf = std::path::PathBuf::new();
+        path_buf.push($path);
+        let optional_key = vec![5u8; 16];
+        let key = $key.or_else(|| {
+            if cfg!(feature = "test-encryption") {
+                Some(&optional_key[..])
+            } else {
+                None
+            }
+        });
+
+        let $isar = crate::instance::IsarInstance::open($path, path_buf, 10000000, schema, key).unwrap();
+        $(
+            let col = $schema;
+            let $col = $isar.get_collection_by_name(&col.name).unwrap();
+        )+
     };
 );
 

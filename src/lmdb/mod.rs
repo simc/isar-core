@@ -32,8 +32,13 @@ const ID_PREFIX_MASK: u64 = 0xffff_ffff_ffff;
 const ID_OFFSET: i64 = i64::MIN - MIN_ID;
 
 #[inline]
-pub unsafe fn from_mdb_val<'a>(val: ffi::MDB_val) -> &'a [u8] {
+pub unsafe fn from_mdb_val<'a>(val: &ffi::MDB_val) -> &'a [u8] {
     slice::from_raw_parts(val.mv_data as *const u8, val.mv_size as usize)
+}
+
+#[inline]
+pub unsafe fn from_mdb_val_mut<'a>(val: &mut ffi::MDB_val) -> &'a mut [u8] {
+    slice::from_raw_parts_mut(val.mv_data as *mut u8, val.mv_size as usize)
 }
 
 #[inline]

@@ -22,11 +22,15 @@ crossbeam-channel = "0.5.0"
 unicode-segmentation = "1.7.1"
 byteorder = "1"
 paste = "1.0"
+boring = { git = "https://github.com/isar/boring" }
 
 [dev-dependencies]
 cfg-if = "1"
 tempfile = "3"
 float_next_after = "0.1"
+
+[features]
+test-encryption = []
 
 [profile.release]
 lto = true
