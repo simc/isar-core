@@ -379,6 +379,7 @@ mod tests {
         builder.write_long(1);
         builder.write_byte(123);
         check_index(&isar, col, builder.finish());
+        isar.close();
     }
 
     #[test]
@@ -388,6 +389,7 @@ mod tests {
         builder.write_long(1);
         builder.write_int(123);
         check_index(&isar, col, builder.finish());
+        isar.close();
     }
 
     #[test]
@@ -397,6 +399,7 @@ mod tests {
         builder.write_long(1);
         builder.write_float(123.321);
         check_index(&isar, col, builder.finish());
+        isar.close();
     }
 
     #[test]
@@ -406,6 +409,7 @@ mod tests {
         builder.write_long(1);
         builder.write_long(123321);
         check_index(&isar, col, builder.finish());
+        isar.close();
     }
 
     #[test]
@@ -415,6 +419,7 @@ mod tests {
         builder.write_long(1);
         builder.write_double(123123.321321);
         check_index(&isar, col, builder.finish());
+        isar.close();
     }
 
     #[test]
@@ -425,6 +430,7 @@ mod tests {
             builder.write_long(1);
             builder.write_string(Some("Hello This Is A TEST Hello"));
             check_index(&isar, col, builder.finish());
+            isar.close();
         }
 
         for str_type in &[IndexType::Value, IndexType::Hash, IndexType::Words] {
@@ -454,6 +460,8 @@ mod tests {
             Err(IsarError::UniqueViolated { .. }) => {}
             _ => panic!("wrong error"),
         };
+        txn.abort();
+        isar.close();
     }
 
     #[test]

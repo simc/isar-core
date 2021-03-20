@@ -209,13 +209,13 @@ impl IsarInstance {
         )
     }
 
-    pub fn close(self: Arc<Self>) -> Option<Arc<Self>> {
+    pub fn close(self: Arc<Self>) -> bool {
         if Arc::strong_count(&self) == 2 {
             INSTANCES.write().unwrap().remove(&self.name);
             Arc::downgrade(&self);
-            None
+            true
         } else {
-            Some(self)
+            false
         }
     }
 }
@@ -263,6 +263,7 @@ mod tests {
         let mut txn = isar.begin_txn(false, false).unwrap();
         assert_eq!(col.get(&mut txn, 123).unwrap().unwrap(), o);
         txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -281,7 +282,7 @@ mod tests {
         col1.put(&mut txn, object).unwrap();
         txn.commit().unwrap();
 
-        assert!(isar.close().is_none());
+        assert!(isar.close());
 
         isar!(path: path, isar2, col1 => col!("col1", f1 => DataType::Long), col2 => col!("col2", f1 => DataType::Long));
         let mut txn = isar2.begin_txn(false, false).unwrap();
@@ -289,6 +290,7 @@ mod tests {
         assert_eq!(col1.get(&mut txn, 123).unwrap(), Some(object));
         assert_eq!(col2.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();
+        isar2.close();
     }
 
     #[test]
@@ -313,5 +315,6 @@ mod tests {
         let mut txn = isar.begin_txn(false, false).unwrap();
         assert_eq!(col1.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();
+        isar.close();
     }
 }

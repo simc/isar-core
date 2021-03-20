@@ -1,7 +1,5 @@
 #!/bin/bash
 
-cargo build --release
-
 case $(uname | tr '[:upper:]' '[:lower:]') in
   linux*)
     cargo build --release
@@ -19,6 +17,8 @@ case $(uname | tr '[:upper:]' '[:lower:]') in
     fi
     ;;
   *)
+    choco install nasm
+    cargo build --release
     mv "target/release/isar_core_dart_ffi.dll" "isar_windows_x64.dll"
     ;;
 esac

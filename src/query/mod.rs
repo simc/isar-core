@@ -308,6 +308,8 @@ mod tests {
         let q = col.new_query_builder().build();
         assert_eq!(find(&mut txn, q), vec![(1, 1), (2, 2), (3, 3), (4, 4)]);
 
+        txn.abort();
+        isar.close();
         Ok(())
     }
 
@@ -324,6 +326,8 @@ mod tests {
         qb.add_id_where_clause(wc)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3), (4, 4)]);
 
+        txn.abort();
+        isar.close();
         Ok(())
     }
 
@@ -341,6 +345,8 @@ mod tests {
         qb.add_index_where_clause(wc, true, true)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3)]);
 
+        txn.abort();
+        isar.close();
         Ok(())
     }
 
@@ -369,6 +375,8 @@ mod tests {
         qb.add_index_where_clause(wc, true, true)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (4, 3), (7, 4)]);
 
+        txn.abort();
+        isar.close();
         Ok(())
     }
 
@@ -394,6 +402,9 @@ mod tests {
         let results = find(&mut txn, qb.build());
         let results_set: HashSet<(i64, i32)> = results.into_iter().collect();
         assert_eq!(results_set, set![(1, 1), (4, 3), (5, 3), (6, 3), (7, 4)]);
+
+        txn.abort();
+        isar.close();
         Ok(())
     }
 
@@ -415,6 +426,8 @@ mod tests {
             vec![(1, 5), (4, 3), (5, 2), (6, 2)]
         );
 
+        txn.abort();
+        isar.close();
         Ok(())
     }
 
@@ -437,6 +450,8 @@ mod tests {
             vec![(5, 2), (6, 2), (4, 3), (1, 5)]
         );
 
+        txn.abort();
+        isar.close();
         Ok(())
     }
 
@@ -455,6 +470,8 @@ mod tests {
             vec![(1, 5), (2, 4), (4, 3), (5, 2), (7, 1)]
         );
 
+        txn.abort();
+        isar.close();
         Ok(())
     }
 
@@ -474,6 +491,8 @@ mod tests {
             vec![(7, 1), (5, 2), (4, 3), (2, 4), (1, 5)]
         );
 
+        txn.abort();
+        isar.close();
         Ok(())
     }
 }

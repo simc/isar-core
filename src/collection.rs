@@ -405,6 +405,8 @@ mod tests {
         assert_eq!(col.get(&mut txn, 123).unwrap().unwrap(), object);
 
         assert_eq!(col.get(&mut txn, 321).unwrap(), None);
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -433,6 +435,8 @@ mod tests {
                 100 => object2.as_bytes().to_vec()
             ]
         );
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -469,6 +473,8 @@ mod tests {
                 333 => object3.as_bytes().to_vec()
             ]
         );
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -489,6 +495,8 @@ mod tests {
             index.debug_dump(&mut txn),
             set![(key, IntKey::new(col.id, 1).as_bytes().to_vec())]
         );
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -515,6 +523,8 @@ mod tests {
             index.debug_dump(&mut txn),
             set![(key, IntKey::new(col.id, 555).as_bytes().to_vec())],
         );
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -556,6 +566,7 @@ mod tests {
         assert_eq!(rx2.len(), 1);
         handle1.stop();
         handle2.stop();
+        isar.close();
     }
 
     #[test]
@@ -589,6 +600,8 @@ mod tests {
             index.debug_dump(&mut txn),
             set![(key, IntKey::new(col.id, 2).as_bytes().to_vec())],
         );
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -607,5 +620,6 @@ mod tests {
         assert_eq!(rx.len(), 1);
         assert!(rx.try_recv().unwrap());
         handle.stop();
+        isar.close();
     }
 }

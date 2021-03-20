@@ -243,6 +243,9 @@ mod tests {
             .unwrap();
         assert_eq!(success, false);
         assert!(link.debug_dump(&mut txn).is_empty());
+
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -259,6 +262,9 @@ mod tests {
             .unwrap();
         assert_eq!(success, false);
         assert!(link.debug_dump(&mut txn).is_empty());
+
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -288,6 +294,9 @@ mod tests {
             link.to_backlink().debug_dump(&mut txn),
             map!(1 => set![1], 2 => set![1, 2])
         );
+
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -316,6 +325,9 @@ mod tests {
             link.to_backlink().debug_dump(&mut txn),
             map!(1 => set![1], 2 => set![1, 2])
         );
+
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -344,6 +356,9 @@ mod tests {
         assert_eq!(link.debug_dump(&mut txn), map!(1 => set![1]));
 
         assert_eq!(link.to_backlink().debug_dump(&mut txn), map!(1 => set![1]));
+
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -371,6 +386,9 @@ mod tests {
         assert_eq!(link.debug_dump(&mut txn), map!(1 => set![1]));
 
         assert_eq!(link.to_backlink().debug_dump(&mut txn), map!(1 => set![1]));
+
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -400,6 +418,9 @@ mod tests {
             link.to_backlink().debug_dump(&mut txn),
             map!(1 => set![3], 2 => set![3])
         );
+
+        txn.abort();
+        isar.close();
     }
 
     #[test]
@@ -425,5 +446,8 @@ mod tests {
         assert!(link.debug_dump(&mut txn).is_empty());
 
         assert!(link.to_backlink().debug_dump(&mut txn).is_empty());
+
+        txn.abort();
+        isar.close();
     }
 }
