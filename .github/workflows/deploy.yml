@@ -9,6 +9,7 @@ jobs:
   build_and_upload:
     name: Build and upload
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
