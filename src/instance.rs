@@ -33,7 +33,7 @@ pub struct IsarInstance {
 }
 
 impl IsarInstance {
-    pub const ENCRYPTION_KEY_LEN: usize = 16;
+    pub const ENCRYPTION_KEY_LEN: usize = 32;
 
     pub fn open(
         name: &str,
@@ -62,8 +62,8 @@ impl IsarInstance {
         encryption_key: Option<&[u8]>,
     ) -> Result<Self> {
         if let Some(encryption_key) = encryption_key {
-            if encryption_key.len() != 32 {
-                return illegal_arg("Encryption key needs to have 32 bytes.");
+            if encryption_key.len() != IsarInstance::ENCRYPTION_KEY_LEN {
+                return illegal_arg("Wrong Encryption key size.");
             }
         }
 
