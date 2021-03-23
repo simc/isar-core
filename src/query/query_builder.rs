@@ -14,7 +14,8 @@ pub struct QueryBuilder<'a> {
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
     distinct: Vec<Property>,
-    offset_limit: Option<(usize, usize)>,
+    offset: usize,
+    limit: usize,
 }
 
 impl<'a> QueryBuilder<'a> {
@@ -25,7 +26,8 @@ impl<'a> QueryBuilder<'a> {
             filter: None,
             sort: vec![],
             distinct: vec![],
-            offset_limit: None,
+            offset: 0,
+            limit: usize::MAX,
         }
     }
 
@@ -78,16 +80,12 @@ impl<'a> QueryBuilder<'a> {
         self.distinct.push(property);
     }
 
-    pub fn set_offset_limit(&mut self, offset: Option<usize>, limit: Option<usize>) -> Result<()> {
-        let offset = offset.unwrap_or(0);
-        let limit = limit.unwrap_or(usize::MAX);
+    pub fn set_offset(&mut self, offset: usize) {
+        self.offset = offset;
+    }
 
-        if offset > limit {
-            illegal_arg("Offset has to less or equal than limit.")
-        } else {
-            self.offset_limit = Some((offset, limit));
-            Ok(())
-        }
+    pub fn set_limit(&mut self, limit: usize) {
+        self.limit = limit;
     }
 
     pub fn build(mut self) -> Query {
@@ -105,7 +103,8 @@ impl<'a> QueryBuilder<'a> {
             self.filter,
             sort_unique,
             distinct_unique,
-            self.offset_limit,
+            self.offset,
+            self.limit,
         )
     }
 }

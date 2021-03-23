@@ -33,7 +33,8 @@ pub struct Query {
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
     distinct: Vec<Property>,
-    offset_limit: Option<(usize, usize)>,
+    offset: usize,
+    limit: usize,
 }
 
 impl<'txn> Query {
@@ -43,7 +44,8 @@ impl<'txn> Query {
         filter: Option<Filter>,
         sort: Vec<(Property, Sort)>,
         distinct: Vec<Property>,
-        offset_limit: Option<(usize, usize)>,
+        offset: usize,
+        limit: usize,
     ) -> Self {
         Query {
             where_clauses,
@@ -51,7 +53,8 @@ impl<'txn> Query {
             filter,
             sort,
             distinct,
-            offset_limit,
+            offset,
+            limit,
         }
     }
 
@@ -129,7 +132,8 @@ impl<'txn> Query {
     where
         F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
-        let (offset, limit) = self.offset_limit.unwrap_or((0, usize::MAX));
+        let offset = self.offset;
+        let limit = self.limit;
         let mut count = 0;
         move |value| {
             let result = if count >= offset {
@@ -191,7 +195,8 @@ impl<'txn> Query {
         &self,
         results: Vec<IsarObject<'txn>>,
     ) -> impl IntoIterator<Item = IsarObject<'txn>> {
-        let (offset, limit) = self.offset_limit.unwrap_or((0, usize::MAX));
+        let offset = self.offset;
+        let limit = self.limit;
         results.into_iter().skip(offset).take(limit)
     }
 
