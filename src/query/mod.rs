@@ -133,17 +133,15 @@ impl<'txn> Query {
         F: FnMut(IsarObject<'txn>) -> Result<bool>,
     {
         let offset = self.offset;
-        let limit = self.limit;
+        let max_count = self.limit.saturating_add(offset);
         let mut count = 0;
         move |value| {
-            let result = if count >= offset {
-                callback(value)?
-            } else {
-                true
-            };
             count += 1;
-            let next = result && limit.saturating_add(offset) > count;
-            Ok(next)
+            if count > max_count || (count > offset && !callback(value)?) {
+                Ok(false)
+            } else {
+                Ok(true)
+            }
         }
     }
 
