@@ -65,9 +65,9 @@ pub unsafe extern "C" fn isar_create_instance(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_get_instance(isar: *mut *const IsarInstance, path: *const c_char) {
-    let path = from_c_str(path).unwrap();
-    let instance = IsarInstance::get_instance(&path);
+pub unsafe extern "C" fn isar_get_instance(isar: *mut *const IsarInstance, name: *const c_char) {
+    let name = from_c_str(name).unwrap();
+    let instance = IsarInstance::get_instance(&name);
     if let Some(instance) = instance {
         isar.write(instance.as_ref());
     } else {

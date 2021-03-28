@@ -56,6 +56,7 @@ impl<'a> JsonEncodeDecode {
     ) -> Result<ObjectBuilder<'a>> {
         let mut ob = collection.new_object_builder(buffer);
         let object = json.as_object().ok_or(IsarError::InvalidJson {})?;
+        let oid_property = collection.get_oid_property();
 
         for (name, property) in collection.get_properties() {
             if let Some(value) = object.get(name) {
@@ -65,7 +66,7 @@ impl<'a> JsonEncodeDecode {
                     DataType::Float => ob.write_float(Self::value_to_float(value)?),
                     DataType::Long => {
                         let mut long_value = Self::value_to_long(value)?;
-                        if property == &collection.get_oid_property() && value.is_null() {
+                        if property == &oid_property && value.is_null() {
                             long_value = collection.auto_increment_internal()?;
                         }
                         ob.write_long(long_value)
@@ -105,7 +106,12 @@ impl<'a> JsonEncodeDecode {
                     }
                 }
             } else {
-                ob.write_null();
+                if property == &oid_property {
+                    let oid = collection.auto_increment_internal()?;
+                    ob.write_long(oid);
+                } else {
+                    ob.write_null();
+                }
             }
         }
 

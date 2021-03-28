@@ -96,8 +96,8 @@ impl IsarInstance {
         })
     }
 
-    pub fn get_instance(path: &str) -> Option<Arc<Self>> {
-        INSTANCES.read().unwrap().get(path).cloned()
+    pub fn get_instance(name: &str) -> Option<Arc<Self>> {
+        INSTANCES.read().unwrap().get(name).cloned()
     }
 
     fn open_databases(env: &Env) -> Result<DataDbs> {
