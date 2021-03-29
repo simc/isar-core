@@ -24,9 +24,9 @@ jobs:
           - os: ubuntu-latest
             artifact_name: libisar_linux_x64.so
             script: build_desktop.sh
-         #- os: macos-latest
-         #  artifact_name: libisar_macos_arm64.dylib
-         #  script: build_desktop.sh
+          - os: macos-latest
+            artifact_name: libisar_macos_arm64.dylib
+            script: build_desktop.sh
           - os: macos-latest
             artifact_name: libisar_macos_x64.dylib
             script: build_desktop.sh x64
