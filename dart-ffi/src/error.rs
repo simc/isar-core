@@ -48,6 +48,15 @@ macro_rules! isar_try {
     }}
 }
 
+#[macro_export]
+macro_rules! isar_try_txn {
+    { $txn:expr, $closure: expr } => {
+        isar_try! {
+            $txn.exec(Box::new($closure))?;
+        }
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn isar_get_error(err_code: i32) -> *mut c_char {
     let lock = ERRORS.lock().unwrap();

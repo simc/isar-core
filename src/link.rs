@@ -169,13 +169,15 @@ impl Link {
     pub fn clear(&self, links_cursor: &mut Cursor) -> Result<()> {
         let min_link_key = self.link_key(MIN_ID);
         let max_link_key = self.link_key(MAX_ID);
-        links_cursor.iter_between(min_link_key, max_link_key, false, true, |cursor, _, _| {
-            cursor.delete_current()?;
-            Ok(true)
-        })?;
+        Self::clear_internal(links_cursor, min_link_key, max_link_key)?;
         let min_bl_key = self.bl_key(MIN_ID);
         let max_bl_key = self.bl_key(MAX_ID);
-        links_cursor.iter_between(min_bl_key, max_bl_key, false, true, |cursor, _, _| {
+        Self::clear_internal(links_cursor, min_bl_key, max_bl_key)?;
+        Ok(())
+    }
+
+    fn clear_internal(links_cursor: &mut Cursor, min_key: IntKey, max_key: IntKey) -> Result<()> {
+        links_cursor.iter_between(min_key, max_key, false, true, |cursor, _, _| {
             cursor.delete_current()?;
             Ok(true)
         })?;

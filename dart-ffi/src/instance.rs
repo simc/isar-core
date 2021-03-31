@@ -1,8 +1,8 @@
-use crate::async_txn::run_async;
 use crate::dart::dart_post_int;
 use crate::dart::DartPort;
 use crate::error::DartErrCode;
 use crate::from_c_str;
+use crate::txn::run_async;
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
 use isar_core::instance::IsarInstance;

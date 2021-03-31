@@ -1,5 +1,5 @@
 use super::raw_object_set::{RawObjectSet, RawObjectSetSend};
-use crate::async_txn::IsarAsyncTxn;
+use crate::txn::IsarDartTxn;
 use crate::UintSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
@@ -114,92 +114,39 @@ pub unsafe extern "C" fn isar_q_free(query: *mut Query) {
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_find(
-    query: &Query,
-    txn: &mut IsarTxn<'static>,
-    result: &mut RawObjectSet,
-    limit: u32,
-) -> i32 {
-    isar_try! {
-        result.fill_from_query(query, txn, limit as usize)?;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_find_async(
     query: &'static Query,
-    txn: &IsarAsyncTxn,
+    txn: &mut IsarDartTxn,
     result: &'static mut RawObjectSet,
     limit: u32,
-) {
+) -> i32 {
     let result = RawObjectSetSend(result);
-    txn.exec(move |txn| result.0.fill_from_query(query, txn, limit as usize));
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_count(query: &Query, txn: &mut IsarTxn, count: &mut u32) -> i32 {
-    isar_try! {
-        *count = query.count(txn)? as u32;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_count_async(
-    query: &'static Query,
-    txn: &IsarAsyncTxn,
-    count: &'static mut u32,
-) {
-    let count = UintSend(count);
-    txn.exec(move |txn| -> Result<()> {
-        *(count.0) = query.count(txn)? as u32;
+    isar_try_txn!(txn, move |txn| {
+        result.0.fill_from_query(query, txn, limit as usize)?;
         Ok(())
-    });
-}
-
-fn query_delete(
-    query: &Query,
-    txn: &mut IsarTxn,
-    collection: &IsarCollection,
-    limit: u32,
-) -> Result<u32> {
-    let mut oids_to_delete = vec![];
-    let mut deleted_count = 0;
-    query.find_while(txn, |object| {
-        let oid = object.read_long(collection.get_oid_property());
-        oids_to_delete.push(oid);
-        deleted_count += 1;
-        deleted_count <= limit
-    })?;
-    let count = oids_to_delete.len();
-    for oid in oids_to_delete {
-        collection.delete(txn, oid)?;
-    }
-    Ok(count as u32)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_delete(
-    query: &Query,
-    collection: &IsarCollection,
-    txn: &mut IsarTxn,
-    limit: u32,
-    count: &mut u32,
-) -> i32 {
-    isar_try! {
-        *count = query_delete(query,txn,collection,limit)?;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_delete_async(
     query: &'static Query,
     collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
+    txn: &mut IsarDartTxn,
     limit: u32,
     count: &'static mut u32,
-) {
+) -> i32 {
+    let limit = limit as usize;
     let count = UintSend(count);
-    txn.exec(move |txn| -> Result<()> {
-        *(count.0) = query_delete(query, txn, collection, limit)?;
+    isar_try_txn!(txn, move |txn| {
+        let mut oids_to_delete = vec![];
+        query.find_while(txn, |object| {
+            let oid = object.read_long(collection.get_oid_property());
+            oids_to_delete.push(oid);
+            oids_to_delete.len() <= limit
+        })?;
+        *count.0 = oids_to_delete.len() as u32;
+        for oid in oids_to_delete {
+            collection.delete(txn, oid)?;
+        }
         Ok(())
-    });
+    })
 }

@@ -8,13 +8,13 @@ use std::os::raw::c_char;
 #[macro_use]
 mod error;
 
-mod async_txn;
 pub mod crud;
 mod dart;
 pub mod filter;
 pub mod instance;
 pub mod link;
 pub mod query;
+pub mod query_aggregation;
 pub mod raw_object_set;
 pub mod txn;
 pub mod watchers;

@@ -1,5 +1,5 @@
-use crate::async_txn::IsarAsyncTxn;
-use crate::raw_object_set::{RawObject, RawObjectSet, RawObjectSetSend};
+use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
+use crate::txn::IsarDartTxn;
 use crate::UintSend;
 use byteorder::{ByteOrder, LittleEndian};
 use isar_core::collection::IsarCollection;
@@ -10,32 +10,34 @@ use serde_json::Value;
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_get(
-    collection: &IsarCollection,
-    txn: &mut IsarTxn,
-    object: &mut RawObject,
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    object: &'static mut RawObject,
 ) -> i32 {
-    isar_try! {
-        let oid = object.get_oid();
+    let object = RawObjectSend(object);
+    isar_try_txn!(txn, move |txn| {
+        let oid = object.0.get_oid();
         let result = collection.get(txn, oid)?;
-        object.set_object(result);
-    }
+        object.0.set_object(result);
+        Ok(())
+    })
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_get_all_async(
+pub unsafe extern "C" fn isar_get_all(
     collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
+    txn: &mut IsarDartTxn,
     objects: &'static mut RawObjectSet,
-) {
+) -> i32 {
     let objects = RawObjectSetSend(objects);
-    txn.exec(move |txn| -> Result<()> {
+    isar_try_txn!(txn, move |txn| {
         for object in objects.0.get_objects() {
             let oid = object.get_oid();
             let result = collection.get(txn, oid)?;
             object.set_object(result);
         }
         Ok(())
-    });
+    })
 }
 
 fn update_auto_increment(
@@ -69,13 +71,13 @@ pub unsafe extern "C" fn isar_put(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_put_all_async(
+pub unsafe extern "C" fn isar_put_all(
     collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
+    txn: &mut IsarDartTxn,
     objects: &'static mut RawObjectSet,
-) {
+) -> i32 {
     let objects = RawObjectSetSend(objects);
-    txn.exec(move |txn| -> Result<()> {
+    isar_try_txn!(txn, move |txn| {
         for raw_obj in objects.0.get_objects() {
             let bytes = raw_obj.get_bytes();
             let auto_increment = update_auto_increment(collection, txn, bytes)?;
@@ -83,7 +85,7 @@ pub unsafe extern "C" fn isar_put_all_async(
             raw_obj.set_oid(auto_increment)
         }
         Ok(())
-    });
+    })
 }
 
 #[no_mangle]
@@ -99,59 +101,48 @@ pub unsafe extern "C" fn isar_delete(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_delete_all_async(
+pub unsafe extern "C" fn isar_delete_all(
     collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
+    txn: &mut IsarDartTxn,
     oids: *const i64,
     oids_length: u32,
     count: &'static mut u32,
-) {
+) -> i32 {
     let oids = std::slice::from_raw_parts(oids, oids_length as usize);
     let count = UintSend(count);
-    txn.exec(move |txn| {
+    isar_try_txn!(txn, move |txn| {
         for oid in oids {
             if collection.delete(txn, *oid)? {
                 *count.0 += 1;
             }
         }
         Ok(())
-    });
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_clear(
-    collection: &IsarCollection,
-    txn: &mut IsarTxn,
-    count: &mut u32,
-) -> i32 {
-    isar_try! {
-        *count = collection.clear(txn)? as u32;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_clear_async(
     collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
+    txn: &mut IsarDartTxn,
     count: &'static mut u32,
-) {
+) -> i32 {
     let count = UintSend(count);
-    txn.exec(move |txn| -> Result<()> {
+    isar_try_txn!(txn, move |txn| {
         *count.0 = collection.clear(txn)? as u32;
         Ok(())
-    });
+    })
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_json_import_async(
+pub unsafe extern "C" fn isar_json_import(
     collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
+    txn: &mut IsarDartTxn,
     json_bytes: *const u8,
     json_length: u32,
-) {
+) -> i32 {
     let bytes = std::slice::from_raw_parts(json_bytes, json_length as usize);
     let json: Value = serde_json::from_slice(bytes).unwrap();
-    txn.exec(move |txn| -> Result<()> { collection.import_json(txn, json) });
+    isar_try_txn!(txn, move |txn| { collection.import_json(txn, json) })
 }
 
 struct JsonBytes(*mut *mut u8);
@@ -161,17 +152,17 @@ struct JsonLen(*mut u32);
 unsafe impl Send for JsonLen {}
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_json_export_async(
+pub unsafe extern "C" fn isar_json_export(
     collection: &'static IsarCollection,
-    txn: &IsarAsyncTxn,
+    txn: &mut IsarDartTxn,
     primitive_null: bool,
     include_links: bool,
     json_bytes: *mut *mut u8,
     json_length: *mut u32,
-) {
+) -> i32 {
     let json = JsonBytes(json_bytes);
     let json_length = JsonLen(json_length);
-    txn.exec(move |txn| -> Result<()> {
+    isar_try_txn!(txn, move |txn| {
         let exported_json = collection.export_json(txn, primitive_null, true, include_links)?;
         let bytes = serde_json::to_vec(&exported_json).unwrap();
         let mut bytes = bytes.into_boxed_slice();
@@ -179,7 +170,7 @@ pub unsafe extern "C" fn isar_json_export_async(
         json.0.write(bytes.as_mut_ptr());
         std::mem::forget(bytes);
         Ok(())
-    });
+    })
 }
 
 #[no_mangle]
