@@ -2,7 +2,6 @@ use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSet
 use crate::txn::IsarDartTxn;
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
-use isar_core::txn::IsarTxn;
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_link(

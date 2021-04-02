@@ -13,7 +13,7 @@ pub struct QueryBuilder<'a> {
     where_clauses: Option<Vec<WhereClause>>,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
-    distinct: Vec<Property>,
+    distinct: Vec<(Property, bool)>,
     offset: usize,
     limit: usize,
 }
@@ -76,8 +76,8 @@ impl<'a> QueryBuilder<'a> {
         self.sort.push((property, sort))
     }
 
-    pub fn add_distinct(&mut self, property: Property) {
-        self.distinct.push(property);
+    pub fn add_distinct(&mut self, property: Property, case_sensitive: bool) {
+        self.distinct.push((property, case_sensitive));
     }
 
     pub fn set_offset(&mut self, offset: usize) {
@@ -97,7 +97,11 @@ impl<'a> QueryBuilder<'a> {
             self.add_id_where_clause(default_wc).unwrap();
         }
         let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();
-        let distinct_unique = self.distinct.into_iter().unique_by(|p| p.offset).collect();
+        let distinct_unique = self
+            .distinct
+            .into_iter()
+            .unique_by(|(p, _)| p.offset)
+            .collect();
         Query::new(
             self.where_clauses.unwrap(),
             self.filter,

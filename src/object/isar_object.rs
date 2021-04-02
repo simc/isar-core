@@ -190,7 +190,12 @@ impl<'a> IsarObject<'a> {
         Some(list)
     }
 
-    pub fn hash_property<H: Hasher>(&self, property: Property, hasher: &mut H) {
+    pub fn hash_property<H: Hasher>(
+        &self,
+        property: Property,
+        case_sensitive: bool,
+        hasher: &mut H,
+    ) {
         match property.data_type {
             DataType::Byte => hasher.write_u8(self.read_byte(property)),
             DataType::Int => hasher.write_i32(self.read_int(property)),
@@ -201,7 +206,11 @@ impl<'a> IsarObject<'a> {
                 let str = self.read_string(property);
                 if let Some(str) = str {
                     hasher.write_usize(str.len());
-                    hasher.write(str.as_bytes());
+                    if case_sensitive {
+                        hasher.write(str.as_bytes());
+                    } else {
+                        hasher.write(str.to_lowercase().as_bytes());
+                    }
                 }
             }
             _ => unimplemented!(),

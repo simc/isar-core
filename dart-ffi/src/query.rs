@@ -2,12 +2,11 @@ use super::raw_object_set::{RawObjectSet, RawObjectSetSend};
 use crate::txn::IsarDartTxn;
 use crate::UintSend;
 use isar_core::collection::IsarCollection;
-use isar_core::error::{illegal_arg, Result};
+use isar_core::error::illegal_arg;
 use isar_core::query::filter::Filter;
 use isar_core::query::index_where_clause::IndexWhereClause;
 use isar_core::query::query_builder::QueryBuilder;
 use isar_core::query::{Query, Sort};
-use isar_core::txn::IsarTxn;
 
 #[no_mangle]
 pub extern "C" fn isar_qb_create(collection: &IsarCollection) -> *mut QueryBuilder {
@@ -80,11 +79,12 @@ pub unsafe extern "C" fn isar_qb_add_distinct_by(
     collection: &IsarCollection,
     builder: &mut QueryBuilder,
     property_index: u32,
+    case_sensitive: bool,
 ) -> i32 {
     let property = collection.get_properties().get(property_index as usize);
     isar_try! {
         if let Some((_,property)) = property {
-            builder.add_distinct(*property);
+            builder.add_distinct(*property, case_sensitive);
         } else {
             illegal_arg("Property does not exist.")?;
         }

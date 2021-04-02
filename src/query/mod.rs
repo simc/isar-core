@@ -32,7 +32,7 @@ pub struct Query {
     where_clauses_overlapping: bool,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
-    distinct: Vec<Property>,
+    distinct: Vec<(Property, bool)>,
     offset: usize,
     limit: usize,
 }
@@ -43,7 +43,7 @@ impl<'txn> Query {
         where_clauses: Vec<WhereClause>,
         filter: Option<Filter>,
         sort: Vec<(Property, Sort)>,
-        distinct: Vec<Property>,
+        distinct: Vec<(Property, bool)>,
         offset: usize,
         limit: usize,
     ) -> Self {
@@ -113,8 +113,8 @@ impl<'txn> Query {
         let mut hashes = HashSet::new();
         move |object| {
             let mut hasher = WyHash::default();
-            for property in &properties {
-                object.hash_property(*property, &mut hasher);
+            for (property, case_sensitive) in &properties {
+                object.hash_property(*property, *case_sensitive, &mut hasher);
             }
             let hash = hasher.finish();
             if hashes.insert(hash) {
@@ -180,8 +180,8 @@ impl<'txn> Query {
             .into_iter()
             .filter(|object| {
                 let mut hasher = WyHash::default();
-                for property in &properties {
-                    object.hash_property(*property, &mut hasher);
+                for (property, case_sensitive) in &properties {
+                    object.hash_property(*property, *case_sensitive, &mut hasher);
                 }
                 let hash = hasher.finish();
                 hashes.insert(hash)
@@ -466,7 +466,7 @@ mod tests {
 
         let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
-        qb.add_distinct(int_property);
+        qb.add_distinct(int_property, false);
 
         assert_eq!(
             find(&mut txn, qb.build()),
@@ -486,7 +486,7 @@ mod tests {
 
         let int_property = col.get_properties().get(1).unwrap().1;
         let mut qb = col.new_query_builder();
-        qb.add_distinct(int_property);
+        qb.add_distinct(int_property, false);
         qb.add_sort(int_property, Sort::Ascending);
 
         assert_eq!(

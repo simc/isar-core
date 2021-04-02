@@ -146,7 +146,7 @@ impl IsarDartTxn {
         }
     }
 
-    pub fn finish(mut self, commit: bool) -> Result<()> {
+    pub fn finish(self, commit: bool) -> Result<()> {
         match self {
             IsarDartTxn::Sync { mut txn } => {
                 if let Some(txn) = txn.take() {
@@ -175,7 +175,7 @@ impl IsarDartTxn {
                         Err(IsarError::TransactionClosed {})
                     }
                 };
-                IsarDartTxn::exec_async_internal(job, port, tx.clone(), false);
+                IsarDartTxn::exec_async_internal(job, port, tx.clone(), true);
                 Ok(())
             }
         }
