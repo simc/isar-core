@@ -1,6 +1,6 @@
 use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
 use crate::txn::IsarDartTxn;
-use crate::UintSend;
+use crate::{BoolSend, UintSend};
 use byteorder::{ByteOrder, LittleEndian};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
@@ -58,16 +58,18 @@ fn update_auto_increment(
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_put(
-    collection: &mut IsarCollection,
-    txn: &mut IsarTxn,
-    object: &mut RawObject,
+    collection: &'static mut IsarCollection,
+    txn: &mut IsarDartTxn,
+    object: &'static mut RawObject,
 ) -> i32 {
-    isar_try! {
-        let bytes = object.get_bytes();
+    let object = RawObjectSend(object);
+    isar_try_txn!(txn, move |txn| {
+        let bytes = object.0.get_bytes();
         let auto_increment = update_auto_increment(collection, txn, bytes)?;
         collection.put(txn, IsarObject::from_bytes(bytes))?;
-        object.set_oid(auto_increment);
-    }
+        object.0.set_oid(auto_increment);
+        Ok(())
+    })
 }
 
 #[no_mangle]
@@ -90,14 +92,16 @@ pub unsafe extern "C" fn isar_put_all(
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_delete(
-    collection: &IsarCollection,
-    txn: &mut IsarTxn,
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
     oid: i64,
-    deleted: &mut bool,
+    deleted: &'static mut bool,
 ) -> i32 {
-    isar_try! {
-        *deleted = collection.delete(txn, oid)?;
-    }
+    let deleted = BoolSend(deleted);
+    isar_try_txn!(txn, move |txn| {
+        *deleted.0 = collection.delete(txn, oid)?;
+        Ok(())
+    })
 }
 
 #[no_mangle]
