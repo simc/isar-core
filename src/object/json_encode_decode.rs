@@ -38,7 +38,7 @@ impl<'a> JsonEncodeDecode {
                         DataType::ByteList => json!(object.read_byte_list(property)),
                         DataType::IntList => json!(object.read_int_list(property)),
                         DataType::FloatList => json!(object.read_float_list(property)),
-                        DataType::LongList => json!(object.read_float_list(property)),
+                        DataType::LongList => json!(object.read_long_list(property)),
                         DataType::DoubleList => json!(object.read_double_list(property)),
                         DataType::StringList => json!(object.read_string_list(property)),
                     }
