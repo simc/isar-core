@@ -29,8 +29,7 @@ fn main() {
             .file(lmdb.join("midl.c"))
             .flag_if_supported("-Wno-unused-parameter")
             .flag_if_supported("-Wbad-function-cast")
-            .flag_if_supported("-Wuninitialized")
-            .flag_if_supported("-Wl,--hash-style=both");
+            .flag_if_supported("-Wuninitialized");
         builder.compile("liblmdb.a")
     }
 }
