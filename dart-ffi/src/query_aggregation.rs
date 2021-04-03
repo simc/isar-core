@@ -1,3 +1,4 @@
+use crate::txn::IsarDartTxn;
 use enum_ordinalize::Ordinalize;
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
@@ -120,11 +121,15 @@ fn aggregate(
     Ok(result)
 }
 
+pub struct AggregationResultSend(*mut *const AggregationResult);
+
+unsafe impl Send for AggregationResultSend {}
+
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_aggregate(
     collection: &IsarCollection,
-    query: &Query,
-    txn: &mut IsarTxn,
+    query: &'static Query,
+    txn: &mut IsarDartTxn,
     operation: u8,
     property_index: u32,
     result: *mut *const AggregationResult,
@@ -139,28 +144,30 @@ pub unsafe extern "C" fn isar_q_aggregate(
     } else {
         None
     };
+    let result = AggregationResultSend(result);
     isar_try_txn!(txn, move |txn| {
         let aggregate_result = aggregate(query, txn, op, property)?;
-        result.write(Box::into_raw(Box::new(aggregate_result)));
+        result.0.write(Box::into_raw(Box::new(aggregate_result)));
+        Ok(())
     })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_aggregate_long_result(result: &AggregationResult) -> i64 {
     match result {
-        AggregationResult::Int(int) => int as i64,
-        AggregationResult::Float(float) => float as i64,
-        AggregationResult::Long(long) => long,
-        AggregationResult::Double(double) => double as i64,
+        AggregationResult::Int(int) => *int as i64,
+        AggregationResult::Float(float) => *float as i64,
+        AggregationResult::Long(long) => *long,
+        AggregationResult::Double(double) => *double as i64,
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_aggregate_double_result(result: &AggregationResult) -> f64 {
     match result {
-        AggregationResult::Int(int) => int as f64,
-        AggregationResult::Float(float) => float as f64,
-        AggregationResult::Long(long) => long as f64,
-        AggregationResult::Double(double) => double,
+        AggregationResult::Int(int) => *int as f64,
+        AggregationResult::Float(float) => *float as f64,
+        AggregationResult::Long(long) => *long as f64,
+        AggregationResult::Double(double) => *double,
     }
 }
