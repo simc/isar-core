@@ -31,8 +31,13 @@ fn aggregate(
 ) -> Result<AggregationResult> {
     let mut count = 0usize;
 
-    let mut long_value = 0;
-    let mut double_value = 0.0;
+    let (mut long_value, mut double_value) = if op == AggregationOp::Min {
+        (i64::MAX, f64::INFINITY)
+    } else if op == AggregationOp::Max {
+        (i64::MIN, f64::NEG_INFINITY)
+    } else {
+        (0, 0.0)
+    };
 
     let min_max_cmp = if op == AggregationOp::Max {
         Ordering::Greater
