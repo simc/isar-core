@@ -9,8 +9,6 @@ use isar_core::txn::IsarTxn;
 use std::cmp::Ordering;
 
 pub enum AggregationResult {
-    Int(i32),
-    Float(f32),
     Long(i64),
     Double(f64),
 }
@@ -33,8 +31,6 @@ fn aggregate(
 ) -> Result<AggregationResult> {
     let mut count = 0usize;
 
-    let mut int_value = 0;
-    let mut float_value = 0.0;
     let mut long_value = 0;
     let mut double_value = 0.0;
 
@@ -51,17 +47,17 @@ fn aggregate(
                 let property = property.unwrap();
                 match property.data_type {
                     DataType::Int => {
-                        let value = obj.read_int(property);
-                        if value.cmp(&int_value) == min_max_cmp {
-                            int_value = value;
+                        let value = obj.read_int(property) as i64;
+                        if value.cmp(&long_value) == min_max_cmp {
+                            long_value = value;
                         }
                     }
                     DataType::Float => {
-                        let value = obj.read_float(property);
-                        if value > float_value && min_max_cmp == Ordering::Greater {
-                            float_value = value;
-                        } else if value < float_value && min_max_cmp == Ordering::Less {
-                            float_value = value;
+                        let value = obj.read_float(property) as f64;
+                        if value > double_value && min_max_cmp == Ordering::Greater {
+                            double_value = value;
+                        } else if value < double_value && min_max_cmp == Ordering::Less {
+                            double_value = value;
                         }
                     }
                     DataType::Long => {
@@ -85,8 +81,8 @@ fn aggregate(
                 count += 1;
                 let property = property.unwrap();
                 match property.data_type {
-                    DataType::Int => int_value += obj.read_int(property),
-                    DataType::Float => float_value += obj.read_float(property),
+                    DataType::Int => long_value += obj.read_int(property) as i64,
+                    DataType::Float => double_value += obj.read_float(property) as f64,
                     DataType::Long => long_value += obj.read_long(property),
                     DataType::Double => double_value += obj.read_double(property),
                     _ => unreachable!(),
@@ -98,23 +94,20 @@ fn aggregate(
 
     match op {
         AggregationOp::Average => {
-            match property.unwrap().data_type {
-                DataType::Int => int_value /= count as i32,
-                DataType::Float => float_value /= count as f32,
-                DataType::Long => long_value /= count as i64,
-                DataType::Double => double_value /= count as f64,
+            let result = match property.unwrap().data_type {
+                DataType::Int | DataType::Long => (long_value as f64) / (count as f64),
+                DataType::Float | DataType::Double => double_value / (count as f64),
                 _ => unreachable!(),
             };
+            return Ok(AggregationResult::Double(result));
         }
-        AggregationOp::Count => return Ok(AggregationResult::Int(count as i32)),
+        AggregationOp::Count => return Ok(AggregationResult::Long(count as i64)),
         _ => {}
     };
 
     let result = match property.unwrap().data_type {
-        DataType::Int => AggregationResult::Int(int_value),
-        DataType::Float => AggregationResult::Float(float_value),
-        DataType::Long => AggregationResult::Long(long_value),
-        DataType::Double => AggregationResult::Double(double_value),
+        DataType::Int | DataType::Long => AggregationResult::Long(long_value),
+        DataType::Float | DataType::Double => AggregationResult::Double(double_value),
         _ => unreachable!(),
     };
 
@@ -155,8 +148,6 @@ pub unsafe extern "C" fn isar_q_aggregate(
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_aggregate_long_result(result: &AggregationResult) -> i64 {
     match result {
-        AggregationResult::Int(int) => *int as i64,
-        AggregationResult::Float(float) => *float as i64,
         AggregationResult::Long(long) => *long,
         AggregationResult::Double(double) => *double as i64,
     }
@@ -165,8 +156,6 @@ pub unsafe extern "C" fn isar_q_aggregate_long_result(result: &AggregationResult
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_aggregate_double_result(result: &AggregationResult) -> f64 {
     match result {
-        AggregationResult::Int(int) => *int as f64,
-        AggregationResult::Float(float) => *float as f64,
         AggregationResult::Long(long) => *long as f64,
         AggregationResult::Double(double) => *double,
     }

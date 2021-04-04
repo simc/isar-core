@@ -3,7 +3,6 @@ use crate::instance::IsarInstance;
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::txn::Txn;
 use crate::watch::change_set::ChangeSet;
-use std::mem::ManuallyDrop;
 
 pub struct IsarTxn<'a> {
     txn: Option<Txn<'a>>,
