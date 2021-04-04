@@ -3,14 +3,16 @@ use enum_ordinalize::Ordinalize;
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::object::data_type::DataType;
-use isar_core::object::isar_object::Property;
+use isar_core::object::isar_object::{IsarObject, Property};
 use isar_core::query::Query;
 use isar_core::txn::IsarTxn;
 use std::cmp::Ordering;
 
+#[derive(Debug)]
 pub enum AggregationResult {
     Long(i64),
     Double(f64),
+    Null,
 }
 
 #[derive(Ordinalize, PartialEq)]
@@ -28,7 +30,6 @@ fn aggregate(
     txn: &mut IsarTxn,
     op: AggregationOp,
     property: Option<Property>,
-    nullable: bool,
 ) -> Result<AggregationResult> {
     let mut count = 0usize;
 
@@ -53,13 +54,11 @@ fn aggregate(
         }
 
         let property = property.unwrap();
-        if (nullable
-            || property.data_type == DataType::Float
-            || property.data_type == DataType::Double)
-            && obj.is_null(property)
-        {
+        if obj.is_null(property) {
             return true;
         }
+
+        count += 1;
         match op {
             AggregationOp::Min | AggregationOp::Max => match property.data_type {
                 DataType::Int | DataType::Long => {
@@ -86,20 +85,28 @@ fn aggregate(
                 }
                 _ => unreachable!(),
             },
-            AggregationOp::Sum | AggregationOp::Average => {
-                count += 1;
-                match property.data_type {
-                    DataType::Int => long_value += obj.read_int(property) as i64,
-                    DataType::Float => double_value += obj.read_float(property) as f64,
-                    DataType::Long => long_value += obj.read_long(property),
-                    DataType::Double => double_value += obj.read_double(property),
-                    _ => unreachable!(),
+            AggregationOp::Sum | AggregationOp::Average => match property.data_type {
+                DataType::Int => {
+                    long_value = long_value.saturating_add(obj.read_int(property) as i64)
                 }
-            }
+                DataType::Long => long_value = long_value.saturating_add(obj.read_long(property)),
+                DataType::Float => double_value += obj.read_float(property) as f64,
+                DataType::Double => double_value += obj.read_double(property),
+                _ => unreachable!(),
+            },
             _ => unreachable!(),
         }
         true
     })?;
+
+    match op {
+        AggregationOp::Min | AggregationOp::Max | AggregationOp::Average => {
+            if count == 0 {
+                return Ok(AggregationResult::Null);
+            }
+        }
+        _ => {}
+    }
 
     let result = match op {
         AggregationOp::Average => {
@@ -132,7 +139,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
     txn: &mut IsarDartTxn,
     operation: u8,
     property_index: u32,
-    nullable: bool,
+    skip_null: bool,
     result: *mut *const AggregationResult,
 ) -> i32 {
     let op = AggregationOp::from_ordinal(operation).unwrap();
@@ -145,9 +152,10 @@ pub unsafe extern "C" fn isar_q_aggregate(
     } else {
         None
     };
+
     let result = AggregationResultSend(result);
     isar_try_txn!(txn, move |txn| {
-        let aggregate_result = aggregate(query, txn, op, property, nullable)?;
+        let aggregate_result = aggregate(query, txn, op, property)?;
         result.0.write(Box::into_raw(Box::new(aggregate_result)));
         Ok(())
     })
@@ -158,6 +166,7 @@ pub unsafe extern "C" fn isar_q_aggregate_long_result(result: &AggregationResult
     match result {
         AggregationResult::Long(long) => *long,
         AggregationResult::Double(double) => *double as i64,
+        AggregationResult::Null => IsarObject::NULL_LONG,
     }
 }
 
@@ -166,5 +175,6 @@ pub unsafe extern "C" fn isar_q_aggregate_double_result(result: &AggregationResu
     match result {
         AggregationResult::Long(long) => *long as f64,
         AggregationResult::Double(double) => *double,
+        AggregationResult::Null => IsarObject::NULL_DOUBLE,
     }
 }
