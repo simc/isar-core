@@ -139,7 +139,6 @@ pub unsafe extern "C" fn isar_q_aggregate(
     txn: &mut IsarDartTxn,
     operation: u8,
     property_index: u32,
-    skip_null: bool,
     result: *mut *const AggregationResult,
 ) -> i32 {
     let op = AggregationOp::from_ordinal(operation).unwrap();
