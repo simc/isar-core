@@ -28,6 +28,7 @@ fn aggregate(
     txn: &mut IsarTxn,
     op: AggregationOp,
     property: Option<Property>,
+    nullable: bool,
 ) -> Result<AggregationResult> {
     let mut count = 0usize;
 
@@ -46,45 +47,47 @@ fn aggregate(
     };
 
     query.find_while(txn, |obj| {
+        if op == AggregationOp::Count {
+            count += 1;
+            return true;
+        }
+
+        let property = property.unwrap();
+        if (nullable
+            || property.data_type == DataType::Float
+            || property.data_type == DataType::Double)
+            && obj.is_null(property)
+        {
+            return true;
+        }
         match op {
-            AggregationOp::Count => count += 1,
-            AggregationOp::Min | AggregationOp::Max => {
-                let property = property.unwrap();
-                match property.data_type {
-                    DataType::Int => {
-                        let value = obj.read_int(property) as i64;
-                        if value.cmp(&long_value) == min_max_cmp {
-                            long_value = value;
-                        }
+            AggregationOp::Min | AggregationOp::Max => match property.data_type {
+                DataType::Int | DataType::Long => {
+                    let value = if property.data_type == DataType::Int {
+                        obj.read_int(property) as i64
+                    } else {
+                        obj.read_long(property)
+                    };
+                    if value.cmp(&long_value) == min_max_cmp {
+                        long_value = value;
                     }
-                    DataType::Float => {
-                        let value = obj.read_float(property) as f64;
-                        if value > double_value && min_max_cmp == Ordering::Greater {
-                            double_value = value;
-                        } else if value < double_value && min_max_cmp == Ordering::Less {
-                            double_value = value;
-                        }
-                    }
-                    DataType::Long => {
-                        let value = obj.read_long(property);
-                        if value.cmp(&long_value) == min_max_cmp {
-                            long_value = value;
-                        }
-                    }
-                    DataType::Double => {
-                        let value = obj.read_double(property);
-                        if value > double_value && min_max_cmp == Ordering::Greater {
-                            double_value = value;
-                        } else if value < double_value && min_max_cmp == Ordering::Less {
-                            double_value = value;
-                        }
-                    }
-                    _ => unreachable!(),
                 }
-            }
+                DataType::Float | DataType::Double => {
+                    let value = if property.data_type == DataType::Float {
+                        obj.read_float(property) as f64
+                    } else {
+                        obj.read_double(property)
+                    };
+                    if value > double_value && min_max_cmp == Ordering::Greater {
+                        double_value = value;
+                    } else if value < double_value && min_max_cmp == Ordering::Less {
+                        double_value = value;
+                    }
+                }
+                _ => unreachable!(),
+            },
             AggregationOp::Sum | AggregationOp::Average => {
                 count += 1;
-                let property = property.unwrap();
                 match property.data_type {
                     DataType::Int => long_value += obj.read_int(property) as i64,
                     DataType::Float => double_value += obj.read_float(property) as f64,
@@ -93,27 +96,26 @@ fn aggregate(
                     _ => unreachable!(),
                 }
             }
+            _ => unreachable!(),
         }
         true
     })?;
 
-    match op {
+    let result = match op {
         AggregationOp::Average => {
             let result = match property.unwrap().data_type {
                 DataType::Int | DataType::Long => (long_value as f64) / (count as f64),
                 DataType::Float | DataType::Double => double_value / (count as f64),
                 _ => unreachable!(),
             };
-            return Ok(AggregationResult::Double(result));
+            AggregationResult::Double(result)
         }
-        AggregationOp::Count => return Ok(AggregationResult::Long(count as i64)),
-        _ => {}
-    };
-
-    let result = match property.unwrap().data_type {
-        DataType::Int | DataType::Long => AggregationResult::Long(long_value),
-        DataType::Float | DataType::Double => AggregationResult::Double(double_value),
-        _ => unreachable!(),
+        AggregationOp::Count => AggregationResult::Long(count as i64),
+        _ => match property.unwrap().data_type {
+            DataType::Int | DataType::Long => AggregationResult::Long(long_value),
+            DataType::Float | DataType::Double => AggregationResult::Double(double_value),
+            _ => unreachable!(),
+        },
     };
 
     Ok(result)
@@ -130,6 +132,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
     txn: &mut IsarDartTxn,
     operation: u8,
     property_index: u32,
+    nullable: bool,
     result: *mut *const AggregationResult,
 ) -> i32 {
     let op = AggregationOp::from_ordinal(operation).unwrap();
@@ -144,7 +147,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
     };
     let result = AggregationResultSend(result);
     isar_try_txn!(txn, move |txn| {
-        let aggregate_result = aggregate(query, txn, op, property)?;
+        let aggregate_result = aggregate(query, txn, op, property, nullable)?;
         result.0.write(Box::into_raw(Box::new(aggregate_result)));
         Ok(())
     })
