@@ -1,8 +1,9 @@
 use crate::collection::IsarCollection;
-use crate::error::{IsarError, Result};
-use crate::index::Index;
+use crate::error::{illegal_arg, IsarError, Result};
+use crate::index::{Index, IndexProperty};
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::{ByteKey, IntKey};
+use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
 use crate::schema::collection_schema::IndexType;
@@ -15,6 +16,7 @@ pub struct IndexWhereClause {
     index: Index,
     skip_duplicates: bool,
     sort: Sort,
+    next_property: usize,
 }
 
 impl IndexWhereClause {
@@ -27,6 +29,7 @@ impl IndexWhereClause {
             index,
             skip_duplicates,
             sort,
+            next_property: 0,
         }
     }
 
@@ -128,39 +131,66 @@ impl IndexWhereClause {
         true
     }
 
-    pub fn add_byte(&mut self, lower: u8, upper: u8) {
+    pub fn get_next_property(&mut self) -> Option<&IndexProperty> {
+        self.index.properties.get(self.next_property)
+    }
+
+    fn check_next_property_type(&mut self, data_type: DataType) -> Result<()> {
+        let next_property = self.index.properties.get(self.next_property);
+        if let Some(next) = next_property {
+            if next.property.data_type != data_type {
+                return illegal_arg("Unsupported type for WhereClause");
+            }
+        } else {
+            return illegal_arg("Too many values for WhereClause");
+        }
+        self.next_property += 1;
+        Ok(())
+    }
+
+    pub fn add_byte(&mut self, lower: u8, upper: u8) -> Result<()> {
+        self.check_next_property_type(DataType::Byte)?;
         self.lower_key
             .extend_from_slice(&Index::create_byte_key(lower));
         self.upper_key
             .extend_from_slice(&Index::create_byte_key(upper));
+        Ok(())
     }
 
-    pub fn add_int(&mut self, lower: i32, upper: i32) {
+    pub fn add_int(&mut self, lower: i32, upper: i32) -> Result<()> {
+        self.check_next_property_type(DataType::Int)?;
         self.lower_key
             .extend_from_slice(&Index::create_int_key(lower));
         self.upper_key
             .extend_from_slice(&Index::create_int_key(upper));
+        Ok(())
     }
 
-    pub fn add_float(&mut self, lower: f32, upper: f32) {
+    pub fn add_float(&mut self, lower: f32, upper: f32) -> Result<()> {
+        self.check_next_property_type(DataType::Float)?;
         self.lower_key
             .extend_from_slice(&Index::create_float_key(lower));
         self.upper_key
             .extend_from_slice(&Index::create_float_key(upper));
+        Ok(())
     }
 
-    pub fn add_long(&mut self, lower: i64, upper: i64) {
+    pub fn add_long(&mut self, lower: i64, upper: i64) -> Result<()> {
+        self.check_next_property_type(DataType::Long)?;
         self.lower_key
             .extend_from_slice(&Index::create_long_key(lower));
         self.upper_key
             .extend_from_slice(&Index::create_long_key(upper));
+        Ok(())
     }
 
-    pub fn add_double(&mut self, lower: f64, upper: f64) {
+    pub fn add_double(&mut self, lower: f64, upper: f64) -> Result<()> {
+        self.check_next_property_type(DataType::Double)?;
         self.lower_key
             .extend_from_slice(&Index::create_double_key(lower));
         self.upper_key
             .extend_from_slice(&Index::create_double_key(upper));
+        Ok(())
     }
 
     pub fn add_string(
@@ -169,16 +199,17 @@ impl IndexWhereClause {
         lower_unbounded: bool,
         upper: Option<&str>,
         upper_unbounded: bool,
-        case_sensitive: bool,
-        index_type: IndexType,
-    ) {
+    ) -> Result<()> {
+        self.check_next_property_type(DataType::String)?;
+        let next = self.index.properties.get(self.next_property).unwrap();
+
         let get_bytes = |value: Option<&str>| {
-            let value = if case_sensitive {
+            let value = if next.case_sensitive.unwrap() {
                 value.map(|s| s.to_string())
             } else {
                 value.map(|s| s.to_lowercase())
             };
-            match index_type {
+            match next.index_type {
                 IndexType::Value => Index::create_string_value_key(value.as_deref()),
                 IndexType::Hash => Index::create_string_hash_key(value.as_deref()),
                 IndexType::Words => value.map_or(vec![], |s| s.as_bytes().to_vec()),
@@ -186,7 +217,7 @@ impl IndexWhereClause {
         };
 
         if lower_unbounded {
-            match index_type {
+            match next.index_type {
                 IndexType::Value => self.lower_key.push(0),
                 IndexType::Hash => self.lower_key.extend_from_slice(&0u64.to_le_bytes()),
                 IndexType::Words => {}
@@ -200,10 +231,8 @@ impl IndexWhereClause {
         } else {
             self.upper_key.extend_from_slice(&get_bytes(upper));
         }
-    }
 
-    pub fn add_max_upper(&mut self) {
-        self.upper_key.extend_from_slice(&u64::MAX.to_le_bytes());
+        Ok(())
     }
 }
 

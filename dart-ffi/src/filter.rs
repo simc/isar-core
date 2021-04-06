@@ -1,7 +1,7 @@
 use crate::from_c_str;
-use float_next_after::NextAfter;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
+use isar_core::object::data_type::DataType;
 use isar_core::query::filter::*;
 use std::os::raw::c_char;
 use std::slice;
@@ -71,150 +71,75 @@ pub unsafe extern "C" fn isar_filter_is_null(
     }
 }
 
-#[macro_export]
-macro_rules! filter_between_ffi {
-    ($filter_name:ident, $function_name:ident, $next:ident, $prev:ident, $type:ty) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $function_name(
-            collection: &IsarCollection,
-            filter: *mut *const Filter,
-            lower: $type,
-            include_lower: bool,
-            upper: $type,
-            include_upper: bool,
-            property_index: u32,
-        ) -> i32 {
-            let property = collection.get_properties().get(property_index as usize);
-            let lower = if !include_lower {
-                $next(lower)
-            } else {
-                Some(lower)
-            };
-            let upper = if !include_upper {
-                $prev(upper)
-            } else {
-                Some(upper)
-            };
-            isar_try! {
-                if let Some((_, property)) = property {
-                    let query_filter = if let (Some(lower), Some(upper)) = (lower, upper) {
-                        $filter_name::filter(*property, lower, upper)?
-                    } else {
-                        StaticCond::filter(false)
-                    };
-                    let ptr = Box::into_raw(Box::new(query_filter));
-                    filter.write(ptr);
-                } else {
-                    illegal_arg("Property does not exist.")?;
-                }
-            }
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_byte_between(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    lower: u8,
+    upper: u8,
+    property_index: u32,
+) -> i32 {
+    let property = collection.get_properties().get(property_index as usize);
+    isar_try! {
+        if let Some((_, property)) = property {
+            let query_filter = ByteBetweenCond::filter(*property, lower, upper)?;
+            let ptr = Box::into_raw(Box::new(query_filter));
+            filter.write(ptr);
+        } else {
+            illegal_arg("Property does not exist.")?;
         }
-    };
-}
-
-fn next_byte(value: u8) -> Option<u8> {
-    value.checked_add(1)
-}
-
-fn prev_byte(value: u8) -> Option<u8> {
-    value.checked_sub(1)
-}
-
-fn next_int(value: i32) -> Option<i32> {
-    value.checked_add(1)
-}
-
-fn prev_int(value: i32) -> Option<i32> {
-    value.checked_sub(1)
-}
-
-fn next_float(value: f32) -> Option<f32> {
-    if value == f32::INFINITY {
-        None
-    } else if value == f32::NEG_INFINITY {
-        Some(f32::MIN)
-    } else if value.is_nan() {
-        Some(f32::NEG_INFINITY)
-    } else {
-        Some(value.next_after(f32::INFINITY))
     }
 }
 
-fn prev_float(value: f32) -> Option<f32> {
-    if value == f32::INFINITY {
-        Some(f32::MIN)
-    } else if value == f32::NEG_INFINITY || value.is_nan() {
-        None
-    } else {
-        Some(value.next_after(f32::NEG_INFINITY))
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_long_between(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    lower: i64,
+    upper: i64,
+    property_index: u32,
+) -> i32 {
+    let property = collection.get_properties().get(property_index as usize);
+    isar_try! {
+        if let Some((_, property)) = property {
+            let query_filter = if property.data_type == DataType::Int {
+                let lower = lower.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                let upper = upper.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                IntBetweenCond::filter(*property, lower, upper)?
+            } else {
+                LongBetweenCond::filter(*property, lower, upper)?
+            };
+            let ptr = Box::into_raw(Box::new(query_filter));
+            filter.write(ptr);
+        } else {
+            illegal_arg("Property does not exist.")?;
+        }
     }
 }
 
-fn next_long(value: i64) -> Option<i64> {
-    value.checked_add(1)
-}
-
-fn prev_long(value: i64) -> Option<i64> {
-    value.checked_sub(1)
-}
-
-fn next_double(value: f64) -> Option<f64> {
-    if value == f64::INFINITY {
-        None
-    } else if value == f64::NEG_INFINITY {
-        Some(f64::MIN)
-    } else if value.is_nan() {
-        Some(f64::NEG_INFINITY)
-    } else {
-        Some(value.next_after(f64::INFINITY))
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_double_between(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    lower: f64,
+    upper: f64,
+    property_index: u32,
+) -> i32 {
+    let property = collection.get_properties().get(property_index as usize);
+    isar_try! {
+        if let Some((_, property)) = property {
+            let query_filter = if property.data_type == DataType::Float {
+                FloatBetweenCond::filter(*property, lower as f32, upper as f32)?
+            } else {
+                DoubleBetweenCond::filter(*property, lower, upper)?
+            };
+            let ptr = Box::into_raw(Box::new(query_filter));
+            filter.write(ptr);
+        } else {
+            illegal_arg("Property does not exist.")?;
+        }
     }
 }
-
-fn prev_double(value: f64) -> Option<f64> {
-    if value == f64::INFINITY {
-        Some(f64::MIN)
-    } else if value == f64::NEG_INFINITY || value.is_nan() {
-        None
-    } else {
-        Some(value.next_after(f64::NEG_INFINITY))
-    }
-}
-
-filter_between_ffi!(
-    ByteBetweenCond,
-    isar_filter_byte_between,
-    next_byte,
-    prev_byte,
-    u8
-);
-filter_between_ffi!(
-    IntBetweenCond,
-    isar_filter_int_between,
-    next_int,
-    prev_int,
-    i32
-);
-filter_between_ffi!(
-    FloatBetweenCond,
-    isar_filter_float_between,
-    next_float,
-    prev_float,
-    f32
-);
-filter_between_ffi!(
-    LongBetweenCond,
-    isar_filter_long_between,
-    next_long,
-    prev_long,
-    i64
-);
-filter_between_ffi!(
-    DoubleBetweenCond,
-    isar_filter_double_between,
-    next_double,
-    prev_double,
-    f64
-);
 
 #[macro_export]
 macro_rules! filter_single_value_ffi {
@@ -240,9 +165,48 @@ macro_rules! filter_single_value_ffi {
     }
 }
 
-filter_single_value_ffi!(ByteListContainsCond, isar_filter_byte_list_contains, u8);
-filter_single_value_ffi!(IntListContainsCond, isar_filter_int_list_contains, i32);
-filter_single_value_ffi!(LongListContainsCond, isar_filter_long_list_contains, i64);
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_byte_list_contains(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    value: u8,
+    property_index: u32,
+) -> i32 {
+    let property = collection.get_properties().get(property_index as usize);
+    isar_try! {
+        if let Some((_, property)) = property {
+            let query_filter = ByteListContainsCond::filter(*property, value)?;
+            let ptr = Box::into_raw(Box::new(query_filter));
+            filter.write(ptr);
+        } else {
+            illegal_arg("Property does not exist.")?;
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_long_list_contains(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    value: i64,
+    property_index: u32,
+) -> i32 {
+    let property = collection.get_properties().get(property_index as usize);
+    isar_try! {
+        if let Some((_, property)) = property {
+            let query_filter = if property.data_type == DataType::Int {
+                let value = value.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                IntListContainsCond::filter(*property, value)?
+            } else {
+                LongListContainsCond::filter(*property, value)?
+            };
+            let ptr = Box::into_raw(Box::new(query_filter));
+            filter.write(ptr);
+        } else {
+            illegal_arg("Property does not exist.")?;
+        }
+    }
+}
 
 #[macro_export]
 macro_rules! filter_string_ffi {

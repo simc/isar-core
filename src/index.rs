@@ -23,11 +23,11 @@ Null values are always considered the "smallest" element.
 
  */
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct IndexProperty {
-    property: Property,
-    index_type: IndexType,
-    case_sensitive: Option<bool>,
+    pub property: Property,
+    pub index_type: IndexType,
+    pub case_sensitive: Option<bool>,
 }
 
 impl IndexProperty {
@@ -56,11 +56,11 @@ impl IndexProperty {
 
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct Index {
-    id: u16,
+    pub id: u16,
     col_id: u16,
-    properties: Vec<IndexProperty>,
-    unique: bool,
-    replace: bool,
+    pub properties: Vec<IndexProperty>,
+    pub unique: bool,
+    pub replace: bool,
 }
 
 impl Index {
@@ -82,10 +82,6 @@ impl Index {
 
     pub fn new_where_clause(&self, skip_duplicates: bool, sort: Sort) -> IndexWhereClause {
         IndexWhereClause::new(&self.get_prefix(), self.clone(), skip_duplicates, sort)
-    }
-
-    pub fn get_id(&self) -> u16 {
-        self.id
     }
 
     pub fn get_prefix(&self) -> Vec<u8> {

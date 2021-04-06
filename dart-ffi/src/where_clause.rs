@@ -1,9 +1,9 @@
 use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
+use isar_core::object::data_type::DataType;
 use isar_core::query::index_where_clause::IndexWhereClause;
 use isar_core::query::Sort;
-use isar_core::schema::collection_schema::IndexType;
 use std::os::raw::c_char;
 
 #[no_mangle]
@@ -31,28 +31,52 @@ pub unsafe extern "C" fn isar_wc_create(
 }
 
 #[no_mangle]
-pub extern "C" fn isar_wc_add_byte(where_clause: &mut IndexWhereClause, lower: u8, upper: u8) {
-    where_clause.add_byte(lower, upper);
+pub extern "C" fn isar_wc_add_byte(
+    where_clause: &mut IndexWhereClause,
+    lower: u8,
+    upper: u8,
+) -> i32 {
+    isar_try! {
+        where_clause.add_byte(lower, upper)?;
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn isar_wc_add_int(where_clause: &mut IndexWhereClause, lower: i32, upper: i32) {
-    where_clause.add_int(lower, upper);
+pub extern "C" fn isar_wc_add_long(
+    where_clause: &mut IndexWhereClause,
+    lower: i64,
+    upper: i64,
+) -> i32 {
+    let next = where_clause.get_next_property().copied();
+    isar_try! {
+        if let Some(next) = next {
+            if next.property.data_type == DataType::Int {
+                let lower = lower.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                let upper = upper.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                where_clause.add_int(lower, upper)?;
+            } else {
+                where_clause.add_long(lower, upper)?;
+            }
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn isar_wc_add_float(where_clause: &mut IndexWhereClause, lower: f32, upper: f32) {
-    where_clause.add_float(lower, upper);
-}
-
-#[no_mangle]
-pub extern "C" fn isar_wc_add_long(where_clause: &mut IndexWhereClause, lower: i64, upper: i64) {
-    where_clause.add_long(lower, upper);
-}
-
-#[no_mangle]
-pub extern "C" fn isar_wc_add_double(where_clause: &mut IndexWhereClause, lower: f64, upper: f64) {
-    where_clause.add_double(lower, upper);
+pub extern "C" fn isar_wc_add_double(
+    where_clause: &mut IndexWhereClause,
+    lower: f64,
+    upper: f64,
+) -> i32 {
+    let next = where_clause.get_next_property().copied();
+    isar_try! {
+        if let Some(next) = next {
+            if next.property.data_type == DataType::Float {
+                where_clause.add_float(lower as f32, upper as f32)?;
+            } else {
+                where_clause.add_double(lower, upper)?;
+            }
+        }
+    }
 }
 
 #[no_mangle]
@@ -62,10 +86,7 @@ pub unsafe extern "C" fn isar_wc_add_string(
     upper: *const c_char,
     lower_unbounded: bool,
     upper_unbounded: bool,
-    case_sensitive: bool,
-    index_type: u8,
-) {
-    let index_type = IndexType::from_ordinal(index_type).unwrap();
+) -> i32 {
     let lower = if !lower.is_null() {
         Some(from_c_str(lower).unwrap())
     } else {
@@ -76,12 +97,12 @@ pub unsafe extern "C" fn isar_wc_add_string(
     } else {
         None
     };
-    where_clause.add_string(
-        lower,
-        lower_unbounded,
-        upper,
-        upper_unbounded,
-        case_sensitive,
-        index_type,
-    );
+    isar_try! {
+        where_clause.add_string(
+            lower,
+            lower_unbounded,
+            upper,
+            upper_unbounded,
+        )?;
+    }
 }

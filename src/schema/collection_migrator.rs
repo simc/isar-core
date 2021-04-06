@@ -24,10 +24,7 @@ impl<'a> CollectionMigrator<'a> {
     fn get_diff_indexes<'c>(col1: &'c IsarCollection, col2: &IsarCollection) -> Vec<&'c Index> {
         let mut diff_indexes = vec![];
         for index_col1 in col1.get_indexes() {
-            let col2_contains_index = col2
-                .get_indexes()
-                .iter()
-                .any(|i| i.get_id() == index_col1.get_id());
+            let col2_contains_index = col2.get_indexes().iter().any(|i| i.id == index_col1.id);
             if !col2_contains_index {
                 diff_indexes.push(index_col1);
             }
