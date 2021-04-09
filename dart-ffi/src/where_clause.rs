@@ -2,6 +2,7 @@ use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::object::data_type::DataType;
+use isar_core::object::isar_object::IsarObject;
 use isar_core::query::index_where_clause::IndexWhereClause;
 use isar_core::query::Sort;
 use std::os::raw::c_char;
@@ -27,6 +28,30 @@ pub unsafe extern "C" fn isar_wc_create(
         } else {
             illegal_arg("Unknown index.")?;
         };
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn isar_wc_add_null(where_clause: &mut IndexWhereClause) -> i32 {
+    let p = where_clause.get_next_property().copied();
+    isar_try! {
+        if let Some(p) = p {
+            match p.property.data_type {
+                DataType::Byte => where_clause.add_byte(IsarObject::NULL_BYTE, IsarObject::NULL_BYTE)?,
+                DataType::Int => where_clause.add_int(IsarObject::NULL_INT, IsarObject::NULL_INT)?,
+                DataType::Float => {
+                    where_clause.add_float(IsarObject::NULL_FLOAT, IsarObject::NULL_FLOAT)?
+                }
+                DataType::Long => where_clause.add_long(IsarObject::NULL_LONG, IsarObject::NULL_LONG)?,
+                DataType::Double => {
+                    where_clause.add_double(IsarObject::NULL_DOUBLE, IsarObject::NULL_DOUBLE)?
+                }
+                DataType::String => where_clause.add_string(None, false, None, false)?,
+                _ => unreachable!(),
+            }
+        } else {
+           illegal_arg("Too many values for WhereClause")?;
+        }
     }
 }
 

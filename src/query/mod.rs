@@ -343,7 +343,7 @@ mod tests {
         let mut wc = col
             .new_index_where_clause(0, false, Sort::Ascending)
             .unwrap();
-        wc.add_int(2, 3);
+        wc.add_int(2, 3).unwrap();
         let mut qb = col.new_query_builder();
         qb.add_index_where_clause(wc, true, true)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3)]);
@@ -362,7 +362,7 @@ mod tests {
         let mut wc = col
             .new_index_where_clause(0, false, Sort::Ascending)
             .unwrap();
-        wc.add_int(2, 3);
+        wc.add_int(2, 3).unwrap();
         let mut qb = col.new_query_builder();
         qb.add_index_where_clause(wc, true, true)?;
         assert_eq!(
@@ -373,7 +373,7 @@ mod tests {
         let mut wc = col
             .new_index_where_clause(0, true, Sort::Ascending)
             .unwrap();
-        wc.add_int(2, 4);
+        wc.add_int(2, 4).unwrap();
         let mut qb = col.new_query_builder();
         qb.add_index_where_clause(wc, true, true)?;
         assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (4, 3), (7, 4)]);
@@ -395,7 +395,7 @@ mod tests {
         let mut secondary_dup_wc = col
             .new_index_where_clause(0, false, Sort::Ascending)
             .unwrap();
-        secondary_dup_wc.add_int(3, 5);
+        secondary_dup_wc.add_int(3, 5).unwrap();
 
         let mut qb = col.new_query_builder();
         qb.add_id_where_clause(primary_wc)?;
