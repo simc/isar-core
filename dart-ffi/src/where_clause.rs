@@ -34,7 +34,6 @@ pub unsafe extern "C" fn isar_wc_create(
 #[no_mangle]
 pub extern "C" fn isar_wc_add_null(
     where_clause: &mut IndexWhereClause,
-    lower_unbounded: bool,
     upper_unbounded: bool,
 ) -> i32 {
     let p = where_clause.get_next_property().copied();
@@ -81,7 +80,7 @@ pub extern "C" fn isar_wc_add_null(
                     };
                     where_clause.add_double(IsarObject::NULL_DOUBLE, upper)?
                 }
-                DataType::String => where_clause.add_string(None, lower_unbounded, None, upper_unbounded)?,
+                DataType::String => where_clause.add_string(None, None, upper_unbounded)?,
                 _ => unreachable!(),
             }
         } else {
@@ -144,7 +143,6 @@ pub unsafe extern "C" fn isar_wc_add_string(
     where_clause: &mut IndexWhereClause,
     lower: *const c_char,
     upper: *const c_char,
-    lower_unbounded: bool,
     upper_unbounded: bool,
 ) -> i32 {
     let lower = if !lower.is_null() {
@@ -160,7 +158,6 @@ pub unsafe extern "C" fn isar_wc_add_string(
     isar_try! {
         where_clause.add_string(
             lower,
-            lower_unbounded,
             upper,
             upper_unbounded,
         )?;

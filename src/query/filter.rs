@@ -11,8 +11,6 @@ use paste::paste;
 #[enum_dispatch]
 #[derive(Clone)]
 pub enum Filter {
-    IsNull(IsNullCond),
-
     ByteBetween(ByteBetweenCond),
     IntBetween(IntBetweenCond),
     LongBetween(LongBetweenCond),
@@ -50,25 +48,6 @@ pub(crate) trait Condition {
     fn evaluate(&self, object: IsarObject, cursors: Option<&mut FilterCursors>) -> Result<bool>;
 
     fn get_linked_collections(&self, col_ids: &mut HashSet<u16>);
-}
-
-#[derive(Clone)]
-pub struct IsNullCond {
-    property: Property,
-}
-
-impl Condition for IsNullCond {
-    fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
-        Ok(object.is_null(self.property))
-    }
-
-    fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
-}
-
-impl IsNullCond {
-    pub fn filter(property: Property) -> Filter {
-        Filter::IsNull(Self { property })
-    }
 }
 
 #[macro_export]

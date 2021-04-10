@@ -196,12 +196,11 @@ impl IndexWhereClause {
     pub fn add_string(
         &mut self,
         lower: Option<&str>,
-        lower_unbounded: bool,
         upper: Option<&str>,
         upper_unbounded: bool,
     ) -> Result<()> {
         self.check_next_property_type(DataType::String)?;
-        let next = self.index.properties.get(self.next_property).unwrap();
+        let next = self.index.properties.get(self.next_property - 1).unwrap();
 
         let get_bytes = |value: Option<&str>| {
             let value = if next.case_sensitive.unwrap() {
@@ -216,15 +215,7 @@ impl IndexWhereClause {
             }
         };
 
-        if lower_unbounded {
-            match next.index_type {
-                IndexType::Value => self.lower_key.push(0),
-                IndexType::Hash => self.lower_key.extend_from_slice(&0u64.to_le_bytes()),
-                IndexType::Words => {}
-            };
-        } else {
-            self.lower_key.extend_from_slice(&get_bytes(lower));
-        }
+        self.lower_key.extend_from_slice(&get_bytes(lower));
 
         if upper_unbounded {
             self.upper_key.extend_from_slice(&u64::MAX.to_le_bytes());

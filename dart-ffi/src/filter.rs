@@ -2,6 +2,7 @@ use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::object::data_type::DataType;
+use isar_core::object::isar_object::IsarObject;
 use isar_core::query::filter::*;
 use std::os::raw::c_char;
 use std::slice;
@@ -54,19 +55,63 @@ pub unsafe extern "C" fn isar_filter_link(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_is_null(
+pub unsafe extern "C" fn isar_filter_null_between(
     collection: &IsarCollection,
     filter: *mut *const Filter,
+    upper_unbounded: bool,
     property_index: u32,
 ) -> i32 {
     let property = collection.get_properties().get(property_index as usize);
     isar_try! {
-        if let Some((_,property)) = property {
-            let query_filter = IsNullCond::filter(*property);
+        if let Some((_, property)) = property {
+            let query_filter = match property.data_type {
+                DataType::Byte => {
+                    let upper = if upper_unbounded {
+                        u8::MAX
+                    } else {
+                        IsarObject::NULL_BYTE
+                    };
+                    ByteBetweenCond::filter(*property, IsarObject::NULL_BYTE, upper)?
+                },
+                DataType::Int => {
+                    let upper = if upper_unbounded {
+                        i32::MAX
+                    } else {
+                        IsarObject::NULL_INT
+                    };
+                    IntBetweenCond::filter(*property, IsarObject::NULL_INT, upper)?
+                },
+                DataType::Float => {
+                    let upper = if upper_unbounded {
+                        f32::MAX
+                    } else {
+                        IsarObject::NULL_FLOAT
+                    };
+                    FloatBetweenCond::filter(*property, IsarObject::NULL_FLOAT, upper)?
+                },
+                DataType::Long => {
+                    let upper = if upper_unbounded {
+                        i64::MAX
+                    } else {
+                        IsarObject::NULL_LONG
+                    };
+                    LongBetweenCond::filter(*property, IsarObject::NULL_LONG, upper)?
+                },
+                DataType::Double => {
+                    let upper = if upper_unbounded {
+                        f64::MAX
+                    } else {
+                        IsarObject::NULL_DOUBLE
+                    };
+                    DoubleBetweenCond::filter(*property, IsarObject::NULL_DOUBLE, upper)?
+                },
+                DataType::String => StringEqualCond::filter(*property, None, false)?,
+                _ => unreachable!(),
+            };
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
         } else {
-            illegal_arg("Property does not exist.")?;
+           illegal_arg("Property does not exist.")?;
         }
     }
 }
