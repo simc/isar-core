@@ -32,21 +32,56 @@ pub unsafe extern "C" fn isar_wc_create(
 }
 
 #[no_mangle]
-pub extern "C" fn isar_wc_add_null(where_clause: &mut IndexWhereClause) -> i32 {
+pub extern "C" fn isar_wc_add_null(
+    where_clause: &mut IndexWhereClause,
+    lower_unbounded: bool,
+    upper_unbounded: bool,
+) -> i32 {
     let p = where_clause.get_next_property().copied();
     isar_try! {
         if let Some(p) = p {
             match p.property.data_type {
-                DataType::Byte => where_clause.add_byte(IsarObject::NULL_BYTE, IsarObject::NULL_BYTE)?,
-                DataType::Int => where_clause.add_int(IsarObject::NULL_INT, IsarObject::NULL_INT)?,
+                DataType::Byte => {
+                    let upper = if upper_unbounded {
+                        u8::MAX
+                    } else {
+                        IsarObject::NULL_BYTE
+                    };
+                    where_clause.add_byte(IsarObject::NULL_BYTE, upper)?
+                },
+                DataType::Int => {
+                    let upper = if upper_unbounded {
+                        i32::MAX
+                    } else {
+                        IsarObject::NULL_INT
+                    };
+                    where_clause.add_int(IsarObject::NULL_INT, upper)?
+                },
                 DataType::Float => {
-                    where_clause.add_float(IsarObject::NULL_FLOAT, IsarObject::NULL_FLOAT)?
+                    let upper = if upper_unbounded {
+                        f32::MAX
+                    } else {
+                        IsarObject::NULL_FLOAT
+                    };
+                    where_clause.add_float(IsarObject::NULL_FLOAT, upper)?
                 }
-                DataType::Long => where_clause.add_long(IsarObject::NULL_LONG, IsarObject::NULL_LONG)?,
+                DataType::Long => {
+                    let upper = if upper_unbounded {
+                        i64::MAX
+                    } else {
+                        IsarObject::NULL_LONG
+                    };
+                    where_clause.add_long(IsarObject::NULL_LONG, upper)?
+                },
                 DataType::Double => {
-                    where_clause.add_double(IsarObject::NULL_DOUBLE, IsarObject::NULL_DOUBLE)?
+                    let upper = if upper_unbounded {
+                        f64::MAX
+                    } else {
+                        IsarObject::NULL_DOUBLE
+                    };
+                    where_clause.add_double(IsarObject::NULL_DOUBLE, upper)?
                 }
-                DataType::String => where_clause.add_string(None, false, None, false)?,
+                DataType::String => where_clause.add_string(None, lower_unbounded, None, upper_unbounded)?,
                 _ => unreachable!(),
             }
         } else {
