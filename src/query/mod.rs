@@ -1,12 +1,17 @@
+use std::cmp::Ordering;
+use std::hash::Hasher;
+
+use hashbrown::HashSet;
+use serde_json::{json, Value};
+use wyhash::WyHash;
+
+use crate::collection::IsarCollection;
 use crate::error::Result;
 use crate::object::isar_object::{IsarObject, Property};
+use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::query::filter::{Condition, Filter, StaticCond};
 use crate::query::where_clause::WhereClause;
 use crate::txn::{Cursors, IsarTxn};
-use hashbrown::HashSet;
-use std::cmp::Ordering;
-use std::hash::Hasher;
-use wyhash::WyHash;
 
 mod fast_wild_match;
 pub mod filter;
@@ -258,16 +263,34 @@ impl<'txn> Query {
         })?;
         Ok(counter)
     }
+
+    pub fn export_json(
+        &self,
+        txn: &mut IsarTxn,
+        collection: &IsarCollection,
+        primitive_null: bool,
+        byte_as_bool: bool,
+    ) -> Result<Value> {
+        let mut items = vec![];
+        self.find_while(txn, |object| {
+            let json = JsonEncodeDecode::encode(collection, object, primitive_null, byte_as_bool);
+            items.push(json);
+            true
+        })?;
+        Ok(json!(items))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::Arc;
+
     use crate::instance::IsarInstance;
     use crate::object::data_type::DataType;
     use crate::query::filter::{IntBetweenCond, NotCond, OrCond};
     use crate::{col, ind, isar, set};
-    use std::sync::Arc;
+
+    use super::*;
 
     fn fill_int_col(data: Vec<i32>, unique: bool) -> Arc<IsarInstance> {
         isar!(isar, col => col!(oid => DataType::Long, field => DataType::Int; ind!(field; unique, false)));

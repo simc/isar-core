@@ -12,7 +12,7 @@ use crate::query::query_builder::QueryBuilder;
 use crate::query::Sort;
 use crate::txn::{Cursors, IsarTxn};
 use crate::watch::change_set::ChangeSet;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::cell::Cell;
 use std::ops::Add;
 
@@ -311,39 +311,6 @@ impl IsarCollection {
                 ob_result_cache = Some(ob.recycle());
             }
             Ok(())
-        })
-    }
-
-    pub fn export_json(
-        &self,
-        txn: &mut IsarTxn,
-        primitive_null: bool,
-        byte_as_bool: bool,
-        include_links: bool,
-    ) -> Result<Value> {
-        let mut items = vec![];
-        txn.read(|cursors| {
-            let wc = self.new_id_where_clause(None, None, Sort::Ascending)?;
-            let links = &mut cursors.links;
-            wc.iter(&mut cursors.data, None, |_, _, object| {
-                let mut json = JsonEncodeDecode::encode(self, object, primitive_null, byte_as_bool);
-
-                if include_links {
-                    let oid = object.read_long(self.get_oid_property());
-                    for (name, link) in &self.links {
-                        let mut target_ids = vec![];
-                        link.iter_ids(links, oid, |_, target_id| {
-                            target_ids.push(target_id.get_id());
-                            Ok(true)
-                        })?;
-                        json.insert(name.clone(), json!(target_ids));
-                    }
-                }
-
-                items.push(json!(json));
-                Ok(true)
-            })?;
-            Ok(json!(items))
         })
     }
 

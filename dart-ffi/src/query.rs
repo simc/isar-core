@@ -150,3 +150,36 @@ pub unsafe extern "C" fn isar_q_delete(
         Ok(())
     })
 }
+
+struct JsonBytes(*mut *mut u8);
+unsafe impl Send for JsonBytes {}
+
+struct JsonLen(*mut u32);
+unsafe impl Send for JsonLen {}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_q_export_json(
+    query: &'static Query,
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    primitive_null: bool,
+    json_bytes: *mut *mut u8,
+    json_length: *mut u32,
+) -> i32 {
+    let json = JsonBytes(json_bytes);
+    let json_length = JsonLen(json_length);
+    isar_try_txn!(txn, move |txn| {
+        let exported_json = query.export_json(txn, collection, primitive_null, true)?;
+        let bytes = serde_json::to_vec(&exported_json).unwrap();
+        let mut bytes = bytes.into_boxed_slice();
+        json_length.0.write(bytes.len() as u32);
+        json.0.write(bytes.as_mut_ptr());
+        std::mem::forget(bytes);
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_free_json(json_bytes: *mut u8, json_length: u32) {
+    Vec::from_raw_parts(json_bytes, json_length as usize, json_length as usize);
+}
