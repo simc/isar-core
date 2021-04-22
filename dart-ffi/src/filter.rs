@@ -105,7 +105,7 @@ pub unsafe extern "C" fn isar_filter_null_between(
                     };
                     DoubleBetweenCond::filter(*property, IsarObject::NULL_DOUBLE, upper)?
                 },
-                DataType::String => StringEqualCond::filter(*property, None, false)?,
+                DataType::String => StringBetweenCond::filter(*property, None, None, false)?,
                 _ => unreachable!(),
             };
             let ptr = Box::into_raw(Box::new(query_filter));
@@ -253,6 +253,37 @@ pub unsafe extern "C" fn isar_filter_long_list_contains(
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_string_between(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    lower: *const c_char,
+    upper: *const c_char,
+    case_sensitive: bool,
+    property_index: u32,
+) -> i32 {
+    let property = collection.get_properties().get(property_index as usize);
+    isar_try! {
+        if let Some((_, property)) = property {
+            let lower = if !lower.is_null() {
+                Some(from_c_str(lower)?)
+            } else {
+                None
+            };
+            let upper = if !upper.is_null() {
+                Some(from_c_str(upper)?)
+            } else {
+                None
+            };
+            let query_filter = isar_core::query::filter::StringBetweenCond::filter(*property, lower, upper, case_sensitive)?;
+            let ptr = Box::into_raw(Box::new(query_filter));
+            filter.write(ptr);
+        } else {
+            illegal_arg("Property does not exist.")?;
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! filter_string_ffi {
     ($filter_name:ident, $function_name:ident) => {
@@ -283,7 +314,6 @@ macro_rules! filter_string_ffi {
     }
 }
 
-filter_string_ffi!(StringEqualCond, isar_filter_string_equal);
 filter_string_ffi!(StringStartsWithCond, isar_filter_string_starts_with);
 filter_string_ffi!(StringEndsWithCond, isar_filter_string_ends_with);
 filter_string_ffi!(StringMatchesCond, isar_filter_string_matches);

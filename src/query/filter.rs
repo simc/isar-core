@@ -21,7 +21,7 @@ pub enum Filter {
     IntListContains(IntListContainsCond),
     LongListContains(LongListContainsCond),
 
-    StringEqual(StringEqualCond),
+    StringBetween(StringBetweenCond),
     StringStartsWith(StringStartsWithCond),
     StringEndsWith(StringEndsWithCond),
     StringMatches(StringMatchesCond),
@@ -173,6 +173,70 @@ primitive_list_filter!(ByteListContains, Byte, u8, read_byte_list);
 primitive_list_filter!(IntListContains, Int, i32, read_int_list);
 primitive_list_filter!(LongListContains, Long, i64, read_long_list);
 
+#[derive(Clone)]
+pub struct StringBetweenCond {
+    property: Property,
+    lower: Option<String>,
+    upper: Option<String>,
+    case_sensitive: bool,
+}
+
+impl StringBetweenCond {
+    pub fn filter(
+        property: Property,
+        lower: Option<&str>,
+        upper: Option<&str>,
+        case_sensitive: bool,
+    ) -> Result<Filter> {
+        let lower = if case_sensitive {
+            lower.map(|s| s.to_string())
+        } else {
+            lower.map(|s| s.to_lowercase())
+        };
+        let upper = if case_sensitive {
+            upper.map(|s| s.to_string())
+        } else {
+            upper.map(|s| s.to_lowercase())
+        };
+        if property.data_type == crate::object::data_type::DataType::String {
+            Ok(Filter::StringBetween(StringBetweenCond {
+                property,
+                lower,
+                upper,
+                case_sensitive,
+            }))
+        } else {
+            illegal_arg("Property does not support this filter.")
+        }
+    }
+}
+
+impl Condition for StringBetweenCond {
+    fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
+        let other_str = object.read_string(self.property);
+        let result = match (self.lower.as_ref(), other_str) {
+            (Some(lower), Some(other)) => {
+                if let Some(upper) = self.upper.as_ref() {
+                    if self.case_sensitive {
+                        lower.as_str() <= other && upper.as_str() >= other
+                    } else {
+                        let lowercase_other = other.to_lowercase();
+                        lower <= &lowercase_other && upper >= &lowercase_other
+                    }
+                } else {
+                    false
+                }
+            }
+            (Some(_), None) => false,
+            (None, Some(_)) => true,
+            (None, None) => self.upper.is_none(),
+        };
+        Ok(result)
+    }
+
+    fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
+}
+
 #[macro_export]
 macro_rules! string_filter_struct {
     ($name:ident) => {
@@ -237,10 +301,6 @@ macro_rules! string_filter {
         }
     };
 
-    (StringEqual $filter_str:ident, $other_str:ident) => {
-        $filter_str == $other_str
-    };
-
     (StringStartsWith $filter_str:ident, $other_str:ident) => {
         $other_str.starts_with($filter_str)
     };
@@ -254,7 +314,6 @@ macro_rules! string_filter {
     };
 }
 
-string_filter!(StringEqual);
 string_filter!(StringStartsWith);
 string_filter!(StringEndsWith);
 string_filter!(StringMatches);
