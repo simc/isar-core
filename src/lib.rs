@@ -9,7 +9,7 @@ compile_error!("Only 64-bit systems are supported at this time.");
 
 pub mod collection;
 pub mod error;
-mod index;
+pub mod index;
 pub mod instance;
 mod link;
 mod lmdb;

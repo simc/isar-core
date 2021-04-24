@@ -3,8 +3,8 @@ use crate::txn::IsarDartTxn;
 use crate::UintSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
+use isar_core::index::index_key::IndexKey;
 use isar_core::query::filter::Filter;
-use isar_core::query::index_where_clause::IndexWhereClause;
 use isar_core::query::query_builder::QueryBuilder;
 use isar_core::query::{Query, Sort};
 
@@ -16,7 +16,6 @@ pub extern "C" fn isar_qb_create(collection: &IsarCollection) -> *mut QueryBuild
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_id_where_clause(
-    collection: &IsarCollection,
     builder: &mut QueryBuilder,
     lower_oid: i64,
     upper_oid: i64,
@@ -28,21 +27,41 @@ pub unsafe extern "C" fn isar_qb_add_id_where_clause(
         Sort::Descending
     };
     isar_try! {
-        let where_clause = collection.new_id_where_clause(Some(lower_oid), Some(upper_oid), sort)?;
-        builder.add_id_where_clause(where_clause)?;
+        builder.add_id_where_clause(lower_oid,upper_oid,sort)?;
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_qb_add_index_where_clause(
-    builder: &mut QueryBuilder,
-    where_clause: *mut IndexWhereClause,
+pub unsafe extern "C" fn isar_qb_add_index_where_clause<'a>(
+    builder: &'a mut QueryBuilder,
+    lower_key: *mut IndexKey<'a>,
     include_lower: bool,
+    upper_key: *mut IndexKey<'a>,
     include_upper: bool,
+    skip_duplicates: bool,
+    ascending: bool,
 ) -> i32 {
-    let wc = *Box::from_raw(where_clause);
+    let equal = lower_key == upper_key;
+    let lower_key = *Box::from_raw(lower_key);
+    let upper_key = if equal {
+        lower_key.clone()
+    } else {
+        *Box::from_raw(upper_key)
+    };
+    let sort = if ascending {
+        Sort::Ascending
+    } else {
+        Sort::Descending
+    };
     isar_try! {
-        builder.add_index_where_clause(wc, include_lower, include_upper)?;
+        builder.add_index_where_clause(
+            lower_key,
+            include_lower,
+            upper_key,
+            include_upper,
+            skip_duplicates,
+            sort,
+        )?;
     }
 }
 

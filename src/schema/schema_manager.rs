@@ -1,4 +1,3 @@
-use crate::collection::IsarCollection;
 use crate::error::{IsarError, Result};
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::{ByteKey, IntKey, MIN_ID};
@@ -6,6 +5,7 @@ use crate::query::Sort;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
 use crate::txn::Cursors;
+use crate::{collection::IsarCollection, lmdb::MAX_ID, query::id_where_clause::IdWhereClause};
 use std::convert::TryInto;
 
 const ISAR_VERSION: u64 = 1;
@@ -107,7 +107,7 @@ impl<'env> SchemaManger<'env> {
             for index in col.get_indexes() {
                 index.clear(&mut self.cursors)?;
             }
-            col.new_id_where_clause(None, None, Sort::Ascending)?.iter(
+            IdWhereClause::new(col, MIN_ID, MAX_ID, Sort::Ascending).iter(
                 &mut self.cursors.data,
                 None,
                 |c, _, _| {

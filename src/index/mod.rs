@@ -1,4 +1,5 @@
 use crate::error::{IsarError, Result};
+use crate::index::index_key::IndexKey;
 use crate::lmdb::{ByteKey, IntKey, Key};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
@@ -7,13 +8,12 @@ use crate::query::Sort;
 use crate::schema::collection_schema::IndexType;
 use crate::txn::Cursors;
 use itertools::Itertools;
-use std::hash::Hasher;
-use std::mem::transmute;
 use unicode_segmentation::UnicodeSegmentation;
-use wyhash::{wyhash, WyHash};
 
 #[cfg(test)]
 use {crate::txn::IsarTxn, crate::utils::debug::dump_db, hashbrown::HashSet};
+
+pub mod index_key;
 
 pub const MAX_STRING_INDEX_SIZE: usize = 1024;
 
@@ -80,12 +80,12 @@ impl Index {
         }
     }
 
-    pub fn new_where_clause(&self, skip_duplicates: bool, sort: Sort) -> IndexWhereClause {
-        IndexWhereClause::new(&self.get_prefix(), self.clone(), skip_duplicates, sort)
-    }
-
     pub fn get_prefix(&self) -> Vec<u8> {
         self.id.to_be_bytes().to_vec()
+    }
+
+    pub(crate) fn get_col_id(&self) -> u16 {
+        self.col_id
     }
 
     pub fn multiple(&self) -> bool {
@@ -154,13 +154,16 @@ impl Index {
     }
 
     pub fn clear(&self, cursors: &mut Cursors) -> Result<()> {
-        self.new_where_clause(false, Sort::Ascending).iter_ids(
-            &mut cursors.index,
-            |cursor, _| {
-                cursor.delete_current()?;
-                Ok(true)
-            },
-        )?;
+        IndexWhereClause::new(
+            IndexKey::new(self),
+            IndexKey::new(self),
+            false,
+            Sort::Ascending,
+        )?
+        .iter_ids(&mut cursors.index, |cursor, _| {
+            cursor.delete_current()?;
+            Ok(true)
+        })?;
         Ok(())
     }
 
@@ -169,56 +172,51 @@ impl Index {
         object: IsarObject,
         mut callback: impl FnMut(&[u8]) -> Result<bool>,
     ) -> Result<()> {
-        let mut bytes = self.get_prefix();
         if self.multiple() {
-            let static_len = bytes.len();
-            self.create_multiple_keys(object, |key| {
-                bytes.truncate(static_len);
-                bytes.extend_from_slice(key);
-                callback(&bytes)
-            })
+            self.create_multiple_keys(object, callback)
         } else {
-            bytes.extend(self.create_single_key(object));
+            let bytes = self.create_single_key(object, vec![]);
             callback(&bytes)?;
             Ok(())
         }
     }
 
-    fn create_single_key(&self, object: IsarObject) -> Vec<u8> {
-        self.properties
-            .iter()
-            .flat_map(|ip| match ip.property.data_type {
+    fn create_single_key(&self, object: IsarObject, buffer: Vec<u8>) -> Vec<u8> {
+        let mut key = IndexKey::with_buffer(self, buffer);
+        for ip in &self.properties {
+            match ip.property.data_type {
                 DataType::Byte => {
                     let value = object.read_byte(ip.property);
-                    Self::create_byte_key(value)
+                    key.add_byte(value);
                 }
                 DataType::Int => {
                     let value = object.read_int(ip.property);
-                    Self::create_int_key(value)
+                    key.add_int(value);
                 }
                 DataType::Long => {
                     let value = object.read_long(ip.property);
-                    Self::create_long_key(value)
+                    key.add_long(value);
                 }
                 DataType::Float => {
                     let value = object.read_float(ip.property);
-                    Self::create_float_key(value)
+                    key.add_float(value);
                 }
                 DataType::Double => {
                     let value = object.read_double(ip.property);
-                    Self::create_double_key(value)
+                    key.add_double(value);
                 }
                 DataType::String => {
-                    let value = ip.get_string_with_case(object);
+                    let value = object.read_string(ip.property);
                     match ip.index_type {
-                        IndexType::Value => Self::create_string_value_key(value.as_deref()),
-                        IndexType::Hash => Self::create_string_hash_key(value.as_deref()),
+                        IndexType::Value => key.add_string_value(value, ip.case_sensitive.unwrap()),
+                        IndexType::Hash => key.add_string_hash(value, ip.case_sensitive.unwrap()),
                         _ => unimplemented!(),
                     }
                 }
                 _ => unimplemented!(),
-            })
-            .collect()
+            }
+        }
+        key.bytes
     }
 
     fn create_multiple_keys(
@@ -237,77 +235,6 @@ impl Index {
             }
         });
         result
-    }
-
-    pub fn create_int_key(value: i32) -> Vec<u8> {
-        let unsigned = unsafe { transmute::<i32, u32>(value) };
-        (unsigned ^ 1 << 31).to_be_bytes().to_vec()
-    }
-
-    pub fn create_long_key(value: i64) -> Vec<u8> {
-        let unsigned = unsafe { transmute::<i64, u64>(value) };
-        u64::to_be_bytes(unsigned ^ 1 << 63).to_vec()
-    }
-
-    pub fn create_float_key(value: f32) -> Vec<u8> {
-        if !value.is_nan() {
-            let bits = if value.is_sign_positive() {
-                value.to_bits() + 2u32.pow(31)
-            } else {
-                !(-value).to_bits() - 2u32.pow(31)
-            };
-            bits.to_be_bytes().to_vec()
-        } else {
-            vec![0; 4]
-        }
-    }
-
-    pub fn create_double_key(value: f64) -> Vec<u8> {
-        if !value.is_nan() {
-            let bits = if value.is_sign_positive() {
-                value.to_bits() + 2u64.pow(63)
-            } else {
-                !(-value).to_bits() - 2u64.pow(63)
-            };
-            bits.to_be_bytes().to_vec()
-        } else {
-            vec![0; 8]
-        }
-    }
-
-    pub fn create_byte_key(value: u8) -> Vec<u8> {
-        vec![value]
-    }
-
-    pub fn create_string_hash_key(value: Option<&str>) -> Vec<u8> {
-        let hash = if let Some(value) = value {
-            let mut hasher = WyHash::default();
-            hasher.write_usize(value.len());
-            hasher.write(value.as_bytes());
-            hasher.finish()
-        } else {
-            0
-        };
-        u64::to_be_bytes(hash).to_vec()
-    }
-
-    pub fn create_string_value_key(value: Option<&str>) -> Vec<u8> {
-        if let Some(value) = value {
-            let value = value.as_bytes();
-            let mut bytes = vec![1];
-            if value.len() >= MAX_STRING_INDEX_SIZE {
-                bytes.extend_from_slice(&value[0..MAX_STRING_INDEX_SIZE]);
-                bytes.push(0);
-                let hash = wyhash(&bytes, 0);
-                bytes.extend_from_slice(&u64::to_le_bytes(hash));
-            } else {
-                bytes.extend_from_slice(value);
-                bytes.push(0);
-            }
-            bytes
-        } else {
-            vec![0]
-        }
     }
 
     pub fn create_word_keys(value: Option<&str>, mut callback: impl FnMut(&[u8]) -> bool) {

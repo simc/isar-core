@@ -1,5 +1,5 @@
-use crate::error::{IsarError, Result};
-use crate::index::Index;
+use crate::error::{illegal_arg, IsarError, Result};
+use crate::index::index_key::IndexKey;
 use crate::link::Link;
 use crate::lmdb::{verify_id, IntKey, MAX_ID, MIN_ID};
 use crate::object::isar_object::{IsarObject, Property};
@@ -7,11 +7,11 @@ use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::object::object_builder::ObjectBuilder;
 use crate::object::object_info::ObjectInfo;
 use crate::query::id_where_clause::IdWhereClause;
-use crate::query::index_where_clause::IndexWhereClause;
 use crate::query::query_builder::QueryBuilder;
 use crate::query::Sort;
 use crate::txn::{Cursors, IsarTxn};
 use crate::watch::change_set::ChangeSet;
+use crate::{index::Index, lmdb::ByteKey};
 use serde_json::Value;
 use std::cell::Cell;
 use std::ops::Add;
@@ -93,35 +93,15 @@ impl IsarCollection {
         QueryBuilder::new(self)
     }
 
-    pub fn new_id_where_clause(
-        &self,
-        lower_id: Option<i64>,
-        upper_id: Option<i64>,
-        sort: Sort,
-    ) -> Result<IdWhereClause> {
-        if let Some(lower) = lower_id {
-            verify_id(lower)?;
-        }
-        if let Some(upper) = upper_id {
-            verify_id(upper)?;
-        }
-        Ok(IdWhereClause::new(
-            self.id,
-            lower_id.unwrap_or(MIN_ID),
-            upper_id.unwrap_or(MAX_ID),
-            sort,
-        ))
+    pub fn new_index_key(&self, index_index: usize) -> Option<IndexKey> {
+        self.indexes.get(index_index).map(|i| IndexKey::new(i))
     }
 
-    pub fn new_index_where_clause(
-        &self,
-        index_index: usize,
-        skip_duplicates: bool,
-        sort: Sort,
-    ) -> Option<IndexWhereClause> {
-        self.indexes
-            .get(index_index)
-            .map(|i| i.new_where_clause(skip_duplicates, sort))
+    pub(crate) fn verify_index_key(&self, key: &IndexKey) -> Result<()> {
+        if key.index.get_col_id() != self.id {
+            return illegal_arg("Invalid IndexKey for this collection");
+        }
+        Ok(())
     }
 
     pub fn auto_increment(&self, _txn: &mut IsarTxn) -> Result<i64> {
@@ -149,6 +129,26 @@ impl IsarCollection {
         })
     }
 
+    pub fn get_by_index<'txn>(
+        &self,
+        txn: &'txn mut IsarTxn,
+        key: &IndexKey,
+    ) -> Result<Option<IsarObject<'txn>>> {
+        self.verify_index_key(key)?;
+        txn.read(|cursors| {
+            let index_result = cursors.index.move_to(ByteKey::new(&key.bytes))?;
+            if let Some((_, key)) = index_result {
+                let object = cursors
+                    .data
+                    .move_to(ByteKey::new(key))?
+                    .map(|(_, v)| IsarObject::from_bytes(v));
+                Ok(object)
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
     pub fn put(&self, txn: &mut IsarTxn, object: IsarObject) -> Result<()> {
         txn.write(|cursors, change_set| self.put_internal(cursors, change_set, object))
     }
@@ -161,7 +161,7 @@ impl IsarCollection {
     ) -> Result<()> {
         let oid = object.read_long(self.get_oid_property());
         verify_id(oid)?;
-        self.delete_internal(cursors, change_set.as_deref_mut(), oid)?;
+        self.delete_internal(cursors, false, change_set.as_deref_mut(), oid)?;
         self.update_oid_counter(oid);
 
         if !self.object_info.verify_object(object) {
@@ -170,7 +170,7 @@ impl IsarCollection {
 
         for index in &self.indexes {
             index.create_for_object(cursors, oid, object, |cursors, id| {
-                self.delete_internal(cursors, change_set.as_deref_mut(), id)?;
+                self.delete_internal(cursors, true, change_set.as_deref_mut(), id)?;
                 Ok(())
             })?;
         }
@@ -183,12 +183,26 @@ impl IsarCollection {
     }
 
     pub fn delete(&self, txn: &mut IsarTxn, oid: i64) -> Result<bool> {
-        txn.write(|cursors, change_set| self.delete_internal(cursors, change_set, oid))
+        txn.write(|cursors, change_set| self.delete_internal(cursors, true, change_set, oid))
+    }
+
+    pub fn delete_by_index(&self, txn: &mut IsarTxn, key: &IndexKey) -> Result<bool> {
+        self.verify_index_key(key)?;
+        txn.write(|cursors, change_set| {
+            let index_result = cursors.index.move_to(ByteKey::new(&key.bytes))?;
+            if let Some((_, key)) = index_result {
+                let oid = IntKey::from_bytes(key).get_id();
+                self.delete_internal(cursors, true, change_set, oid)
+            } else {
+                Ok(false)
+            }
+        })
     }
 
     pub(crate) fn delete_internal(
         &self,
         cursors: &mut Cursors,
+        delete_links: bool,
         change_set: Option<&mut ChangeSet>,
         oid: i64,
     ) -> Result<bool> {
@@ -197,8 +211,10 @@ impl IsarCollection {
             for index in &self.indexes {
                 index.delete_for_object(cursors, oid, object)?;
             }
-            for link in self.get_links_and_backlinks() {
-                link.delete_all_for_object(&mut cursors.links, oid)?;
+            if delete_links {
+                for link in self.get_links_and_backlinks() {
+                    link.delete_all_for_object(&mut cursors.links, oid)?;
+                }
             }
             self.register_object_change(change_set, oid, object);
             cursors.data.delete_current()?;
@@ -289,13 +305,16 @@ impl IsarCollection {
             for link in self.get_links_and_backlinks() {
                 link.clear(&mut cursors.links)?;
             }
-            self.new_id_where_clause(None, None, Sort::Ascending)?
-                .iter(&mut cursors.data, None, |cursor, id, object| {
+            IdWhereClause::new(self, MIN_ID, MAX_ID, Sort::Ascending).iter(
+                &mut cursors.data,
+                None,
+                |cursor, id, object| {
                     self.register_object_change(change_set.as_deref_mut(), id.get_id(), object);
                     cursor.delete_current()?;
                     counter += 1;
                     Ok(true)
-                })?;
+                },
+            )?;
             Ok(counter)
         })
     }

@@ -1,12 +1,12 @@
-use crate::error::Result;
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::IntKey;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
+use crate::{collection::IsarCollection, error::Result};
 use hashbrown::HashSet;
 
 #[derive(Clone)]
-pub struct IdWhereClause {
+pub(crate) struct IdWhereClause {
     prefix: u16,
     lower: i64,
     upper: i64,
@@ -14,17 +14,13 @@ pub struct IdWhereClause {
 }
 
 impl IdWhereClause {
-    pub(crate) fn new(prefix: u16, lower: i64, upper: i64, sort: Sort) -> Self {
+    pub(crate) fn new(col: &IsarCollection, lower: i64, upper: i64, sort: Sort) -> Self {
         IdWhereClause {
-            prefix,
+            prefix: col.get_id(),
             lower,
             upper,
             sort,
         }
-    }
-
-    pub(crate) fn get_prefix(&self) -> u16 {
-        self.prefix
     }
 
     pub fn is_empty(&self) -> bool {

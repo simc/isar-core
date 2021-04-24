@@ -11,6 +11,7 @@ mod error;
 pub mod crud;
 mod dart;
 pub mod filter;
+pub mod index_key;
 pub mod instance;
 pub mod link;
 pub mod query;
@@ -18,7 +19,6 @@ pub mod query_aggregation;
 pub mod raw_object_set;
 pub mod txn;
 pub mod watchers;
-pub mod where_clause;
 
 pub unsafe fn from_c_str<'a>(str: *const c_char) -> Result<&'a str> {
     match CStr::from_ptr(str).to_str() {

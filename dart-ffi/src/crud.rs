@@ -4,9 +4,16 @@ use crate::{BoolSend, UintSend};
 use byteorder::{ByteOrder, LittleEndian};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
+use isar_core::index::index_key::IndexKey;
 use isar_core::object::isar_object::IsarObject;
 use isar_core::txn::IsarTxn;
 use serde_json::Value;
+
+struct KeySend(&'static IndexKey<'static>);
+unsafe impl Send for KeySend {}
+
+struct KeysSend(&'static [&'static IndexKey<'static>]);
+unsafe impl Send for KeysSend {}
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_get(
@@ -34,6 +41,41 @@ pub unsafe extern "C" fn isar_get_all(
         for object in objects.0.get_objects() {
             let oid = object.get_oid();
             let result = collection.get(txn, oid)?;
+            object.set_object(result);
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_get_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    object: &'static mut RawObject,
+    key: &'static IndexKey<'static>,
+) -> i32 {
+    let object = RawObjectSend(object);
+    let key = KeySend(key);
+    isar_try_txn!(txn, move |txn| {
+        let result = collection.get_by_index(txn, key.0)?;
+        object.0.set_object(result);
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_get_all_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    objects: &'static mut RawObjectSet,
+    keys: *const &'static IndexKey<'static>,
+) -> i32 {
+    let objects = RawObjectSetSend(objects);
+    let slice = std::slice::from_raw_parts(keys, objects.0.get_length());
+    let keys = KeysSend(slice);
+    isar_try_txn!(txn, move |txn| {
+        for (object, key) in objects.0.get_objects().iter_mut().zip(keys.0) {
+            let result = collection.get_by_index(txn, key)?;
             object.set_object(result);
         }
         Ok(())
@@ -117,6 +159,40 @@ pub unsafe extern "C" fn isar_delete_all(
     isar_try_txn!(txn, move |txn| {
         for oid in oids {
             if collection.delete(txn, *oid)? {
+                *count.0 += 1;
+            }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_delete_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    key: &'static IndexKey<'static>,
+    deleted: &'static mut bool,
+) -> i32 {
+    let deleted = BoolSend(deleted);
+    isar_try_txn!(txn, move |txn| {
+        *deleted.0 = collection.delete_by_index(txn, key)?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_delete_all_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    keys: *const IndexKey<'static>,
+    keys_length: u32,
+    count: &'static mut u32,
+) -> i32 {
+    let keys = std::slice::from_raw_parts(keys, keys_length as usize);
+    let count = UintSend(count);
+    isar_try_txn!(txn, move |txn| {
+        for key in keys {
+            if collection.delete_by_index(txn, key)? {
                 *count.0 += 1;
             }
         }

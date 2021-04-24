@@ -45,7 +45,7 @@ impl<'a> CollectionMigrator<'a> {
                     let oid = object.read_long(self.collection.get_oid_property());
                     for index in &self.added_indexes {
                         index.create_for_object(cursors2, oid, object, |cursors, id| {
-                            self.collection.delete_internal(cursors, None, id)?;
+                            self.collection.delete_internal(cursors, true, None, id)?;
                             Ok(())
                         })?;
                     }
