@@ -20,11 +20,17 @@ pub unsafe extern "C" fn isar_get(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     object: &'static mut RawObject,
+    key: Option<&'static IndexKey<'static>>,
 ) -> i32 {
     let object = RawObjectSend(object);
+    let key = key.map(|key| KeySend(key));
     isar_try_txn!(txn, move |txn| {
-        let oid = object.0.get_oid();
-        let result = collection.get(txn, oid)?;
+        let result = if let Some(key) = key {
+            collection.get_by_index(txn, key.0)?
+        } else {
+            let oid = object.0.get_oid();
+            collection.get(txn, oid)?
+        };
         object.0.set_object(result);
         Ok(())
     })
@@ -35,49 +41,28 @@ pub unsafe extern "C" fn isar_get_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     objects: &'static mut RawObjectSet,
-) -> i32 {
-    let objects = RawObjectSetSend(objects);
-    isar_try_txn!(txn, move |txn| {
-        for object in objects.0.get_objects() {
-            let oid = object.get_oid();
-            let result = collection.get(txn, oid)?;
-            object.set_object(result);
-        }
-        Ok(())
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_get_by_index(
-    collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
-    object: &'static mut RawObject,
-    key: &'static IndexKey<'static>,
-) -> i32 {
-    let object = RawObjectSend(object);
-    let key = KeySend(key);
-    isar_try_txn!(txn, move |txn| {
-        let result = collection.get_by_index(txn, key.0)?;
-        object.0.set_object(result);
-        Ok(())
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_get_all_by_index(
-    collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
-    objects: &'static mut RawObjectSet,
     keys: *const &'static IndexKey<'static>,
 ) -> i32 {
     let objects = RawObjectSetSend(objects);
-    let slice = std::slice::from_raw_parts(keys, objects.0.get_length());
-    let keys = KeysSend(slice);
+    let keys = if keys.is_null() {
+        let slice = std::slice::from_raw_parts(keys, objects.0.get_length());
+        Some(KeysSend(slice))
+    } else {
+        None
+    };
     isar_try_txn!(txn, move |txn| {
-        for (object, key) in objects.0.get_objects().iter_mut().zip(keys.0) {
-            let result = collection.get_by_index(txn, key)?;
-            object.set_object(result);
-        }
+        if let Some(keys) = keys {
+            for (object, key) in objects.0.get_objects().iter_mut().zip(keys.0) {
+                let result = collection.get_by_index(txn, key)?;
+                object.set_object(result);
+            }
+        } else {
+            for object in objects.0.get_objects() {
+                let oid = object.get_oid();
+                let result = collection.get(txn, oid)?;
+                object.set_object(result);
+            }
+        };
         Ok(())
     })
 }
