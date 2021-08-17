@@ -57,4 +57,10 @@ impl IdWhereClause {
             },
         )
     }
+
+    pub(crate) fn is_overlapping(&self, other: &Self) -> bool {
+        self.prefix == other.prefix
+            && ((self.lower <= other.lower && self.upper >= other.upper)
+                || (other.lower <= self.lower && other.upper >= self.upper))
+    }
 }

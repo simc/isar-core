@@ -131,6 +131,15 @@ impl IndexWhereClause {
         }
         true
     }
+
+    pub(crate) fn is_overlapping(&self, other: &Self) -> bool {
+        let lower1 = ByteKey::new(&self.lower_key);
+        let lower2 = ByteKey::new(&other.lower_key);
+        let upper1 = ByteKey::new(&self.upper_key);
+        let upper2 = ByteKey::new(&other.upper_key);
+        self.index == other.index
+            && ((lower1 <= lower2 && upper1 >= upper2) || (lower2 <= lower1 && upper2 >= upper1))
+    }
 }
 
 /*#[cfg(test)]

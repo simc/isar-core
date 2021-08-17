@@ -1,7 +1,6 @@
-#![cfg(test)]
-
+use crate::instance::IsarInstance;
 use crate::lmdb::cursor::Cursor;
-use crate::lmdb::{ByteKey, IntKey, MAX_ID, MIN_ID};
+use crate::lmdb::{ByteKey, IntKey};
 use hashbrown::HashSet;
 
 #[macro_export]
@@ -48,7 +47,7 @@ macro_rules! isar (
 
     (_internal: $path:ident, $key:ident, $isar:ident, $($col:ident => $schema:expr),+) => {
         let cols = vec![$($schema,)+];
-        let schema = crate::schema::Schema::new(cols).unwrap();
+        let schema = $crate::schema::Schema::new(cols).unwrap();
         let mut path_buf = std::path::PathBuf::new();
         path_buf.push($path);
         let optional_key = vec![5u8; 32];
@@ -60,43 +59,48 @@ macro_rules! isar (
             }
         });
 
-        let $isar = crate::instance::IsarInstance::open($path, path_buf, 10000000, schema, key).unwrap();
+        let $isar = $crate::instance::IsarInstance::open($path, path_buf, 10000000, schema, key).unwrap();
         $(
             let col = $schema;
-            let $col = $isar.get_collection_by_name(&col.name).unwrap();
+            let $col = $isar.get_collection_by_name(col.get_name()).unwrap();
         )+
     };
 );
 
 #[macro_export]
 macro_rules! col (
-    ($($field:expr => $type:path),+) => {
-        col!($($field => $type),+;);
+    ($($field:expr => $type:path),*) => {
+        col!($($field => $type),*;)
     };
 
-    ($($field:expr => $type:path),+; $($index:expr),*) => {
-        col!(stringify!($($field)+), $($field => $type),+; $($index),*)
+    ($($field:expr => $type:path),*; $($index:expr),*) => {
+        col!(stringify!("col", $($field)*), $($field => $type),*; $($index),*)
     };
 
-    ($name:expr, $($field:expr => $type:path),+) => {
-        col!($name, $($field => $type),+;);
+    ($name:expr, $($field:expr => $type:path),*) => {
+        col!($name, $($field => $type),*;)
     };
 
-    ($name:expr, $($field:expr => $type:path),+; $($index:expr),*) => {
+    ($name:expr) => {
+        col!($name,)
+    };
+
+    ($name:expr, $($field:expr => $type:path),*; $($index:expr),*) => {
         {
+            #[allow(unused_mut)]
             let mut properties = vec![];
             $(
-                let property = crate::schema::collection_schema::PropertySchema::new(stringify!($field), $type);
+                let property = $crate::schema::collection_schema::PropertySchema::new(stringify!($field), $type);
                 properties.push(property);
-            )+
+            )*
             let mut indexes = vec![];
             indexes.clear();
             $(
                 let (fields, unique, replace) = $index;
-                let index = crate::schema::collection_schema::IndexSchema::new(fields, unique, replace);
+                let index = $crate::schema::collection_schema::IndexSchema::new(fields, unique, replace);
                 indexes.push(index);
             )*
-            crate::schema::collection_schema::CollectionSchema::new($name, &properties[0].name.clone(), properties, indexes, vec![])
+            $crate::schema::collection_schema::CollectionSchema::new($name, properties, indexes, vec![])
         }
     };
 );
@@ -104,15 +108,15 @@ macro_rules! col (
 #[macro_export]
 macro_rules! ind (
     ($($index:expr),+) => {
-        ind!($($index),+; false, false);
+        ind!($($index),+; false, false)
     };
 
     ($($index:expr),+; $unique:expr, $replace:expr) => {
-        ind!(str $($index, crate::schema::collection_schema::IndexType::Value, None),+; $unique, $replace);
+        ind!(str $($index, crate::schema::collection_schema::IndexType::Value, None),+; $unique, $replace)
     };
 
     (str $($index:expr, $str_type:expr, $str_lc:expr),+) => {
-        ind!(str $($index, $str_type, $str_lc),+; false, false);
+        ind!(str $($index, $str_type, $str_lc),+; false, false)
     };
 
     (str $($index:expr, $str_type:expr, $str_lc:expr),+; $unique:expr, $replace:expr) => {
@@ -153,8 +157,8 @@ pub fn dump_db_oid(cursor: &mut Cursor, prefix: u16) -> HashSet<(Vec<u8>, Vec<u8
 
     cursor
         .iter_between(
-            IntKey::new(prefix, MIN_ID),
-            IntKey::new(prefix, MAX_ID),
+            IntKey::new(prefix, IsarInstance::MIN_ID),
+            IntKey::new(prefix, IsarInstance::MAX_ID),
             false,
             true,
             |_, k, v| {

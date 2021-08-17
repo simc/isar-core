@@ -33,6 +33,9 @@ pub struct IsarInstance {
 }
 
 impl IsarInstance {
+    pub const ID_NAME: &'static str = "id";
+    pub const MIN_ID: i64 = -(1 << 47);
+    pub const MAX_ID: i64 = (1 << 47) - 1;
     pub const ENCRYPTION_KEY_LEN: usize = 32;
 
     pub fn open(
@@ -230,15 +233,15 @@ struct DataDbs {
 impl DataDbs {
     fn open_cursors<'txn>(&self, txn: &'txn Txn) -> Result<Cursors<'txn>> {
         Ok(Cursors {
-            data: self.data.cursor(&txn)?,
-            data2: self.data.cursor(&txn)?,
-            index: self.index.cursor(&txn)?,
-            links: self.links.cursor(&txn)?,
+            data: self.data.cursor(txn)?,
+            data2: self.data.cursor(txn)?,
+            index: self.index.cursor(txn)?,
+            links: self.links.cursor(txn)?,
         })
     }
 
     fn open_info_cursor<'txn>(&self, txn: &'txn Txn) -> Result<Cursor<'txn>> {
-        self.info.cursor(&txn)
+        self.info.cursor(txn)
     }
 }
 
@@ -251,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_open_new_instance() {
-        isar!(isar, col => col!(f1 => DataType::Long));
+        isar!(isar, col => col!());
 
         let mut ob = col.new_object_builder(None);
         ob.write_long(123);
@@ -271,7 +274,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        isar!(path: path, isar, col1 => col!("col1", f1 => DataType::Long));
+        isar!(path: path, isar, col1 => col!("col1",));
 
         let mut ob = col1.new_object_builder(None);
         ob.write_long(123);
@@ -284,7 +287,7 @@ mod tests {
 
         assert!(isar.close());
 
-        isar!(path: path, isar2, col1 => col!("col1", f1 => DataType::Long), col2 => col!("col2", f1 => DataType::Long));
+        isar!(path: path, isar2, col1 => col!("col1"), col2 => col!("col2"));
         let mut txn = isar2.begin_txn(false, false).unwrap();
         let object = IsarObject::from_bytes(&object_bytes);
         assert_eq!(col1.get(&mut txn, 123).unwrap(), Some(object));
@@ -298,7 +301,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        isar!(path: path, isar, col1 => col!("col1", f1 => DataType::Long), _col2 => col!("col2", f1 => DataType::Long));
+        isar!(path: path, isar, col1 => col!("col1"), _col2 => col!("col2"));
         let mut ob = col1.new_object_builder(None);
         ob.write_long(123);
         let o = ob.finish();
@@ -308,10 +311,10 @@ mod tests {
         txn.commit().unwrap();
         isar.close();
 
-        isar!(path: path, isar, _col2 => col!("col2", f1 => DataType::Long));
+        isar!(path: path, isar, _col2 => col!("col2"));
         isar.close();
 
-        isar!(path: path, isar, col1 => col!("col1", f1 => DataType::Long), _col2 => col!("col2", f1 => DataType::Long));
+        isar!(path: path, isar, col1 => col!("col1"), _col2 => col!("col2"));
         let mut txn = isar.begin_txn(false, false).unwrap();
         assert_eq!(col1.new_query_builder().build().count(&mut txn).unwrap(), 0);
         txn.abort();

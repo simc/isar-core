@@ -213,23 +213,32 @@ impl StringBetweenCond {
 
 impl Condition for StringBetweenCond {
     fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
-        let other_str = object.read_string(self.property);
-        let result = match (self.lower.as_ref(), other_str) {
-            (Some(lower), Some(other)) => {
-                if let Some(upper) = self.upper.as_ref() {
-                    if self.case_sensitive {
-                        lower.as_str() <= other && upper.as_str() >= other
-                    } else {
-                        let lowercase_other = other.to_lowercase();
-                        lower <= &lowercase_other && upper >= &lowercase_other
-                    }
+        let obj_str = object.read_string(self.property);
+        let result = if let Some(obj_str) = obj_str {
+            let mut matches = true;
+            if self.case_sensitive {
+                if let Some(ref lower) = self.lower {
+                    matches &= lower.as_str() <= obj_str;
+                }
+                matches &= if let Some(ref upper) = self.upper {
+                    upper.as_str() >= obj_str
                 } else {
                     false
+                };
+            } else {
+                let obj_str = obj_str.to_lowercase();
+                if let Some(ref lower) = self.lower {
+                    matches &= lower.as_str() <= obj_str.as_str();
                 }
+                matches &= if let Some(ref upper) = self.upper {
+                    upper.as_str() >= obj_str.as_str()
+                } else {
+                    false
+                };
             }
-            (Some(_), None) => false,
-            (None, Some(_)) => true,
-            (None, None) => self.upper.is_none(),
+            matches
+        } else {
+            self.lower.is_none()
         };
         Ok(result)
     }
@@ -442,13 +451,12 @@ impl StaticCond {
 #[derive(Clone)]
 pub struct LinkCond {
     link: Link,
-    id_property: Property,
     filter: Box<Filter>,
 }
 
 impl Condition for LinkCond {
     fn evaluate(&self, object: IsarObject, cursors: Option<&mut FilterCursors>) -> Result<bool> {
-        let oid = object.read_long(self.id_property);
+        let oid = object.read_id();
         if let Some(cursors) = cursors {
             self.link
                 .iter(cursors.0, cursors.1, oid, |object| {
@@ -468,16 +476,13 @@ impl Condition for LinkCond {
 impl LinkCond {
     pub fn filter(
         collection: &IsarCollection,
-        target_collection: &IsarCollection,
         link_index: usize,
         backlink: bool,
         filter: Filter,
     ) -> Result<Filter> {
         let link = collection.get_link_backlink(link_index, backlink)?;
-        let id_property = target_collection.get_oid_property();
         Ok(Filter::Link(LinkCond {
             link,
-            id_property,
             filter: Box::new(filter),
         }))
     }

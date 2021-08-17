@@ -1,6 +1,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::error::{IsarError, Result};
+use crate::instance::IsarInstance;
 use core::slice;
 use lmdb_sys as ffi;
 use std::cmp::{min, Ordering};
@@ -26,10 +27,8 @@ pub const EMPTY_VAL: ffi::MDB_val = ffi::MDB_val {
     mv_data: 0 as *mut c_void,
 };
 
-pub const MIN_ID: i64 = -(1 << 47);
-pub const MAX_ID: i64 = (1 << 47) - 1;
 const ID_PREFIX_MASK: u64 = 0xffff_ffff_ffff;
-const ID_OFFSET: i64 = i64::MIN - MIN_ID;
+const ID_OFFSET: i64 = i64::MIN - IsarInstance::MIN_ID;
 
 #[inline]
 pub unsafe fn from_mdb_val<'a>(val: &ffi::MDB_val) -> &'a [u8] {
@@ -56,7 +55,7 @@ pub trait Key: Ord + Copy {
 }
 
 pub fn verify_id(id: i64) -> Result<()> {
-    if id < MIN_ID || id > MAX_ID {
+    if id < IsarInstance::MIN_ID || id > IsarInstance::MAX_ID {
         Err(IsarError::InvalidObjectId {})
     } else {
         Ok(())
@@ -94,7 +93,7 @@ impl IntKey {
 
 impl Key for IntKey {
     fn as_bytes(&self) -> &[u8] {
-        self.key.as_ne_bytes()
+        unsafe { slice::from_raw_parts(&self.key as *const u64 as *const u8, 8) }
     }
 
     #[inline]

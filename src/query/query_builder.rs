@@ -1,5 +1,4 @@
-use crate::error::{illegal_arg, Result};
-use crate::lmdb::{MAX_ID, MIN_ID};
+use crate::error::Result;
 use crate::object::isar_object::Property;
 use crate::query::filter::Filter;
 use crate::query::id_where_clause::IdWhereClause;
@@ -9,6 +8,7 @@ use crate::{collection::IsarCollection, index::index_key::IndexKey};
 use itertools::Itertools;
 
 use super::index_where_clause::IndexWhereClause;
+use crate::instance::IsarInstance;
 
 pub struct QueryBuilder<'a> {
     collection: &'a IsarCollection,
@@ -56,9 +56,8 @@ impl<'a> QueryBuilder<'a> {
         skip_duplicates: bool,
         sort: Sort,
     ) -> Result<()> {
-        if lower_key.index.get_col_id() != self.collection.get_id() {
-            return illegal_arg("Invalid IndexKey for this collection");
-        }
+        self.collection.verify_index_key(&lower_key)?;
+        self.collection.verify_index_key(&upper_key)?;
         let mut wc = IndexWhereClause::new(lower_key, upper_key, skip_duplicates, sort)?;
         if self.where_clauses.is_none() {
             self.where_clauses = Some(vec![]);
@@ -94,7 +93,7 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn build(mut self) -> Query {
         if self.where_clauses.is_none() {
-            self.add_id_where_clause(MIN_ID, MAX_ID, Sort::Ascending)
+            self.add_id_where_clause(IsarInstance::MIN_ID, IsarInstance::MAX_ID, Sort::Ascending)
                 .unwrap();
         }
         let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();

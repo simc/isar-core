@@ -1,5 +1,6 @@
 use crate::object::data_type::DataType;
 use byteorder::{ByteOrder, LittleEndian};
+use num_traits::Float;
 use std::cmp::Ordering;
 use std::hash::Hasher;
 
@@ -12,6 +13,10 @@ pub struct Property {
 impl Property {
     pub(crate) fn new(data_type: DataType, offset: usize) -> Self {
         Property { data_type, offset }
+    }
+
+    pub fn is_id(&self) -> bool {
+        self.offset == 2
     }
 }
 
@@ -29,6 +34,10 @@ impl<'a> IsarObject<'a> {
     pub const NULL_LONG: i64 = i64::MIN;
     pub const NULL_FLOAT: f32 = f32::NAN;
     pub const NULL_DOUBLE: f64 = f64::NAN;
+    pub const ID_PROPERTY: Property = Property {
+        data_type: DataType::Long,
+        offset: 2,
+    };
 
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
         let static_size = LittleEndian::read_u16(bytes) as usize;
@@ -56,6 +65,10 @@ impl<'a> IsarObject<'a> {
             DataType::Double => self.read_double(property).is_nan(),
             _ => self.get_offset_length(property.offset, false).is_none(),
         }
+    }
+
+    pub fn read_id(&self) -> i64 {
+        self.read_long(Self::ID_PROPERTY)
     }
 
     pub fn read_byte(&self, property: Property) -> u8 {
@@ -218,47 +231,36 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn compare_property(&self, other: &IsarObject, property: Property) -> Ordering {
+        fn compare_float<T: Float>(f1: T, f2: T) -> Ordering {
+            if !f1.is_nan() {
+                if !f2.is_nan() {
+                    if f1 > f2 {
+                        Ordering::Greater
+                    } else {
+                        Ordering::Less
+                    }
+                } else {
+                    Ordering::Greater
+                }
+            } else if !f2.is_nan() {
+                Ordering::Less
+            } else {
+                Ordering::Equal
+            }
+        }
         match property.data_type {
             DataType::Byte => self.read_byte(property).cmp(&other.read_byte(property)),
             DataType::Int => self.read_int(property).cmp(&other.read_int(property)),
             DataType::Float => {
                 let f1 = self.read_float(property);
                 let f2 = other.read_float(property);
-                if !f1.is_nan() {
-                    if !f2.is_nan() {
-                        if f1 > f2 {
-                            Ordering::Greater
-                        } else {
-                            Ordering::Less
-                        }
-                    } else {
-                        Ordering::Greater
-                    }
-                } else if !f2.is_nan() {
-                    Ordering::Less
-                } else {
-                    Ordering::Equal
-                }
+                compare_float(f1, f2)
             }
             DataType::Long => self.read_long(property).cmp(&other.read_long(property)),
             DataType::Double => {
                 let f1 = self.read_double(property);
                 let f2 = other.read_double(property);
-                if !f1.is_nan() {
-                    if !f2.is_nan() {
-                        if f1 > f2 {
-                            Ordering::Greater
-                        } else {
-                            Ordering::Less
-                        }
-                    } else {
-                        Ordering::Greater
-                    }
-                } else if !f2.is_nan() {
-                    Ordering::Less
-                } else {
-                    Ordering::Equal
-                }
+                compare_float(f1, f2)
             }
             DataType::String => {
                 let s1 = self.read_string(property);
@@ -288,7 +290,7 @@ mod tests {
 
     macro_rules! builder {
         ($isar:ident, $var:ident, $p:ident, $type:ident) => {
-            isar!($isar, col => col!("oid" => Long, "field" => $type));
+            isar!($isar, col => col!("field" => $type));
             let $p = col.get_properties().get(1).unwrap().1;
             let mut $var = col.new_object_builder(None);
             $var.write_long(1);

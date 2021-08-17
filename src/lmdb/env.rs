@@ -10,6 +10,7 @@ use lmdb_sys::MDB_val;
 use std::ffi::CString;
 
 const GCM_TAG_SIZE: usize = 16;
+const ENOMEM: i32 = 12;
 
 pub struct Env {
     env: *mut ffi::MDB_env,
@@ -29,12 +30,6 @@ impl Env {
         let mut env: *mut ffi::MDB_env = ptr::null_mut();
         unsafe {
             lmdb_result(ffi::mdb_env_create(&mut env))?;
-
-            let err_code = ffi::mdb_env_set_mapsize(env, max_size);
-            if err_code != ffi::MDB_SUCCESS {
-                ffi::mdb_env_close(env);
-                lmdb_result(err_code)?;
-            }
 
             let err_code = ffi::mdb_env_set_maxdbs(env, max_dbs);
             if err_code != ffi::MDB_SUCCESS {
@@ -56,17 +51,40 @@ impl Env {
                 }
             }
 
-            let err_code = ffi::mdb_env_open(env, path.as_ptr(), 0, 0o600);
-            if err_code != ffi::MDB_SUCCESS {
-                ffi::mdb_env_close(env);
-                if err_code == 2 {
-                    Err(IsarError::PathError {})?;
-                } else {
+            let mut current_max_size = max_size;
+            let mut err_code;
+            loop {
+                err_code = ffi::mdb_env_set_mapsize(env, max_size);
+                if err_code != ffi::MDB_SUCCESS {
+                    ffi::mdb_env_close(env);
                     lmdb_result(err_code)?;
                 }
+                err_code = ffi::mdb_env_open(env, path.as_ptr(), ffi::MDB_NOTLS, 0o600);
+                match err_code {
+                    ffi::MDB_SUCCESS => {
+                        return Ok(Env { env });
+                    }
+                    ENOMEM => {
+                        if current_max_size * 10 > max_size {
+                            current_max_size = (current_max_size as f64 / 1.5) as usize;
+                        } else {
+                            break;
+                        }
+                    }
+                    _ => {
+                        break;
+                    }
+                }
+            }
+
+            ffi::mdb_env_close(env);
+            if err_code == 2 {
+                return Err(IsarError::PathError {});
+            } else {
+                lmdb_result(err_code)?;
             }
         }
-        Ok(Env { env })
+        unreachable!();
     }
 
     pub fn txn(&self, write: bool) -> Result<Txn> {

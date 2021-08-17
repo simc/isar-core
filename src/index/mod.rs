@@ -88,10 +88,6 @@ impl Index {
         self.col_id
     }
 
-    pub fn multiple(&self) -> bool {
-        self.properties.first().unwrap().index_type == IndexType::Words
-    }
-
     pub fn create_for_object<F>(
         &self,
         cursors: &mut Cursors,
@@ -145,7 +141,7 @@ impl Index {
         self.create_keys(object, |key| {
             let entry = cursors
                 .index
-                .move_to_key_val(ByteKey::new(key), &oid_bytes)?;
+                .move_to_key_val(ByteKey::new(key), oid_bytes)?;
             if entry.is_some() {
                 cursors.index.delete_current()?;
             }
@@ -172,18 +168,30 @@ impl Index {
         object: IsarObject,
         mut callback: impl FnMut(&[u8]) -> Result<bool>,
     ) -> Result<()> {
-        if self.multiple() {
-            self.create_multiple_keys(object, callback)
+        let mut key = IndexKey::new(self);
+        Self::fill_single_key(&mut key, &self.properties, object);
+
+        let last_property = self.properties.last().unwrap();
+        if last_property.index_type == IndexType::Words {
+            let mut result = Ok(());
+            Self::fill_word_keys(&mut key, *last_property, object, |bytes| {
+                match callback(bytes) {
+                    Ok(cont) => cont,
+                    Err(err) => {
+                        result = Err(err);
+                        false
+                    }
+                }
+            });
+            result
         } else {
-            let bytes = self.create_single_key(object, vec![]);
-            callback(&bytes)?;
+            callback(&key.bytes)?;
             Ok(())
         }
     }
 
-    fn create_single_key(&self, object: IsarObject, buffer: Vec<u8>) -> Vec<u8> {
-        let mut key = IndexKey::with_buffer(self, buffer);
-        for ip in &self.properties {
+    fn fill_single_key(key: &mut IndexKey, properties: &[IndexProperty], object: IsarObject) {
+        for ip in properties {
             match ip.property.data_type {
                 DataType::Byte => {
                     let value = object.read_byte(ip.property);
@@ -210,37 +218,27 @@ impl Index {
                     match ip.index_type {
                         IndexType::Value => key.add_string_value(value, ip.case_sensitive.unwrap()),
                         IndexType::Hash => key.add_string_hash(value, ip.case_sensitive.unwrap()),
-                        _ => unimplemented!(),
+                        _ => {}
                     }
                 }
                 _ => unimplemented!(),
             }
         }
-        key.bytes
     }
 
-    fn create_multiple_keys(
-        &self,
+    fn fill_word_keys(
+        key: &mut IndexKey,
+        property: IndexProperty,
         object: IsarObject,
-        mut callback: impl FnMut(&[u8]) -> Result<bool>,
-    ) -> Result<()> {
-        let ip = self.properties.first().unwrap();
-        let value = ip.get_string_with_case(object);
-        let mut result = Ok(());
-        Self::create_word_keys(value.as_deref(), |word_key| match callback(word_key) {
-            Ok(cont) => cont,
-            Err(err) => {
-                result = Err(err);
-                false
-            }
-        });
-        result
-    }
-
-    pub fn create_word_keys(value: Option<&str>, mut callback: impl FnMut(&[u8]) -> bool) {
+        mut callback: impl FnMut(&[u8]) -> bool,
+    ) {
+        let key_len = key.len();
+        let value = property.get_string_with_case(object);
         if let Some(str) = value {
             for word in str.unicode_words().unique() {
-                if !callback(word.as_bytes()) {
+                key.truncate(key_len);
+                key.add_string_word(word, property.case_sensitive.unwrap());
+                if !callback(&key.bytes) {
                     break;
                 }
             }
@@ -278,11 +276,10 @@ mod tests {
     use crate::instance::IsarInstance;
     use crate::object::data_type::DataType;
     use crate::{col, ind, isar};
-    use float_next_after::NextAfter;
 
     fn check_index(isar: &IsarInstance, col: &IsarCollection, obj: IsarObject) {
         let mut txn = isar.begin_txn(true, false).unwrap();
-        let oid = obj.read_long(col.get_oid_property());
+        let oid = obj.read_id();
         col.put(&mut txn, obj).unwrap();
         let index = col.debug_get_index(0);
 
@@ -297,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_create_for_object_byte() {
-        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Byte; ind!(field)));
+        isar!(isar, col => col!(field => DataType::Byte; ind!(field)));
         let mut builder = col.new_object_builder(None);
         builder.write_long(1);
         builder.write_byte(123);
@@ -307,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_create_for_object_int() {
-        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Int; ind!(field)));
+        isar!(isar, col => col!(field => DataType::Int; ind!(field)));
         let mut builder = col.new_object_builder(None);
         builder.write_long(1);
         builder.write_int(123);
@@ -317,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_create_for_object_float() {
-        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Float; ind!(field)));
+        isar!(isar, col => col!(field => DataType::Float; ind!(field)));
         let mut builder = col.new_object_builder(None);
         builder.write_long(1);
         builder.write_float(123.321);
@@ -327,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_create_for_object_long() {
-        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Long; ind!(field)));
+        isar!(isar, col => col!(field => DataType::Long; ind!(field)));
         let mut builder = col.new_object_builder(None);
         builder.write_long(1);
         builder.write_long(123321);
@@ -337,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_create_for_object_double() {
-        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Double; ind!(field)));
+        isar!(isar, col => col!(field => DataType::Double; ind!(field)));
         let mut builder = col.new_object_builder(None);
         builder.write_long(1);
         builder.write_double(123123.321321);
@@ -348,7 +345,7 @@ mod tests {
     #[test]
     fn test_create_for_object_string() {
         fn test(str_type: IndexType, str_lc: bool) {
-            isar!(isar, col => col!(oid => DataType::Long, field => DataType::String; ind!(str field, str_type, Some(str_lc))));
+            isar!(isar, col => col!(field => DataType::String; ind!(str field, str_type, Some(str_lc))));
             let mut builder = col.new_object_builder(None);
             builder.write_long(1);
             builder.write_string(Some("Hello This Is A TEST Hello"));
@@ -356,9 +353,9 @@ mod tests {
             isar.close();
         }
 
-        for str_type in &[IndexType::Value, IndexType::Hash, IndexType::Words] {
+        for str_type in &[IndexType::Words] {
             test(*str_type, false);
-            test(*str_type, true);
+            //test(*str_type, true);
         }
     }
 
@@ -367,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_create_for_object_violate_unique() {
-        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Int; ind!(field; true, false)));
+        isar!(isar, col => col!(field => DataType::Int; ind!(field; true, false)));
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         let mut ob = col.new_object_builder(None);
@@ -398,151 +395,4 @@ mod tests {
 
     #[test]
     fn test_create_key() {}
-
-    #[test]
-    fn test_create_int_key() {
-        let pairs = vec![
-            (i32::MIN, vec![0, 0, 0, 0]),
-            (i32::MIN + 1, vec![0, 0, 0, 1]),
-            (-1, vec![127, 255, 255, 255]),
-            (0, vec![128, 0, 0, 0]),
-            (1, vec![128, 0, 0, 1]),
-            (i32::MAX - 1, vec![255, 255, 255, 254]),
-            (i32::MAX, vec![255, 255, 255, 255]),
-        ];
-        for (val, bytes) in pairs {
-            assert_eq!(Index::create_int_key(val), bytes);
-        }
-    }
-
-    #[test]
-    fn test_get_long_key() {
-        let pairs = vec![
-            (i64::MIN, vec![0, 0, 0, 0, 0, 0, 0, 0]),
-            (i64::MIN + 1, vec![0, 0, 0, 0, 0, 0, 0, 1]),
-            (-1, vec![127, 255, 255, 255, 255, 255, 255, 255]),
-            (0, vec![128, 0, 0, 0, 0, 0, 0, 0]),
-            (1, vec![128, 0, 0, 0, 0, 0, 0, 1]),
-            (i64::MAX - 1, vec![255, 255, 255, 255, 255, 255, 255, 254]),
-            (i64::MAX, vec![255, 255, 255, 255, 255, 255, 255, 255]),
-        ];
-        for (val, bytes) in pairs {
-            assert_eq!(Index::create_long_key(val), bytes);
-        }
-    }
-
-    #[test]
-    fn test_get_float_key() {
-        let pairs = vec![
-            (f32::NAN, vec![0, 0, 0, 0]),
-            (f32::NEG_INFINITY, vec![0, 127, 255, 255]),
-            (f32::MIN, vec![0, 128, 0, 0]),
-            (f32::MIN.next_after(f32::MAX), vec![0, 128, 0, 1]),
-            ((-0.0).next_after(f32::MIN), vec![127, 255, 255, 254]),
-            (-0.0, vec![127, 255, 255, 255]),
-            (0.0, vec![128, 0, 0, 0]),
-            (0.0.next_after(f32::MAX), vec![128, 0, 0, 1]),
-            (f32::MAX.next_after(f32::MIN), vec![255, 127, 255, 254]),
-            (f32::MAX, vec![255, 127, 255, 255]),
-            (f32::INFINITY, vec![255, 128, 0, 0]),
-        ];
-        for (val, bytes) in pairs {
-            assert_eq!(Index::create_float_key(val), bytes);
-        }
-    }
-
-    #[test]
-    fn test_get_double_key() {
-        let pairs = vec![
-            (f64::NAN, vec![0, 0, 0, 0, 0, 0, 0, 0]),
-            (f64::NEG_INFINITY, vec![0, 15, 255, 255, 255, 255, 255, 255]),
-            (f64::MIN, vec![0, 16, 0, 0, 0, 0, 0, 0]),
-            (f64::MIN.next_after(f64::MAX), vec![0, 16, 0, 0, 0, 0, 0, 1]),
-            (
-                (-0.0).next_after(f64::MIN),
-                vec![127, 255, 255, 255, 255, 255, 255, 254],
-            ),
-            (-0.0, vec![127, 255, 255, 255, 255, 255, 255, 255]),
-            (0.0, vec![128, 0, 0, 0, 0, 0, 0, 0]),
-            (0.0.next_after(f64::MAX), vec![128, 0, 0, 0, 0, 0, 0, 1]),
-            (
-                f64::MAX.next_after(f64::MIN),
-                vec![255, 239, 255, 255, 255, 255, 255, 254],
-            ),
-            (f64::MAX, vec![255, 239, 255, 255, 255, 255, 255, 255]),
-            (f64::INFINITY, vec![255, 240, 0, 0, 0, 0, 0, 0]),
-        ];
-        for (val, bytes) in pairs {
-            assert_eq!(Index::create_double_key(val), bytes);
-        }
-    }
-
-    #[test]
-    fn test_get_byte_index_key() {
-        assert_eq!(Index::create_byte_key(IsarObject::NULL_BYTE), vec![0]);
-        assert_eq!(Index::create_byte_key(123), vec![123]);
-        assert_eq!(Index::create_byte_key(255), vec![255]);
-    }
-
-    #[test]
-    fn test_get_string_hash_key() {
-        let long_str = (0..1700).map(|_| "a").collect::<String>();
-
-        let pairs: Vec<(Option<&str>, Vec<u8>)> = vec![
-            (None, vec![0, 0, 0, 0, 0, 0, 0, 0]),
-            (Some(""), vec![183, 56, 242, 170, 183, 88, 42, 211]),
-            (Some("hello"), vec![255, 175, 47, 252, 56, 169, 22, 4]),
-            (
-                Some("this is just a test"),
-                vec![156, 13, 228, 133, 209, 47, 168, 125],
-            ),
-            (
-                Some(&long_str[..]),
-                vec![188, 104, 253, 203, 125, 112, 236, 55],
-            ),
-        ];
-        for (str, hash) in pairs {
-            assert_eq!(hash, Index::create_string_hash_key(str));
-        }
-    }
-
-    #[test]
-    fn test_get_string_value_key() {
-        //let long_str = (0..1500).map(|_| "a").collect::<String>();
-
-        let mut hello_bytes = vec![1];
-        hello_bytes.extend_from_slice(b"hello");
-        hello_bytes.push(0);
-        let pairs: Vec<(Option<&str>, Vec<u8>)> = vec![
-            (None, vec![0]),
-            (Some(""), vec![1, 0]),
-            (Some("hello"), hello_bytes),
-        ];
-        for (str, hash) in pairs {
-            assert_eq!(hash, Index::create_string_value_key(str));
-        }
-    }
-
-    #[test]
-    fn test_get_string_word_keys() {
-        let pairs: Vec<(Option<&str>, Vec<&str>)> = vec![
-            (None, vec![]),
-            (Some(""), vec![""]),
-            (Some("hello"), vec!["hello"]),
-            (
-                Some("The quick brown fox brown can’t jump 32.3 feet right."),
-                vec![
-                    "The", "quick", "brown", "fox", "can’t", "jump", "32.3", "feet", "right",
-                ],
-            ),
-        ];
-        for (str, words) in pairs {
-            let mut i = 0;
-            Index::create_word_keys(str, |word| {
-                assert_eq!(word, words[i].as_bytes());
-                i += 1;
-                true
-            })
-        }
-    }
 }

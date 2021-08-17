@@ -40,7 +40,6 @@ pub unsafe extern "C" fn isar_filter_not(filter: *mut *const Filter, condition: 
 #[no_mangle]
 pub unsafe extern "C" fn isar_filter_link(
     collection: &IsarCollection,
-    target_collection: &IsarCollection,
     filter: *mut *const Filter,
     condition: *mut Filter,
     link_index: u32,
@@ -48,7 +47,7 @@ pub unsafe extern "C" fn isar_filter_link(
 ) -> i32 {
     isar_try! {
         let condition = *Box::from_raw(condition);
-        let query_filter = LinkCond::filter(collection, target_collection, link_index as usize, backlink, condition)?;
+        let query_filter = LinkCond::filter(collection, link_index as usize, backlink, condition)?;
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
     }

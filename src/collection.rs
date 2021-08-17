@@ -1,7 +1,7 @@
 use crate::error::{illegal_arg, IsarError, Result};
 use crate::index::index_key::IndexKey;
 use crate::link::Link;
-use crate::lmdb::{verify_id, IntKey, MAX_ID, MIN_ID};
+use crate::lmdb::{verify_id, IntKey};
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::object::object_builder::ObjectBuilder;
@@ -16,6 +16,7 @@ use serde_json::Value;
 use std::cell::Cell;
 use std::ops::Add;
 
+use crate::instance::IsarInstance;
 #[cfg(test)]
 use {crate::utils::debug::dump_db_oid, hashbrown::HashMap};
 
@@ -48,7 +49,7 @@ impl IsarCollection {
             indexes,
             links,
             backlinks,
-            oid_counter: Cell::new(0),
+            oid_counter: Cell::new(IsarInstance::MIN_ID),
         }
     }
 
@@ -75,10 +76,6 @@ impl IsarCollection {
 
     pub fn get_name(&self) -> &str {
         &self.name
-    }
-
-    pub fn get_oid_property(&self) -> Property {
-        self.object_info.get_oid_property()
     }
 
     pub fn get_properties(&self) -> &[(String, Property)] {
@@ -110,7 +107,7 @@ impl IsarCollection {
 
     pub(crate) fn auto_increment_internal(&self) -> Result<i64> {
         let counter = self.oid_counter.get().add(1);
-        if counter <= MAX_ID {
+        if counter <= IsarInstance::MAX_ID {
             self.oid_counter.set(counter);
             Ok(counter)
         } else {
@@ -159,7 +156,7 @@ impl IsarCollection {
         mut change_set: Option<&mut ChangeSet>,
         object: IsarObject,
     ) -> Result<()> {
-        let oid = object.read_long(self.get_oid_property());
+        let oid = object.read_id();
         verify_id(oid)?;
         self.delete_internal(cursors, false, change_set.as_deref_mut(), oid)?;
         self.update_oid_counter(oid);
@@ -305,16 +302,18 @@ impl IsarCollection {
             for link in self.get_links_and_backlinks() {
                 link.clear(&mut cursors.links)?;
             }
-            IdWhereClause::new(self, MIN_ID, MAX_ID, Sort::Ascending).iter(
-                &mut cursors.data,
-                None,
-                |cursor, id, object| {
-                    self.register_object_change(change_set.as_deref_mut(), id.get_id(), object);
-                    cursor.delete_current()?;
-                    counter += 1;
-                    Ok(true)
-                },
-            )?;
+            IdWhereClause::new(
+                self,
+                IsarInstance::MIN_ID,
+                IsarInstance::MAX_ID,
+                Sort::Ascending,
+            )
+            .iter(&mut cursors.data, None, |cursor, id, object| {
+                self.register_object_change(change_set.as_deref_mut(), id.get_id(), object);
+                cursor.delete_current()?;
+                counter += 1;
+                Ok(true)
+            })?;
             Ok(counter)
         })
     }
@@ -371,6 +370,7 @@ impl IsarCollection {
 
 #[cfg(test)]
 mod tests {
+    use crate::instance::IsarInstance;
     use crate::lmdb::{IntKey, Key};
     use crate::object::data_type::DataType;
     use crate::query::filter::LongBetweenCond;
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_get() {
-        isar!(isar, col => col!(oid => DataType::Long, field2 => DataType::Int));
+        isar!(isar, col => col!(field2 => DataType::Int));
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         let mut builder = col.new_object_builder(None);
@@ -397,10 +397,10 @@ mod tests {
 
     #[test]
     fn test_put_new() {
-        isar!(isar, col => col!(field1 => DataType::Long));
+        isar!(isar, col => col!());
 
         let mut txn = isar.begin_txn(true, false).unwrap();
-        assert_eq!(col.oid_counter.get(), 0);
+        assert_eq!(col.oid_counter.get(), IsarInstance::MIN_ID);
 
         let mut builder = col.new_object_builder(None);
         builder.write_long(123);
@@ -427,9 +427,9 @@ mod tests {
 
     #[test]
     fn test_put_existing() {
-        isar!(isar, col => col!(field1 => DataType::Long, field2 => DataType::Int));
+        isar!(isar, col => col!(field => DataType::Int));
         let mut txn = isar.begin_txn(true, false).unwrap();
-        assert_eq!(col.oid_counter.get(), 0);
+        assert_eq!(col.oid_counter.get(), IsarInstance::MIN_ID);
 
         let mut builder = col.new_object_builder(None);
         builder.write_long(123);
@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_put_creates_index() {
-        isar!(isar, col => col!(field1 => DataType::Long, field2 => DataType::Int; ind!(field2)));
+        isar!(isar, col => col!(field => DataType::Int; ind!(field)));
 
         let mut txn = isar.begin_txn(true, false).unwrap();
 
@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_put_clears_old_index() {
-        isar!(isar, col => col!(field1 => DataType::Long, field2 => DataType::Int; ind!(field2)));
+        isar!(isar, col => col!(field => DataType::Int; ind!(field)));
 
         let mut txn = isar.begin_txn(true, false).unwrap();
 
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_put_calls_notifiers() {
-        isar!(isar, col => col!(oid => DataType::Long));
+        isar!(isar, col => col!());
         let p = col.get_properties().first().unwrap().1;
 
         let mut qb1 = col.new_query_builder();
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_delete() {
-        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Int; ind!(field)));
+        isar!(isar, col => col!(field => DataType::Int; ind!(field)));
 
         let mut txn = isar.begin_txn(true, false).unwrap();
 
@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn test_delete_calls_notifiers() {
-        isar!(isar, col => col!(field1 => DataType::Long));
+        isar!(isar, col => col!());
 
         let (tx, rx) = unbounded();
         let handle = isar.watch_collection(col, Box::new(move || tx.send(true).unwrap()));

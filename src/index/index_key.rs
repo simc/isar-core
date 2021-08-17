@@ -1,5 +1,4 @@
-use crate::index::Index;
-use crate::index::MAX_STRING_INDEX_SIZE;
+use crate::index::{Index, MAX_STRING_INDEX_SIZE};
 use std::hash::Hasher;
 use wyhash::{wyhash, WyHash};
 
@@ -12,17 +11,8 @@ pub struct IndexKey<'a> {
 impl<'a> IndexKey<'a> {
     pub(crate) fn new(index: &'a Index) -> Self {
         IndexKey {
-            index: &index,
+            index: index,
             bytes: index.get_prefix(),
-        }
-    }
-
-    pub(crate) fn with_buffer(index: &'a Index, mut buffer: Vec<u8>) -> Self {
-        buffer.clear();
-        buffer.extend_from_slice(index.get_prefix().as_slice());
-        IndexKey {
-            index: &index,
-            bytes: buffer,
         }
     }
 
@@ -118,6 +108,243 @@ impl<'a> IndexKey<'a> {
         } else {
             let lower_case = value.to_lowercase();
             self.bytes.extend_from_slice(lower_case.as_bytes());
+        }
+    }
+
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        assert!(len >= 2);
+        self.bytes.truncate(len);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::object::isar_object::IsarObject;
+
+    use super::*;
+    use float_next_after::NextAfter;
+
+    #[test]
+    fn test_add_byte() {
+        let pairs = vec![
+            (IsarObject::NULL_BYTE, vec![0]),
+            (123, vec![123]),
+            (255, vec![255]),
+        ];
+
+        let index = Index::new(0, 0, vec![], false, false);
+        for (val, bytes) in pairs {
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_byte(val);
+            assert_eq!(&index_key.bytes[2..], &bytes);
+        }
+    }
+
+    #[test]
+    fn test_add_int() {
+        let pairs = vec![
+            (i32::MIN, vec![0, 0, 0, 0]),
+            (i32::MIN + 1, vec![0, 0, 0, 1]),
+            (-1, vec![127, 255, 255, 255]),
+            (0, vec![128, 0, 0, 0]),
+            (1, vec![128, 0, 0, 1]),
+            (i32::MAX - 1, vec![255, 255, 255, 254]),
+            (i32::MAX, vec![255, 255, 255, 255]),
+        ];
+
+        let index = Index::new(0, 0, vec![], false, false);
+        for (val, bytes) in pairs {
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_int(val);
+            assert_eq!(&index_key.bytes[2..], &bytes);
+        }
+    }
+
+    #[test]
+    fn test_add_long() {
+        let pairs = vec![
+            (i64::MIN, vec![0, 0, 0, 0, 0, 0, 0, 0]),
+            (i64::MIN + 1, vec![0, 0, 0, 0, 0, 0, 0, 1]),
+            (-1, vec![127, 255, 255, 255, 255, 255, 255, 255]),
+            (0, vec![128, 0, 0, 0, 0, 0, 0, 0]),
+            (1, vec![128, 0, 0, 0, 0, 0, 0, 1]),
+            (i64::MAX - 1, vec![255, 255, 255, 255, 255, 255, 255, 254]),
+            (i64::MAX, vec![255, 255, 255, 255, 255, 255, 255, 255]),
+        ];
+
+        let index = Index::new(0, 0, vec![], false, false);
+        for (val, bytes) in pairs {
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_long(val);
+            assert_eq!(&index_key.bytes[2..], &bytes);
+        }
+    }
+
+    #[test]
+    fn test_add_float() {
+        let pairs = vec![
+            (f32::NAN, vec![0, 0, 0, 0]),
+            (f32::NEG_INFINITY, vec![0, 127, 255, 255]),
+            (f32::MIN, vec![0, 128, 0, 0]),
+            (f32::MIN.next_after(f32::MAX), vec![0, 128, 0, 1]),
+            ((-0.0).next_after(f32::MIN), vec![127, 255, 255, 254]),
+            (-0.0, vec![127, 255, 255, 255]),
+            (0.0, vec![128, 0, 0, 0]),
+            (0.0.next_after(f32::MAX), vec![128, 0, 0, 1]),
+            (f32::MAX.next_after(f32::MIN), vec![255, 127, 255, 254]),
+            (f32::MAX, vec![255, 127, 255, 255]),
+            (f32::INFINITY, vec![255, 128, 0, 0]),
+        ];
+
+        let index = Index::new(0, 0, vec![], false, false);
+        for (val, bytes) in pairs {
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_float(val);
+            assert_eq!(&index_key.bytes[2..], &bytes);
+        }
+    }
+
+    #[test]
+    fn test_add_double() {
+        let pairs = vec![
+            (f64::NAN, vec![0, 0, 0, 0, 0, 0, 0, 0]),
+            (f64::NEG_INFINITY, vec![0, 15, 255, 255, 255, 255, 255, 255]),
+            (f64::MIN, vec![0, 16, 0, 0, 0, 0, 0, 0]),
+            (f64::MIN.next_after(f64::MAX), vec![0, 16, 0, 0, 0, 0, 0, 1]),
+            (
+                (-0.0).next_after(f64::MIN),
+                vec![127, 255, 255, 255, 255, 255, 255, 254],
+            ),
+            (-0.0, vec![127, 255, 255, 255, 255, 255, 255, 255]),
+            (0.0, vec![128, 0, 0, 0, 0, 0, 0, 0]),
+            (0.0.next_after(f64::MAX), vec![128, 0, 0, 0, 0, 0, 0, 1]),
+            (
+                f64::MAX.next_after(f64::MIN),
+                vec![255, 239, 255, 255, 255, 255, 255, 254],
+            ),
+            (f64::MAX, vec![255, 239, 255, 255, 255, 255, 255, 255]),
+            (f64::INFINITY, vec![255, 240, 0, 0, 0, 0, 0, 0]),
+        ];
+
+        let index = Index::new(0, 0, vec![], false, false);
+        for (val, bytes) in pairs {
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_double(val);
+            assert_eq!(&index_key.bytes[2..], &bytes);
+        }
+    }
+
+    #[test]
+    fn test_add_string_hash() {
+        let long_str = (0..850).map(|_| "aB").collect::<String>();
+
+        let pairs: Vec<(Option<&str>, Vec<u8>, Vec<u8>)> = vec![
+            (
+                None,
+                vec![0, 0, 0, 0, 0, 0, 0, 0],
+                vec![0, 0, 0, 0, 0, 0, 0, 0],
+            ),
+            (
+                Some(""),
+                vec![183, 56, 242, 170, 183, 88, 42, 211],
+                vec![183, 56, 242, 170, 183, 88, 42, 211],
+            ),
+            (
+                Some("hELLo"),
+                vec![195, 215, 64, 163, 175, 255, 28, 49],
+                vec![255, 175, 47, 252, 56, 169, 22, 4],
+            ),
+            (
+                Some("this is just a test"),
+                vec![156, 13, 228, 133, 209, 47, 168, 125],
+                vec![156, 13, 228, 133, 209, 47, 168, 125],
+            ),
+            (
+                Some(&long_str[..]),
+                vec![232, 213, 235, 242, 9, 163, 151, 208],
+                vec![245, 5, 235, 221, 71, 240, 88, 127],
+            ),
+        ];
+
+        let index = Index::new(0, 0, vec![], false, false);
+        for (str, hash, hash_lc) in pairs {
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_string_hash(str, true);
+            assert_eq!(index_key.bytes[2..], hash);
+
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_string_hash(str, false);
+            assert_eq!(index_key.bytes[2..], hash_lc);
+        }
+    }
+
+    #[test]
+    fn test_get_string_value_key() {
+        let long_str = (0..850).map(|_| "aB").collect::<String>();
+        let long_str_lc = long_str.to_lowercase();
+
+        let mut long_str_bytes = vec![1];
+        long_str_bytes.extend_from_slice(long_str.as_bytes());
+        long_str_bytes.push(0);
+
+        let mut long_str_lc_bytes = vec![1];
+        long_str_lc_bytes.extend_from_slice(long_str_lc.as_bytes());
+        long_str_lc_bytes.push(0);
+
+        let mut hello_bytes = vec![1];
+        hello_bytes.extend_from_slice(b"hELLO");
+        hello_bytes.push(0);
+
+        let mut hello_bytes_lc = vec![1];
+        hello_bytes_lc.extend_from_slice(b"hello");
+        hello_bytes_lc.push(0);
+
+        let pairs: Vec<(Option<&str>, Vec<u8>, Vec<u8>)> = vec![
+            (None, vec![0], vec![0]),
+            (Some(""), vec![1, 0], vec![1, 0]),
+            (
+                Some("hello"),
+                hello_bytes_lc.clone(),
+                hello_bytes_lc.clone(),
+            ),
+            (Some("hELLO"), hello_bytes.clone(), hello_bytes_lc.clone()),
+            //(Some(&long_str), long_str_bytes, long_str_lc_bytes),
+        ];
+
+        let index = Index::new(0, 0, vec![], false, false);
+        for (str, bytes, bytes_lc) in pairs {
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_string_value(str, true);
+            assert_eq!(index_key.bytes[2..], bytes);
+
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_string_value(str, false);
+            assert_eq!(index_key.bytes[2..], bytes_lc);
+        }
+    }
+
+    #[test]
+    fn test_get_string_word_keys() {
+        let pairs: Vec<(&str, Vec<u8>, Vec<u8>)> = vec![
+            ("", b"".to_vec(), b"".to_vec()),
+            ("hello", b"hello".to_vec(), b"hello".to_vec()),
+            ("tESt", b"tESt".to_vec(), b"test".to_vec()),
+        ];
+
+        let index = Index::new(0, 0, vec![], false, false);
+        for (str, bytes, bytes_lc) in pairs {
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_string_word(str, true);
+            assert_eq!(index_key.bytes[2..], bytes);
+
+            let mut index_key = IndexKey::new(&index);
+            index_key.add_string_word(str, false);
+            assert_eq!(index_key.bytes[2..], bytes_lc);
         }
     }
 }

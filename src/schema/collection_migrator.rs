@@ -41,11 +41,11 @@ impl<'a> CollectionMigrator<'a> {
             self.collection
                 .new_query_builder()
                 .build()
-                .find_all_internal(cursors, false, |object| {
-                    let oid = object.read_long(self.collection.get_oid_property());
+                .find_while_internal(cursors, false, |object| {
+                    let oid = object.read_id();
                     for index in &self.added_indexes {
-                        index.create_for_object(cursors2, oid, object, |cursors, id| {
-                            self.collection.delete_internal(cursors, true, None, id)?;
+                        index.create_for_object(cursors2, oid, object, |cursors, oid| {
+                            self.collection.delete_internal(cursors, true, None, oid)?;
                             Ok(())
                         })?;
                     }

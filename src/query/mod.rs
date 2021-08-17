@@ -52,15 +52,27 @@ impl<'txn> Query {
         offset: usize,
         limit: usize,
     ) -> Self {
+        let where_clauses_overlapping = Self::check_where_clauses_overlapping(&where_clauses);
         Query {
             where_clauses,
-            where_clauses_overlapping: true,
+            where_clauses_overlapping,
             filter,
             sort,
             distinct,
             offset,
             limit,
         }
+    }
+
+    fn check_where_clauses_overlapping(where_clauses: &[WhereClause]) -> bool {
+        for (i, wc1) in where_clauses.iter().enumerate() {
+            for wc2 in where_clauses.iter().skip(i + 1) {
+                if wc1.is_overlapping(wc2) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     pub(crate) fn execute_raw<F>(&self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<()>
@@ -198,9 +210,7 @@ impl<'txn> Query {
         &self,
         results: Vec<IsarObject<'txn>>,
     ) -> impl IntoIterator<Item = IsarObject<'txn>> {
-        let offset = self.offset;
-        let limit = self.limit;
-        results.into_iter().skip(offset).take(limit)
+        results.into_iter().skip(self.offset).take(self.limit)
     }
 
     pub(crate) fn matches_wc_filter(&self, id: i64, object: IsarObject) -> bool {
@@ -216,7 +226,7 @@ impl<'txn> Query {
         }
     }
 
-    pub(crate) fn find_all_internal<F>(
+    pub(crate) fn find_while_internal<F>(
         &self,
         cursors: &mut Cursors<'txn>,
         skip_sorting: bool,
@@ -243,7 +253,7 @@ impl<'txn> Query {
     where
         F: FnMut(IsarObject<'txn>) -> bool,
     {
-        txn.read(|cursors| self.find_all_internal(cursors, false, |object| Ok(callback(object))))
+        txn.read(|cursors| self.find_while_internal(cursors, false, |object| Ok(callback(object))))
     }
 
     pub fn find_all_vec(&self, txn: &mut IsarTxn<'txn>) -> Result<Vec<IsarObject<'txn>>> {
@@ -293,7 +303,7 @@ mod tests {
     use super::*;
 
     fn fill_int_col(data: Vec<i32>, unique: bool) -> Arc<IsarInstance> {
-        isar!(isar, col => col!(oid => DataType::Long, field => DataType::Int; ind!(field; unique, false)));
+        isar!(isar, col => col!(field => DataType::Int; ind!(field; unique, false)));
         let mut txn = isar.begin_txn(true, false).unwrap();
         for (i, int) in data.iter().enumerate() {
             let mut o = col.new_object_builder(None);
@@ -305,21 +315,15 @@ mod tests {
         isar
     }
 
-    fn find(txn: &mut IsarTxn, query: Query) -> Vec<(i64, i32)> {
+    fn find(txn: &mut IsarTxn, col: &IsarCollection, query: Query) -> Vec<(i64, i32)> {
         query
             .find_all_vec(txn)
             .unwrap()
             .iter()
             .map(|obj| {
                 (
-                    obj.read_long(Property {
-                        offset: 2,
-                        data_type: DataType::Long,
-                    }),
-                    obj.read_int(Property {
-                        offset: 10,
-                        data_type: DataType::Int,
-                    }),
+                    obj.read_id(),
+                    obj.read_int(col.get_properties().get(1).unwrap().1),
                 )
             })
             .collect()
@@ -332,7 +336,7 @@ mod tests {
         let mut txn = isar.begin_txn(false, false)?;
 
         let q = col.new_query_builder().build();
-        assert_eq!(find(&mut txn, q), vec![(1, 1), (2, 2), (3, 3), (4, 4)]);
+        assert_eq!(find(&mut txn, col, q), vec![(1, 1), (2, 2), (3, 3), (4, 4)]);
 
         txn.abort();
         isar.close();
@@ -344,13 +348,13 @@ mod tests {
         let isar = fill_int_col(vec![1, 2, 3, 4, 5], true);
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false, false)?;
-
-        let wc = col
-            .new_id_where_clause(Some(2), Some(4), Sort::Ascending)
-            .unwrap();
         let mut qb = col.new_query_builder();
-        qb.add_id_where_clause(wc)?;
-        assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3), (4, 4)]);
+        qb.add_id_where_clause(2, 4, Sort::Ascending).unwrap();
+
+        assert_eq!(
+            find(&mut txn, col, qb.build()),
+            vec![(2, 2), (3, 3), (4, 4)]
+        );
 
         txn.abort();
         isar.close();
@@ -363,20 +367,21 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false, false)?;
 
-        let mut wc = col
-            .new_index_where_clause(0, false, Sort::Ascending)
-            .unwrap();
-        wc.add_int(2, 3).unwrap();
+        let mut lower = col.new_index_key(0).unwrap();
+        lower.add_int(2);
+        let mut upper = col.new_index_key(0).unwrap();
+        upper.add_int(3);
+
         let mut qb = col.new_query_builder();
-        qb.add_index_where_clause(wc, true, true)?;
-        assert_eq!(find(&mut txn, qb.build()), vec![(2, 2), (3, 3)]);
+        qb.add_index_where_clause(lower, true, upper, true, false, Sort::Ascending)?;
+        assert_eq!(find(&mut txn, col, qb.build()), vec![(2, 2), (3, 3)]);
 
         txn.abort();
         isar.close();
         Ok(())
     }
 
-    #[test]
+    /*#[test]
     fn test_single_secondary_where_clause_dup() -> Result<()> {
         let isar = fill_int_col(vec![1, 2, 2, 3, 3, 3, 4], false);
         let col = isar.get_collection(0).unwrap();
@@ -432,7 +437,7 @@ mod tests {
         txn.abort();
         isar.close();
         Ok(())
-    }
+    }*/
 
     #[test]
     fn test_filter_unsorted() -> Result<()> {
@@ -448,7 +453,7 @@ mod tests {
         ]));
 
         assert_eq!(
-            find(&mut txn, qb.build()),
+            find(&mut txn, col, qb.build()),
             vec![(1, 5), (4, 3), (5, 2), (6, 2)]
         );
 
@@ -472,7 +477,7 @@ mod tests {
         qb.add_sort(int_property, Sort::Ascending);
 
         assert_eq!(
-            find(&mut txn, qb.build()),
+            find(&mut txn, col, qb.build()),
             vec![(5, 2), (6, 2), (4, 3), (1, 5)]
         );
 
@@ -492,7 +497,7 @@ mod tests {
         qb.add_distinct(int_property, false);
 
         assert_eq!(
-            find(&mut txn, qb.build()),
+            find(&mut txn, col, qb.build()),
             vec![(1, 5), (2, 4), (4, 3), (5, 2), (7, 1)]
         );
 
@@ -513,7 +518,7 @@ mod tests {
         qb.add_sort(int_property, Sort::Ascending);
 
         assert_eq!(
-            find(&mut txn, qb.build()),
+            find(&mut txn, col, qb.build()),
             vec![(7, 1), (5, 2), (4, 3), (2, 4), (1, 5)]
         );
 

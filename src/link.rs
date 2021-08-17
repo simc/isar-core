@@ -1,9 +1,10 @@
 use crate::error::IsarError::DbCorrupted;
 use crate::error::{IsarError, Result};
 use crate::lmdb::cursor::Cursor;
-use crate::lmdb::{IntKey, Key, MAX_ID, MIN_ID};
+use crate::lmdb::{IntKey, Key};
 use crate::object::isar_object::IsarObject;
 
+use crate::instance::IsarInstance;
 #[cfg(test)]
 use {
     crate::txn::IsarTxn, crate::utils::debug::dump_db_oid, hashbrown::HashMap, hashbrown::HashSet,
@@ -167,11 +168,11 @@ impl Link {
     }
 
     pub fn clear(&self, links_cursor: &mut Cursor) -> Result<()> {
-        let min_link_key = self.link_key(MIN_ID);
-        let max_link_key = self.link_key(MAX_ID);
+        let min_link_key = self.link_key(IsarInstance::MIN_ID);
+        let max_link_key = self.link_key(IsarInstance::MAX_ID);
         Self::clear_internal(links_cursor, min_link_key, max_link_key)?;
-        let min_bl_key = self.bl_key(MIN_ID);
-        let max_bl_key = self.bl_key(MAX_ID);
+        let min_bl_key = self.bl_key(IsarInstance::MIN_ID);
+        let max_bl_key = self.bl_key(IsarInstance::MAX_ID);
         Self::clear_internal(links_cursor, min_bl_key, max_bl_key)?;
         Ok(())
     }
@@ -233,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_create_aborts_if_object_not_existing() {
-        isar!(isar, col1 => col!(oid1 => DataType::Long), col2 => col!(oid2 => DataType::Long));
+        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
         create_objects(&isar, col2);
 
@@ -243,7 +244,7 @@ mod tests {
         let success = txn
             .write(|c, _| link.create(&mut c.data, &mut c.links, 555, 0))
             .unwrap();
-        assert_eq!(success, false);
+        assert!(!success);
         assert!(link.debug_dump(&mut txn).is_empty());
 
         txn.abort();
@@ -252,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_create_aborts_if_target_object_not_existing() {
-        isar!(isar, col1 => col!(oid1 => DataType::Long), col2 => col!(oid2 => DataType::Long));
+        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
         create_objects(&isar, col1);
 
@@ -262,7 +263,7 @@ mod tests {
         let success = txn
             .write(|c, _| link.create(&mut c.data, &mut c.links, 0, 555))
             .unwrap();
-        assert_eq!(success, false);
+        assert!(!success);
         assert!(link.debug_dump(&mut txn).is_empty());
 
         txn.abort();
@@ -271,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_create() {
-        isar!(isar, col1 => col!(oid1 => DataType::Long), col2 => col!(oid2 => DataType::Long));
+        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
         create_objects(&isar, col1);
         create_objects(&isar, col2);
@@ -303,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_create_same_collection() {
-        isar!(isar, col => col!(oid1 => DataType::Long));
+        isar!(isar, col => col!());
 
         create_objects(&isar, col);
 
@@ -334,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_delete() {
-        isar!(isar, col1 => col!(oid1 => DataType::Long), col2 => col!(oid2 => DataType::Long));
+        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
         create_objects(&isar, col1);
         create_objects(&isar, col2);
@@ -349,8 +350,8 @@ mod tests {
 
             assert!(link.delete(&mut c.links, 1, 2).unwrap());
             assert!(link.delete(&mut c.links, 2, 2).unwrap());
-            assert_eq!(link.delete(&mut c.links, 2, 2).unwrap(), false);
-            assert_eq!(link.delete(&mut c.links, 3, 2).unwrap(), false);
+            assert!(!link.delete(&mut c.links, 2, 2).unwrap());
+            assert!(!link.delete(&mut c.links, 3, 2).unwrap());
             Ok(())
         })
         .unwrap();
@@ -365,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_delete_same_collection() {
-        isar!(isar, col => col!(oid1 => DataType::Long));
+        isar!(isar, col => col!());
 
         create_objects(&isar, col);
 
@@ -379,8 +380,8 @@ mod tests {
 
             assert!(link.delete(&mut c.links, 1, 2).unwrap());
             assert!(link.delete(&mut c.links, 2, 2).unwrap());
-            assert_eq!(link.delete(&mut c.links, 2, 2).unwrap(), false);
-            assert_eq!(link.delete(&mut c.links, 3, 2).unwrap(), false);
+            assert!(!link.delete(&mut c.links, 2, 2).unwrap());
+            assert!(!link.delete(&mut c.links, 3, 2).unwrap());
             Ok(())
         })
         .unwrap();
@@ -395,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_delete_all_for_object() {
-        isar!(isar, col1 => col!(oid1 => DataType::Long), col2 => col!(oid2 => DataType::Long));
+        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
         create_objects(&isar, col1);
         create_objects(&isar, col2);
@@ -427,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        isar!(isar, col => col!(oid1 => DataType::Long));
+        isar!(isar, col => col!());
 
         create_objects(&isar, col);
 

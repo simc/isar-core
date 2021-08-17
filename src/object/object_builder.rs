@@ -44,7 +44,7 @@ impl<'a> ObjectBuilder<'a> {
             let required = offset + bytes.len();
             self.buffer.resize(required, 0);
         }
-        self.buffer[offset..(offset + bytes.len())].clone_from_slice(&bytes[..]);
+        self.buffer[offset..(offset + bytes.len())].clone_from_slice(bytes);
     }
 
     pub fn write_null(&mut self) {
@@ -192,7 +192,7 @@ mod tests {
 
     macro_rules! builder {
         ($var:ident, $type:ident) => {
-            isar!(isar, col => col!("id" => Long, "field" => $type));
+            isar!(isar, col => col!("field" => $type));
             let mut $var = col.new_object_builder(None);
             $var.write_long(1);
         };
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     pub fn test_write_multiple_static_types() {
-        isar!(isar, col => col!("id" => Long, "byte" => Byte, "int" => Int, "float" => Float, "long" => Long, "double" => Double));
+        isar!(isar, col => col!("byte" => Byte, "int" => Int, "float" => Float, "long" => Long, "double" => Double));
         let mut b = col.new_object_builder(None);
 
         b.write_long(1);

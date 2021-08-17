@@ -1,11 +1,12 @@
 use crate::error::{IsarError, Result};
+use crate::instance::IsarInstance;
 use crate::lmdb::cursor::Cursor;
-use crate::lmdb::{ByteKey, IntKey, MIN_ID};
+use crate::lmdb::{ByteKey, IntKey};
 use crate::query::Sort;
 use crate::schema::collection_migrator::CollectionMigrator;
 use crate::schema::Schema;
 use crate::txn::Cursors;
-use crate::{collection::IsarCollection, lmdb::MAX_ID, query::id_where_clause::IdWhereClause};
+use crate::{collection::IsarCollection, query::id_where_clause::IdWhereClause};
 use std::convert::TryInto;
 
 const ISAR_VERSION: u64 = 1;
@@ -69,7 +70,7 @@ impl<'env> SchemaManger<'env> {
 
     fn update_oid_counter(&mut self, collection: &IsarCollection) -> Result<()> {
         let col_id = collection.get_id();
-        let next_key = IntKey::new(col_id + 1, MIN_ID);
+        let next_key = IntKey::new(col_id + 1, IsarInstance::MIN_ID);
         let next_entry = self.cursors.data.move_to_gte(next_key)?;
         let greatest_qualifying_oid = if next_entry.is_some() {
             self.cursors.data.move_to_prev_key()?
@@ -107,14 +108,16 @@ impl<'env> SchemaManger<'env> {
             for index in col.get_indexes() {
                 index.clear(&mut self.cursors)?;
             }
-            IdWhereClause::new(col, MIN_ID, MAX_ID, Sort::Ascending).iter(
-                &mut self.cursors.data,
-                None,
-                |c, _, _| {
-                    c.delete_current()?;
-                    Ok(true)
-                },
-            )?;
+            IdWhereClause::new(
+                col,
+                IsarInstance::MIN_ID,
+                IsarInstance::MAX_ID,
+                Sort::Ascending,
+            )
+            .iter(&mut self.cursors.data, None, |c, _, _| {
+                c.delete_current()?;
+                Ok(true)
+            })?;
         }
 
         for col in collections {

@@ -5,6 +5,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::index::index_key::IndexKey;
+use isar_core::instance::IsarInstance;
 use isar_core::object::isar_object::IsarObject;
 use isar_core::txn::IsarTxn;
 use serde_json::Value;
@@ -72,13 +73,12 @@ fn update_auto_increment(
     bytes: &mut [u8],
 ) -> Result<i64> {
     let isar_object = IsarObject::from_bytes(bytes);
-    let oid_property = collection.get_oid_property();
-    if isar_object.is_null(oid_property) {
+    if isar_object.read_id() == IsarInstance::MIN_ID {
         let oid = collection.auto_increment(txn)?;
-        LittleEndian::write_i64(&mut bytes[oid_property.offset..], oid);
+        LittleEndian::write_i64(&mut bytes[IsarObject::ID_PROPERTY.offset..], oid);
         Ok(oid)
     } else {
-        Ok(isar_object.read_long(oid_property))
+        Ok(isar_object.read_id())
     }
 }
 

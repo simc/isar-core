@@ -158,7 +158,7 @@ pub unsafe extern "C" fn isar_q_delete(
     isar_try_txn!(txn, move |txn| {
         let mut oids_to_delete = vec![];
         query.find_while(txn, |object| {
-            let oid = object.read_long(collection.get_oid_property());
+            let oid = object.read_id();
             oids_to_delete.push(oid);
             oids_to_delete.len() <= limit
         })?;
