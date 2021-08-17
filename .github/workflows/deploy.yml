@@ -15,19 +15,19 @@ jobs:
           - os: macos-latest
             artifact_name: libisar_android_arm64.so
             script: build_android.sh
-          - os: macos-latest
+          - os: macos-11
             artifact_name: libisar_android_x64.so
             script: build_android.sh x64
-          - os: macos-latest
+          - os: macos-11
             artifact_name: libisar_ios.a
             script: build_ios.sh
           - os: ubuntu-latest
             artifact_name: libisar_linux_x64.so
             script: build_desktop.sh
-          - os: macos-latest
+          - os: macos-11
             artifact_name: libisar_macos_arm64.dylib
             script: build_desktop.sh
-          - os: macos-latest
+          - os: macos-11
             artifact_name: libisar_macos_x64.dylib
             script: build_desktop.sh x64
           - os: windows-latest
