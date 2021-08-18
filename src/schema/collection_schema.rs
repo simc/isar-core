@@ -1,10 +1,9 @@
 use crate::collection::IsarCollection;
 use crate::error::{schema_error, Result};
 use crate::index::{Index, IndexProperty};
-use crate::instance::IsarInstance;
 use crate::link::Link;
 use crate::object::data_type::DataType;
-use crate::object::isar_object::{IsarObject, Property};
+use crate::object::isar_object::Property;
 use crate::object::object_info::ObjectInfo;
 use enum_ordinalize::Ordinalize;
 use itertools::Itertools;
@@ -139,10 +138,16 @@ impl CollectionSchema {
             .properties
             .iter()
             .map(|p| p.name.as_str())
-            .chain(self.links.iter().map(|l| l.name.as_str()))
-            .chain([IsarInstance::ID_NAME]);
+            .chain(self.links.iter().map(|l| l.name.as_str()));
         if properties_link_names.unique().count() < self.properties.len() + self.links.len() {
             schema_error("Duplicate property or link name")?;
+        }
+        if let Some(property) = self.properties.first() {
+            if property.data_type != DataType::Long {
+                schema_error("Id property has incorrect data type")?;
+            }
+        } else {
+            schema_error("At least the id property needs to be defined")?;
         }
 
         for index in &self.indexes {
@@ -218,7 +223,7 @@ impl CollectionSchema {
     }
 
     fn get_properties(&self) -> Vec<(String, Property)> {
-        let mut properties = vec![(IsarInstance::ID_NAME.to_string(), IsarObject::ID_PROPERTY)];
+        let mut properties = vec![];
         let user_properties = self.properties.iter().map(|f| {
             let property = Property::new(f.data_type, f.offset.unwrap());
             (f.name.clone(), property)
@@ -300,7 +305,7 @@ impl CollectionSchema {
             .iter()
             .map(|p| p.offset.unwrap() + p.data_type.get_static_size())
             .max()
-            .unwrap_or(10) // 2 + 8 (u16 static size + i64 id)
+            .unwrap_or(2) // u16 static
     }
 
     fn check_indexes_equal(
@@ -338,7 +343,7 @@ impl CollectionSchema {
 
         let existing_properties: &[PropertySchema] = existing_col.map_or(&[], |e| &e.properties);
         let mut next_offset = Self::find_next_offset(existing_properties);
-        for property in &mut self.properties {
+        for (i, property) in &mut self.properties.iter_mut().enumerate() {
             let existing_property = existing_properties.iter().find(|i| i.name == property.name);
             if let Some(existing_property) = existing_property {
                 if existing_property.data_type != property.data_type {
@@ -348,6 +353,9 @@ impl CollectionSchema {
                 }
                 property.offset = existing_property.offset;
             } else {
+                if existing_col.is_some() && i == 0 {
+                    return schema_error("The id property must not change between versions");
+                }
                 property.offset = Some(next_offset);
                 next_offset += property.data_type.get_static_size();
             }

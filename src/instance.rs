@@ -33,7 +33,6 @@ pub struct IsarInstance {
 }
 
 impl IsarInstance {
-    pub const ID_NAME: &'static str = "id";
     pub const MIN_ID: i64 = -(1 << 47);
     pub const MAX_ID: i64 = (1 << 47) - 1;
     pub const ENCRYPTION_KEY_LEN: usize = 32;

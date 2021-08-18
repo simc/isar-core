@@ -88,7 +88,9 @@ macro_rules! col (
     ($name:expr, $($field:expr => $type:path),*; $($index:expr),*) => {
         {
             #[allow(unused_mut)]
-            let mut properties = vec![];
+            let mut properties = vec![
+                $crate::schema::collection_schema::PropertySchema::new("id", $crate::object::data_type::DataType::Long)
+            ];
             $(
                 let property = $crate::schema::collection_schema::PropertySchema::new(stringify!($field), $type);
                 properties.push(property);
