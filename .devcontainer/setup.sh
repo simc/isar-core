@@ -12,8 +12,8 @@ apt-get install -y \
   openssl
 
 ## Install rustup and common components
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+source ~/.cargo/env
 rustup install nightly
 rustup component add rustfmt
 rustup component add rustfmt --toolchain nightly
