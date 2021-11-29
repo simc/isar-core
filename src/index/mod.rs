@@ -6,12 +6,11 @@ use crate::object::isar_object::{IsarObject, Property};
 use crate::query::index_where_clause::IndexWhereClause;
 use crate::query::Sort;
 use crate::schema::collection_schema::IndexType;
-use crate::txn::Cursors;
+use crate::txn::{Cursors, IsarTxn};
+use crate::utils::debug::dump_db;
+use hashbrown::HashSet;
 use itertools::Itertools;
 use unicode_segmentation::UnicodeSegmentation;
-
-#[cfg(test)]
-use {crate::txn::IsarTxn, crate::utils::debug::dump_db, hashbrown::HashSet};
 
 pub mod index_key;
 
@@ -57,7 +56,7 @@ impl IndexProperty {
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct Index {
     pub id: u16,
-    col_id: u16,
+    pub col_id: u16,
     pub properties: Vec<IndexProperty>,
     pub unique: bool,
     pub replace: bool,
@@ -82,10 +81,6 @@ impl Index {
 
     pub fn get_prefix(&self) -> Vec<u8> {
         self.id.to_be_bytes().to_vec()
-    }
-
-    pub(crate) fn get_col_id(&self) -> u16 {
-        self.col_id
     }
 
     pub fn create_for_object<F>(
@@ -245,7 +240,6 @@ impl Index {
         }
     }
 
-    #[cfg(test)]
     pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashSet<(Vec<u8>, Vec<u8>)> {
         txn.read(|cursors| {
             let set = dump_db(&mut cursors.index, Some(&self.id.to_be_bytes()))
@@ -257,7 +251,6 @@ impl Index {
         .unwrap()
     }
 
-    #[cfg(test)]
     pub fn debug_create_keys(&self, object: IsarObject) -> Vec<Vec<u8>> {
         let mut keys = vec![];
         self.create_keys(object, |key| {
@@ -281,12 +274,12 @@ mod tests {
         let mut txn = isar.begin_txn(true, false).unwrap();
         let oid = obj.read_id();
         col.put(&mut txn, obj).unwrap();
-        let index = col.debug_get_index(0);
+        let index = col.debug_get_indexes().get(0).unwrap();
 
         let set: HashSet<(Vec<u8>, Vec<u8>)> = index
             .debug_create_keys(obj)
             .into_iter()
-            .map(|key| (key, IntKey::new(col.get_id(), oid).as_bytes().to_vec()))
+            .map(|key| (key, IntKey::new(col.id, oid).as_bytes().to_vec()))
             .collect();
 
         assert_eq!(index.debug_dump(&mut txn), set)

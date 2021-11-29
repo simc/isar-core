@@ -2,7 +2,7 @@
 name = "lmdb-sys"
 version = "0.1.0"
 authors = ["Simon Leier <simonleier@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 build = "build.rs"
 

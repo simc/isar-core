@@ -6,33 +6,138 @@ use crate::object::isar_object::{IsarObject, Property};
 use crate::query::fast_wild_match::fast_wild_match;
 use enum_dispatch::enum_dispatch;
 use hashbrown::HashSet;
+use itertools::Itertools;
 use paste::paste;
+
+#[derive(Clone)]
+pub struct Filter(FilterCond);
+
+impl Filter {
+    pub fn byte(property: Property, lower: u8, upper: u8) -> Result<Filter> {
+        let filter_cond = ByteBetweenCond::filter(property, lower, upper)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn int(property: Property, lower: i32, upper: i32) -> Result<Filter> {
+        let filter_cond = IntBetweenCond::filter(property, lower, upper)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn long(property: Property, lower: i64, upper: i64) -> Result<Filter> {
+        let filter_cond = LongBetweenCond::filter(property, lower, upper)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn float(property: Property, lower: f32, upper: f32) -> Result<Filter> {
+        let filter_cond = FloatBetweenCond::filter(property, lower, upper)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn double(property: Property, lower: f64, upper: f64) -> Result<Filter> {
+        let filter_cond = DoubleBetweenCond::filter(property, lower, upper)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn string(
+        property: Property,
+        lower: Option<&str>,
+        upper: Option<&str>,
+        case_sensitive: bool,
+    ) -> Result<Filter> {
+        let filter_cond = StringBetweenCond::filter(property, lower, upper, case_sensitive)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn string_starts_with(
+        property: Property,
+        value: &str,
+        case_sensitive: bool,
+    ) -> Result<Filter> {
+        let filter_cond = StringStartsWithCond::filter(property, value, case_sensitive)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn string_ends_with(
+        property: Property,
+        value: &str,
+        case_sensitive: bool,
+    ) -> Result<Filter> {
+        let filter_cond = StringEndsWithCond::filter(property, value, case_sensitive)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn string_matches(property: Property, value: &str, case_sensitive: bool) -> Result<Filter> {
+        let filter_cond = StringMatchesCond::filter(property, value, case_sensitive)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn and(filters: Vec<Filter>) -> Filter {
+        let filters = filters.into_iter().map(|f| f.0).collect_vec();
+        let filter_cond = AndCond::filter(filters);
+        Filter(filter_cond)
+    }
+
+    pub fn or(filters: Vec<Filter>) -> Filter {
+        let filters = filters.into_iter().map(|f| f.0).collect_vec();
+        let filter_cond = OrCond::filter(filters);
+        Filter(filter_cond)
+    }
+
+    pub fn not(filter: Filter) -> Filter {
+        let filter_cond = NotCond::filter(filter.0);
+        Filter(filter_cond)
+    }
+
+    pub fn stat(value: bool) -> Filter {
+        let filter_cond = StaticCond::filter(value);
+        Filter(filter_cond)
+    }
+
+    pub fn link(
+        collection: &IsarCollection,
+        link_index: usize,
+        backlink: bool,
+        filter: Filter,
+    ) -> Result<Filter> {
+        let filter_cond = LinkCond::filter(collection, link_index, backlink, filter.0)?;
+        Ok(Filter(filter_cond))
+    }
+
+    pub(crate) fn evaluate(
+        &self,
+        object: IsarObject,
+        cursors: Option<&mut FilterCursors>,
+    ) -> Result<bool> {
+        self.0.evaluate(object, cursors)
+    }
+}
 
 #[enum_dispatch]
 #[derive(Clone)]
-pub enum Filter {
+enum FilterCond {
     ByteBetween(ByteBetweenCond),
     IntBetween(IntBetweenCond),
     LongBetween(LongBetweenCond),
     FloatBetween(FloatBetweenCond),
     DoubleBetween(DoubleBetweenCond),
 
-    ByteListContains(ByteListContainsCond),
-    IntListContains(IntListContainsCond),
-    LongListContains(LongListContainsCond),
-
     StringBetween(StringBetweenCond),
     StringStartsWith(StringStartsWithCond),
     StringEndsWith(StringEndsWithCond),
     StringMatches(StringMatchesCond),
-
-    StringListContains(StringListContainsCond),
 
     And(AndCond),
     Or(OrCond),
     Not(NotCond),
     Static(StaticCond),
     Link(LinkCond),
+}
+
+#[enum_dispatch(FilterCond)]
+trait Condition {
+    fn evaluate(&self, object: IsarObject, cursors: Option<&mut FilterCursors>) -> Result<bool>;
+
+    fn get_linked_collections(&self, col_ids: &mut HashSet<u16>);
 }
 
 pub(crate) struct FilterCursors<'txn, 'a>(&'a mut Cursor<'txn>, &'a mut Cursor<'txn>);
@@ -43,28 +148,21 @@ impl<'txn, 'a> FilterCursors<'txn, 'a> {
     }
 }
 
-#[enum_dispatch(Filter)]
-pub(crate) trait Condition {
-    fn evaluate(&self, object: IsarObject, cursors: Option<&mut FilterCursors>) -> Result<bool>;
-
-    fn get_linked_collections(&self, col_ids: &mut HashSet<u16>);
-}
-
 #[macro_export]
 macro_rules! filter_between_struct {
     ($name:ident, $data_type:ident, $type:ty) => {
         paste! {
             #[derive(Clone)]
-            pub struct [<$name Cond>] {
+            struct [<$name Cond>] {
                 upper: $type,
                 lower: $type,
                 property: Property,
             }
 
             impl [<$name Cond>] {
-                pub fn filter(property: Property, lower: $type, upper: $type) -> Result<Filter> {
+                 fn filter(property: Property, lower: $type, upper: $type) -> Result<FilterCond> {
                     if property.data_type == crate::object::data_type::DataType::$data_type {
-                        Ok(Filter::$name(Self {
+                        Ok(FilterCond::$name(Self {
                             property,
                             lower,
                             upper,
@@ -125,56 +223,8 @@ primitive_filter_between!(LongBetween, Long, i64, read_long);
 float_filter_between!(FloatBetween, Float, f32, read_float);
 float_filter_between!(DoubleBetween, Double, f64, read_double);
 
-#[macro_export]
-macro_rules! filter_not_equal_struct {
-    ($name:ident, $data_type:ident, $type:ty) => {
-        paste! {
-            #[derive(Clone)]
-            pub struct [<$name Cond>] {
-                value: $type,
-                property: Property,
-            }
-
-            impl [<$name Cond>] {
-                pub fn filter(property: Property, value: $type) -> Result<Filter> {
-                    if property.data_type == crate::object::data_type::DataType::$data_type {
-                        Ok(Filter::$name(Self { property, value }))
-                    } else {
-                        illegal_arg("Property does not support this filter.")
-                    }
-                }
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! primitive_list_filter {
-    ($name:ident, $data_type:ident, $type:ty, $prop_accessor:ident) => {
-        filter_not_equal_struct!($name, $data_type, $type);
-        paste! {
-            impl Condition for [<$name Cond>] {
-                fn evaluate(&self, object: IsarObject,_: Option<&mut FilterCursors>) -> Result<bool> {
-                    let list = object.$prop_accessor(self.property);
-                    if let Some(list) = list {
-                        Ok(list.contains(&self.value))
-                    } else {
-                       Ok( false)
-                    }
-                }
-
-                fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
-            }
-        }
-    };
-}
-
-primitive_list_filter!(ByteListContains, Byte, u8, read_byte_list);
-primitive_list_filter!(IntListContains, Int, i32, read_int_list);
-primitive_list_filter!(LongListContains, Long, i64, read_long_list);
-
 #[derive(Clone)]
-pub struct StringBetweenCond {
+struct StringBetweenCond {
     property: Property,
     lower: Option<String>,
     upper: Option<String>,
@@ -182,12 +232,12 @@ pub struct StringBetweenCond {
 }
 
 impl StringBetweenCond {
-    pub fn filter(
+    fn filter(
         property: Property,
         lower: Option<&str>,
         upper: Option<&str>,
         case_sensitive: bool,
-    ) -> Result<Filter> {
+    ) -> Result<FilterCond> {
         let lower = if case_sensitive {
             lower.map(|s| s.to_string())
         } else {
@@ -199,7 +249,7 @@ impl StringBetweenCond {
             upper.map(|s| s.to_lowercase())
         };
         if property.data_type == crate::object::data_type::DataType::String {
-            Ok(Filter::StringBetween(StringBetweenCond {
+            Ok(FilterCond::StringBetween(StringBetweenCond {
                 property,
                 lower,
                 upper,
@@ -218,7 +268,7 @@ impl Condition for StringBetweenCond {
             let mut matches = true;
             if self.case_sensitive {
                 if let Some(ref lower) = self.lower {
-                    matches &= lower.as_str() <= obj_str;
+                    matches = lower.as_str() <= obj_str;
                 }
                 matches &= if let Some(ref upper) = self.upper {
                     upper.as_str() >= obj_str
@@ -228,7 +278,7 @@ impl Condition for StringBetweenCond {
             } else {
                 let obj_str = obj_str.to_lowercase();
                 if let Some(ref lower) = self.lower {
-                    matches &= lower.as_str() <= obj_str.as_str();
+                    matches = lower.as_str() <= obj_str.as_str();
                 }
                 matches &= if let Some(ref upper) = self.upper {
                     upper.as_str() >= obj_str.as_str()
@@ -251,25 +301,25 @@ macro_rules! string_filter_struct {
     ($name:ident) => {
         paste! {
             #[derive(Clone)]
-            pub struct [<$name Cond>] {
+             struct [<$name Cond>] {
                 property: Property,
-                value: Option<String>,
+                value: String,
                 case_sensitive: bool,
             }
 
             impl [<$name Cond>] {
-                pub fn filter(
+                 fn filter(
                     property: Property,
-                    value: Option<&str>,
+                    value: &str,
                     case_sensitive: bool,
-                ) -> Result<Filter> {
+                ) -> Result<FilterCond> {
                     let value = if case_sensitive {
-                        value.map(|s| s.to_string())
+                        value.to_string()
                     } else {
-                        value.map(|s| s.to_lowercase())
+                        value.to_lowercase()
                     };
                     if property.data_type == crate::object::data_type::DataType::String {
-                        Ok(Filter::$name([<$name Cond>] {
+                        Ok(FilterCond::$name([<$name Cond>] {
                             property,
                             value,
                             case_sensitive,
@@ -291,16 +341,16 @@ macro_rules! string_filter {
             impl Condition for [<$name Cond>] {
                 fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
                     let other_str = object.read_string(self.property);
-                    let result = if let (Some(filter_str), Some(other_str)) = (self.value.as_ref(), other_str) {
+                    let result = if let Some(other_str) = other_str {
                         if self.case_sensitive {
-                            string_filter!($name filter_str, other_str)
+                            string_filter!($name &self.value, other_str)
                         } else {
                             let lowercase_string = other_str.to_lowercase();
                             let lowercase_str = &lowercase_string;
-                            string_filter!($name filter_str, lowercase_str)
+                            string_filter!($name &self.value, lowercase_str)
                         }
                     } else {
-                        self.value.is_none() && other_str.is_none()
+                        false
                     };
                     Ok(result)
                 }
@@ -310,15 +360,15 @@ macro_rules! string_filter {
         }
     };
 
-    (StringStartsWith $filter_str:ident, $other_str:ident) => {
+    (StringStartsWith $filter_str:expr, $other_str:ident) => {
         $other_str.starts_with($filter_str)
     };
 
-    (StringEndsWith $filter_str:ident, $other_str:ident) => {
+    (StringEndsWith $filter_str:expr, $other_str:ident) => {
         $other_str.ends_with($filter_str)
     };
 
-    (StringMatches $filter_str:ident, $other_str:ident) => {
+    (StringMatches $filter_str:expr, $other_str:ident) => {
         fast_wild_match($other_str, $filter_str)
     };
 }
@@ -327,24 +377,9 @@ string_filter!(StringStartsWith);
 string_filter!(StringEndsWith);
 string_filter!(StringMatches);
 
-string_filter_struct!(StringListContains);
-
-impl Condition for StringListContainsCond {
-    fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
-        let list = object.read_string_list(self.property);
-        if let Some(list) = list {
-            Ok(list.contains(&self.value.as_deref()))
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
-}
-
 #[derive(Clone)]
-pub struct AndCond {
-    filters: Vec<Filter>,
+struct AndCond {
+    filters: Vec<FilterCond>,
 }
 
 impl Condition for AndCond {
@@ -369,14 +404,14 @@ impl Condition for AndCond {
 }
 
 impl AndCond {
-    pub fn filter(filters: Vec<Filter>) -> Filter {
-        Filter::And(AndCond { filters })
+    pub fn filter(filters: Vec<FilterCond>) -> FilterCond {
+        FilterCond::And(AndCond { filters })
     }
 }
 
 #[derive(Clone)]
-pub struct OrCond {
-    filters: Vec<Filter>,
+struct OrCond {
+    filters: Vec<FilterCond>,
 }
 
 impl Condition for OrCond {
@@ -401,14 +436,14 @@ impl Condition for OrCond {
 }
 
 impl OrCond {
-    pub fn filter(filters: Vec<Filter>) -> Filter {
-        Filter::Or(OrCond { filters })
+    fn filter(filters: Vec<FilterCond>) -> FilterCond {
+        FilterCond::Or(OrCond { filters })
     }
 }
 
 #[derive(Clone)]
-pub struct NotCond {
-    filter: Box<Filter>,
+struct NotCond {
+    filter: Box<FilterCond>,
 }
 
 impl Condition for NotCond {
@@ -422,15 +457,15 @@ impl Condition for NotCond {
 }
 
 impl NotCond {
-    pub fn filter(filter: Filter) -> Filter {
-        Filter::Not(NotCond {
+    pub fn filter(filter: FilterCond) -> FilterCond {
+        FilterCond::Not(NotCond {
             filter: Box::new(filter),
         })
     }
 }
 
 #[derive(Clone)]
-pub struct StaticCond {
+struct StaticCond {
     value: bool,
 }
 
@@ -443,15 +478,15 @@ impl Condition for StaticCond {
 }
 
 impl StaticCond {
-    pub fn filter(value: bool) -> Filter {
-        Filter::Static(StaticCond { value })
+    pub fn filter(value: bool) -> FilterCond {
+        FilterCond::Static(StaticCond { value })
     }
 }
 
 #[derive(Clone)]
-pub struct LinkCond {
+struct LinkCond {
     link: Link,
-    filter: Box<Filter>,
+    filter: Box<FilterCond>,
 }
 
 impl Condition for LinkCond {
@@ -474,14 +509,14 @@ impl Condition for LinkCond {
 }
 
 impl LinkCond {
-    pub fn filter(
+    fn filter(
         collection: &IsarCollection,
         link_index: usize,
         backlink: bool,
-        filter: Filter,
-    ) -> Result<Filter> {
+        filter: FilterCond,
+    ) -> Result<FilterCond> {
         let link = collection.get_link_backlink(link_index, backlink)?;
-        Ok(Filter::Link(LinkCond {
+        Ok(FilterCond::Link(LinkCond {
             link,
             filter: Box::new(filter),
         }))

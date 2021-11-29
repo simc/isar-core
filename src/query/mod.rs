@@ -9,7 +9,7 @@ use crate::collection::IsarCollection;
 use crate::error::Result;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
-use crate::query::filter::{Condition, Filter, StaticCond};
+use crate::query::filter::Filter;
 use crate::query::where_clause::WhereClause;
 use crate::txn::{Cursors, IsarTxn};
 
@@ -85,7 +85,7 @@ impl<'txn> Query {
             None
         };
 
-        let static_filter = StaticCond::filter(true);
+        let static_filter = Filter::stat(true);
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
 
         for where_clause in &self.where_clauses {
@@ -297,8 +297,7 @@ mod tests {
 
     use crate::instance::IsarInstance;
     use crate::object::data_type::DataType;
-    use crate::query::filter::{IntBetweenCond, NotCond, OrCond};
-    use crate::{col, ind, isar, set};
+    use crate::{col, ind, isar};
 
     use super::*;
 
@@ -320,12 +319,7 @@ mod tests {
             .find_all_vec(txn)
             .unwrap()
             .iter()
-            .map(|obj| {
-                (
-                    obj.read_id(),
-                    obj.read_int(col.get_properties().get(1).unwrap().1),
-                )
-            })
+            .map(|obj| (obj.read_id(), obj.read_int(*col.properties.get(1).unwrap())))
             .collect()
     }
 
@@ -445,11 +439,11 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false, false)?;
 
-        let int_property = col.get_properties().get(1).unwrap().1;
+        let int_property = *col.properties.get(1).unwrap();
         let mut qb = col.new_query_builder();
-        qb.set_filter(OrCond::filter(vec![
-            IntBetweenCond::filter(int_property, 2, 3)?,
-            NotCond::filter(IntBetweenCond::filter(int_property, 0, 4)?),
+        qb.set_filter(Filter::or(vec![
+            Filter::int(int_property, 2, 3)?,
+            Filter::not(Filter::int(int_property, 0, 4)?),
         ]));
 
         assert_eq!(
@@ -468,11 +462,11 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false, false)?;
 
-        let int_property = col.get_properties().get(1).unwrap().1;
+        let int_property = *col.properties.get(1).unwrap();
         let mut qb = col.new_query_builder();
-        qb.set_filter(OrCond::filter(vec![
-            IntBetweenCond::filter(int_property, 2, 3)?,
-            NotCond::filter(IntBetweenCond::filter(int_property, 0, 4)?),
+        qb.set_filter(Filter::or(vec![
+            Filter::int(int_property, 2, 3)?,
+            Filter::not(Filter::int(int_property, 0, 4)?),
         ]));
         qb.add_sort(int_property, Sort::Ascending);
 
@@ -492,7 +486,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false, false)?;
 
-        let int_property = col.get_properties().get(1).unwrap().1;
+        let int_property = *col.properties.get(1).unwrap();
         let mut qb = col.new_query_builder();
         qb.add_distinct(int_property, false);
 
@@ -512,7 +506,7 @@ mod tests {
         let col = isar.get_collection(0).unwrap();
         let mut txn = isar.begin_txn(false, false)?;
 
-        let int_property = col.get_properties().get(1).unwrap().1;
+        let int_property = *col.properties.get(1).unwrap();
         let mut qb = col.new_query_builder();
         qb.add_distinct(int_property, false);
         qb.add_sort(int_property, Sort::Ascending);

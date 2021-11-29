@@ -16,5 +16,5 @@ pub mod object;
 pub mod query;
 pub mod schema;
 pub mod txn;
-mod utils;
+pub mod utils;
 pub mod watch;

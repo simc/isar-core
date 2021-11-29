@@ -16,7 +16,11 @@ impl<'a> JsonEncodeDecode {
     ) -> Map<String, Value> {
         let mut object_map = Map::new();
 
-        for (property_name, property) in collection.get_properties() {
+        for (property, property_name) in collection
+            .properties
+            .iter()
+            .zip(collection.property_names.iter())
+        {
             let property = *property;
             let value =
                 if primitive_null && property.data_type.is_static() && object.is_null(property) {
@@ -57,8 +61,12 @@ impl<'a> JsonEncodeDecode {
         let mut ob = collection.new_object_builder(buffer);
         let object = json.as_object().ok_or(IsarError::InvalidJson {})?;
 
-        for (name, property) in collection.get_properties() {
-            if let Some(value) = object.get(name) {
+        for (property, property_name) in collection
+            .properties
+            .iter()
+            .zip(collection.property_names.iter())
+        {
+            if let Some(value) = object.get(property_name) {
                 match property.data_type {
                     DataType::Byte => ob.write_byte(Self::value_to_byte(value)?),
                     DataType::Int => ob.write_int(Self::value_to_int(value)?),

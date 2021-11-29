@@ -4,7 +4,6 @@ use crate::index::{Index, IndexProperty};
 use crate::link::Link;
 use crate::object::data_type::DataType;
 use crate::object::isar_object::Property;
-use crate::object::object_info::ObjectInfo;
 use enum_ordinalize::Ordinalize;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -206,33 +205,34 @@ impl CollectionSchema {
     }
 
     pub(super) fn get_isar_collection(&self, cols: &[CollectionSchema]) -> IsarCollection {
-        let properties = self.get_properties();
-        let indexes = self.get_indexes(&properties);
+        let (properties, property_names) = self.get_properties();
+        let indexes = self.get_indexes(&properties, &property_names);
         let links = self.get_links(cols);
         let backlinks = self.get_backlinks(cols);
 
-        let oi = ObjectInfo::new(properties);
         IsarCollection::new(
             self.id.unwrap(),
             self.name.clone(),
-            oi,
+            properties,
+            property_names,
             indexes,
             links,
             backlinks,
         )
     }
 
-    fn get_properties(&self) -> Vec<(String, Property)> {
+    fn get_properties(&self) -> (Vec<Property>, Vec<String>) {
         let mut properties = vec![];
-        let user_properties = self.properties.iter().map(|f| {
-            let property = Property::new(f.data_type, f.offset.unwrap());
-            (f.name.clone(), property)
-        });
-        properties.extend(user_properties);
-        properties
+        let mut property_names = vec![];
+        for p in &self.properties {
+            let property = Property::new(p.data_type, p.offset.unwrap());
+            properties.push(property);
+            property_names.push(p.name.clone());
+        }
+        (properties, property_names)
     }
 
-    fn get_indexes(&self, properties: &[(String, Property)]) -> Vec<Index> {
+    fn get_indexes(&self, properties: &[Property], property_names: &[String]) -> Vec<Index> {
         self.indexes
             .iter()
             .map(|index| {
@@ -240,10 +240,8 @@ impl CollectionSchema {
                     .properties
                     .iter()
                     .map(|ips| {
-                        let (_, property) = properties
-                            .iter()
-                            .find(|(name, _)| name == &ips.name)
-                            .unwrap();
+                        let p_index = property_names.iter().position(|n| n == &ips.name).unwrap();
+                        let property = properties.get(p_index).unwrap();
                         IndexProperty::new(*property, ips.index_type, ips.case_sensitive)
                     })
                     .collect_vec();

@@ -69,8 +69,7 @@ impl<'env> SchemaManger<'env> {
     }
 
     fn update_oid_counter(&mut self, collection: &IsarCollection) -> Result<()> {
-        let col_id = collection.get_id();
-        let next_key = IntKey::new(col_id + 1, IsarInstance::MIN_ID);
+        let next_key = IntKey::new(collection.id + 1, IsarInstance::MIN_ID);
         let next_entry = self.cursors.data.move_to_gte(next_key)?;
         let greatest_qualifying_oid = if next_entry.is_some() {
             self.cursors.data.move_to_prev_key()?
@@ -80,8 +79,8 @@ impl<'env> SchemaManger<'env> {
 
         if let Some((oid, _)) = greatest_qualifying_oid {
             let key = IntKey::from_bytes(oid);
-            if key.get_prefix() == col_id {
-                collection.update_oid_counter(key.get_id());
+            if key.get_prefix() == collection.id {
+                collection.update_auto_increment(key.get_id());
             }
         }
         Ok(())
@@ -102,7 +101,7 @@ impl<'env> SchemaManger<'env> {
     ) -> Result<()> {
         let removed_collections = existing_collections
             .iter()
-            .filter(|existing| !collections.iter().any(|c| existing.get_id() == c.get_id()));
+            .filter(|existing| !collections.iter().any(|c| existing.id == c.id));
 
         for col in removed_collections {
             for index in col.get_indexes() {
@@ -123,7 +122,7 @@ impl<'env> SchemaManger<'env> {
         for col in collections {
             let existing = existing_collections
                 .iter()
-                .find(|existing| existing.get_id() == col.get_id());
+                .find(|existing| existing.id == col.id);
 
             if let Some(existing) = existing {
                 let migrator = CollectionMigrator::create(col, existing);

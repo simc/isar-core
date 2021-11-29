@@ -212,7 +212,6 @@ mod tests {
     use super::*;
     use crate::collection::IsarCollection;
     use crate::instance::IsarInstance;
-    use crate::object::data_type::DataType;
     use crate::{col, isar, map, set};
 
     fn create_objects(isar: &IsarInstance, col: &IsarCollection) {
@@ -238,7 +237,7 @@ mod tests {
 
         create_objects(&isar, col2);
 
-        let link = Link::new(0, 1, col1.get_id(), col2.get_id());
+        let link = Link::new(0, 1, col1.id, col2.id);
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         let success = txn
@@ -257,7 +256,7 @@ mod tests {
 
         create_objects(&isar, col1);
 
-        let link = Link::new(0, 1, col1.get_id(), col2.get_id());
+        let link = Link::new(0, 1, col1.id, col2.id);
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         let success = txn
@@ -277,7 +276,7 @@ mod tests {
         create_objects(&isar, col1);
         create_objects(&isar, col2);
 
-        let link = Link::new(123, 456, col1.get_id(), col2.get_id());
+        let link = Link::new(123, 456, col1.id, col2.id);
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
@@ -308,7 +307,7 @@ mod tests {
 
         create_objects(&isar, col);
 
-        let link = Link::new(123, 456, col.get_id(), col.get_id());
+        let link = Link::new(123, 456, col.id, col.id);
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
@@ -340,7 +339,7 @@ mod tests {
         create_objects(&isar, col1);
         create_objects(&isar, col2);
 
-        let link = Link::new(123, 456, col1.get_id(), col2.get_id());
+        let link = Link::new(123, 456, col1.id, col2.id);
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
@@ -370,7 +369,7 @@ mod tests {
 
         create_objects(&isar, col);
 
-        let link = Link::new(123, 456, col.get_id(), col.get_id());
+        let link = Link::new(123, 456, col.id, col.id);
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
@@ -401,7 +400,7 @@ mod tests {
         create_objects(&isar, col1);
         create_objects(&isar, col2);
 
-        let link = Link::new(123, 456, col1.get_id(), col2.get_id());
+        let link = Link::new(123, 456, col1.id, col2.id);
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {
@@ -432,7 +431,7 @@ mod tests {
 
         create_objects(&isar, col);
 
-        let link = Link::new(123, 456, col.get_id(), col.get_id());
+        let link = Link::new(123, 456, col.id, col.id);
         let mut txn = isar.begin_txn(true, false).unwrap();
 
         txn.write(|c, _| {

@@ -1,37 +1,45 @@
 use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::object::isar_object::Property;
-use crate::object::object_info::ObjectInfo;
 use std::slice::from_raw_parts;
 
 pub struct ObjectBuilder<'a> {
     buffer: Vec<u8>,
-    object_info: &'a ObjectInfo,
+    properties: &'a [Property],
     property_index: usize,
     dynamic_offset: usize,
 }
 
 impl<'a> ObjectBuilder<'a> {
-    pub(crate) fn new(object_info: &ObjectInfo, buffer: Option<Vec<u8>>) -> ObjectBuilder {
-        let buffer =
-            buffer.unwrap_or_else(|| Vec::with_capacity(object_info.get_static_size() * 2));
+    pub(crate) fn new_with_size(
+        properties: &[Property],
+        static_size: usize,
+        buffer: Option<Vec<u8>>,
+    ) -> ObjectBuilder {
+        let buffer = buffer.unwrap_or_else(|| Vec::with_capacity(static_size * 2));
+
         let mut ob = ObjectBuilder {
             buffer,
-            object_info,
+            properties,
             property_index: 0,
-            dynamic_offset: object_info.get_static_size(),
+            dynamic_offset: static_size,
         };
-        let static_size = object_info.get_static_size() as u16;
-        ob.write_at(0, &static_size.to_le_bytes());
+        ob.write_at(0, &(static_size as u16).to_le_bytes());
         ob
     }
 
-    fn get_next_property(&mut self, peek: bool) -> Property {
-        let (_, property) = self
-            .object_info
-            .get_properties()
-            .get(self.property_index)
-            .unwrap();
+    pub fn new(properties: &[Property], buffer: Option<Vec<u8>>) -> ObjectBuilder {
+        let static_size = Self::calculate_static_size(properties);
+        Self::new_with_size(properties, static_size, buffer)
+    }
+
+    pub(crate) fn calculate_static_size(properties: &[Property]) -> usize {
+        let last_property = properties.last().unwrap();
+        last_property.offset + last_property.data_type.get_static_size()
+    }
+
+    fn next_property(&mut self, peek: bool) -> Property {
+        let property = self.properties.get(self.property_index).unwrap();
         if !peek {
             self.property_index += 1;
         }
@@ -48,7 +56,7 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     pub fn write_null(&mut self) {
-        let property = self.get_next_property(true);
+        let property = self.next_property(true);
         match property.data_type {
             DataType::Byte => self.write_byte(IsarObject::NULL_BYTE),
             DataType::Int => self.write_int(IsarObject::NULL_INT),
@@ -66,7 +74,7 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     pub fn write_byte(&mut self, value: u8) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::Byte);
         self.write_at(property.offset, &[value]);
     }
@@ -81,67 +89,67 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     pub fn write_int(&mut self, value: i32) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::Int);
         self.write_at(property.offset, &value.to_le_bytes());
     }
 
     pub fn write_float(&mut self, value: f32) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::Float);
         self.write_at(property.offset, &value.to_le_bytes());
     }
 
     pub fn write_long(&mut self, value: i64) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::Long);
         self.write_at(property.offset, &value.to_le_bytes());
     }
 
     pub fn write_double(&mut self, value: f64) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::Double);
         self.write_at(property.offset, &value.to_le_bytes());
     }
 
     pub fn write_string(&mut self, value: Option<&str>) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::String);
         self.write_list(property.offset, value.map(|s| s.as_ref()));
     }
 
     pub fn write_byte_list(&mut self, value: Option<&[u8]>) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::ByteList);
         self.write_list(property.offset, value);
     }
 
     pub fn write_int_list(&mut self, value: Option<&[i32]>) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::IntList);
         self.write_list(property.offset, value);
     }
 
     pub fn write_float_list(&mut self, value: Option<&[f32]>) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::FloatList);
         self.write_list(property.offset, value);
     }
 
     pub fn write_long_list(&mut self, value: Option<&[i64]>) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::LongList);
         self.write_list(property.offset, value);
     }
 
     pub fn write_double_list(&mut self, value: Option<&[f64]>) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::DoubleList);
         self.write_list(property.offset, value);
     }
 
     pub fn write_string_list(&mut self, value: Option<&[Option<&str>]>) {
-        let property = self.get_next_property(false);
+        let property = self.next_property(false);
         assert_eq!(property.data_type, DataType::StringList);
         if let Some(value) = value {
             self.write_at(property.offset, &(self.dynamic_offset as u32).to_le_bytes());
@@ -173,7 +181,7 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     pub fn finish(&self) -> IsarObject {
-        assert_eq!(self.property_index, self.object_info.get_properties().len());
+        assert_eq!(self.property_index, self.properties.len());
         IsarObject::from_bytes(&self.buffer)
     }
 

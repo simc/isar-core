@@ -73,7 +73,7 @@ fn update_auto_increment(
     bytes: &mut [u8],
 ) -> Result<i64> {
     let isar_object = IsarObject::from_bytes(bytes);
-    if isar_object.read_id() == IsarInstance::MIN_ID {
+    if isar_object.is_null(IsarObject::ID_PROPERTY) {
         let oid = collection.auto_increment(txn)?;
         LittleEndian::write_i64(&mut bytes[IsarObject::ID_PROPERTY.offset..], oid);
         Ok(oid)

@@ -16,7 +16,7 @@ pub(crate) struct IdWhereClause {
 impl IdWhereClause {
     pub(crate) fn new(col: &IsarCollection, lower: i64, upper: i64, sort: Sort) -> Self {
         IdWhereClause {
-            prefix: col.get_id(),
+            prefix: col.id,
             lower,
             upper,
             sort,

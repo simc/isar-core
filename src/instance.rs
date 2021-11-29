@@ -17,6 +17,7 @@ use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use once_cell::sync::Lazy;
 use rand::random;
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -71,6 +72,7 @@ impl IsarInstance {
 
         dir.push(name);
         let path = dir.to_str().unwrap();
+        let _ = create_dir_all(path);
         let env = Env::create(path, 4, max_size, encryption_key)?;
         let dbs = IsarInstance::open_databases(&env)?;
 
@@ -140,9 +142,7 @@ impl IsarInstance {
     }
 
     pub fn get_collection_by_name(&self, collection_name: &str) -> Option<&IsarCollection> {
-        self.collections
-            .iter()
-            .find(|c| c.get_name() == collection_name)
+        self.collections.iter().find(|c| c.name == collection_name)
     }
 
     fn new_watcher(&self, start: WatcherModifier, stop: WatcherModifier) -> WatchHandle {
@@ -160,7 +160,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
-        let col_id = collection.get_id();
+        let col_id = collection.id;
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -179,7 +179,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
-        let col_id = collection.get_id();
+        let col_id = collection.id;
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -199,7 +199,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
-        let col_id = collection.get_id();
+        let col_id = collection.id;
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -212,13 +212,16 @@ impl IsarInstance {
     }
 
     pub fn close(self: Arc<Self>) -> bool {
+        // Check whether all other references are gone
         if Arc::strong_count(&self) == 2 {
-            INSTANCES.write().unwrap().remove(&self.name);
-            Arc::downgrade(&self);
-            true
-        } else {
-            false
+            let mut lock = INSTANCES.write().unwrap();
+            // Check again to make sure there are no new references
+            if Arc::strong_count(&self) == 2 {
+                lock.remove(&self.name);
+                return true;
+            }
         }
+        false
     }
 }
 
@@ -246,7 +249,6 @@ impl DataDbs {
 
 #[cfg(test)]
 mod tests {
-    use crate::object::data_type::DataType;
     use crate::object::isar_object::IsarObject;
     use crate::{col, isar};
     use tempfile::tempdir;

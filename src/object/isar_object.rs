@@ -11,7 +11,7 @@ pub struct Property {
 }
 
 impl Property {
-    pub(crate) fn new(data_type: DataType, offset: usize) -> Self {
+    pub const fn new(data_type: DataType, offset: usize) -> Self {
         Property { data_type, offset }
     }
 
@@ -291,7 +291,7 @@ mod tests {
     macro_rules! builder {
         ($isar:ident, $var:ident, $p:ident, $type:ident) => {
             isar!($isar, col => col!("field" => $type));
-            let $p = col.get_properties().get(1).unwrap().1;
+            let $p = *col.properties.get(1).unwrap();
             let mut $var = col.new_object_builder(None);
             $var.write_long(1);
         };
