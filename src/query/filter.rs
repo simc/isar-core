@@ -298,7 +298,7 @@ impl Condition for StringBetweenCond {
 
 #[macro_export]
 macro_rules! string_filter_struct {
-    ($name:ident) => {
+    ($name:ident, $data_type:ident) => {
         paste! {
             #[derive(Clone)]
              struct [<$name Cond>] {
@@ -318,8 +318,8 @@ macro_rules! string_filter_struct {
                     } else {
                         value.to_lowercase()
                     };
-                    if property.data_type == crate::object::data_type::DataType::String {
-                        Ok(FilterCond::$name([<$name Cond>] {
+                    if property.data_type == crate::object::data_type::DataType::$data_type {
+                        Ok(Filter::$name([<$name Cond>] {
                             property,
                             value,
                             case_sensitive,
@@ -336,7 +336,7 @@ macro_rules! string_filter_struct {
 #[macro_export]
 macro_rules! string_filter {
     ($name:ident) => {
-        string_filter_struct!($name);
+        string_filter_struct!($name, String);
         paste! {
             impl Condition for [<$name Cond>] {
                 fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
