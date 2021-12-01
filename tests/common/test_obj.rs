@@ -1,4 +1,5 @@
 use isar_core::collection::IsarCollection;
+use isar_core::index::index_key::IndexKey;
 use isar_core::object::data_type::DataType;
 use isar_core::object::isar_object::{IsarObject, Property};
 use isar_core::object::object_builder::ObjectBuilder;
@@ -100,6 +101,11 @@ impl TestObj {
             ),
         ];
         Self::schema("obj", &indexes)
+    }
+
+    pub fn default_index_key(col: &IsarCollection, prop: Property) -> IndexKey {
+        let prop_index = Self::PROPS.iter().position(|p| p == &prop).unwrap();
+        col.new_index_key(prop_index).unwrap()
     }
 
     pub fn to_isar(&self) -> ObjectBuilder {

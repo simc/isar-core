@@ -38,10 +38,6 @@ impl IndexWhereClause {
         })
     }
 
-    pub fn is_empty(&self) -> bool {
-        ByteKey::new(&self.lower_key) > ByteKey::new(&self.upper_key)
-    }
-
     pub(crate) fn object_matches(&self, object: IsarObject) -> bool {
         let mut key_matches = false;
         self.index
@@ -102,8 +98,8 @@ impl IndexWhereClause {
         })
     }
 
-    pub(crate) fn try_exclude(&mut self, include_lower: bool, include_upper: bool) -> bool {
-        if !include_lower {
+    pub(crate) fn try_exclude(&mut self, exclude_lower: bool, exclude_upper: bool) -> bool {
+        if exclude_lower {
             let mut increased = false;
             for i in (Self::PREFIX_LEN..self.lower_key.len()).rev() {
                 if let Some(added) = self.lower_key[i].checked_add(1) {
@@ -116,7 +112,7 @@ impl IndexWhereClause {
                 return false;
             }
         }
-        if !include_upper {
+        if exclude_upper {
             let mut decreased = false;
             for i in (Self::PREFIX_LEN..self.upper_key.len()).rev() {
                 if let Some(subtracted) = self.upper_key[i].checked_sub(1) {

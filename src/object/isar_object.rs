@@ -284,16 +284,16 @@ impl<'a> IsarObject<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::Property;
     use crate::object::data_type::DataType::*;
     use crate::object::isar_object::IsarObject;
-    use crate::{col, isar};
+    use crate::object::object_builder::ObjectBuilder;
 
     macro_rules! builder {
-        ($isar:ident, $var:ident, $p:ident, $type:ident) => {
-            isar!($isar, col => col!("field" => $type));
-            let $p = *col.properties.get(1).unwrap();
-            let mut $var = col.new_object_builder(None);
-            $var.write_long(1);
+        ($builder:ident, $prop:ident, $type:ident) => {
+            let $prop = Property::new($type, 0);
+            let props = vec![$prop];
+            let mut $builder = ObjectBuilder::new(&props, None);
         };
     }
 
@@ -304,236 +304,204 @@ mod tests {
             DoubleList, StringList,
         ];
         for data_type in data_types {
-            builder!(isar, _b, p, data_type);
+            builder!(_b, p, data_type);
             let empty = vec![0, 0];
             let object = IsarObject::from_bytes(&empty);
             assert!(object.is_null(p));
-            isar.close();
         }
     }
 
     #[test]
     fn test_read_byte() {
-        builder!(isar, b, p, Byte);
+        builder!(b, p, Byte);
         b.write_null();
         assert_eq!(b.finish().read_byte(p), IsarObject::NULL_BYTE);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, Byte);
+        builder!(b, p, Byte);
         b.write_byte(123);
         assert_eq!(b.finish().read_byte(p), 123);
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_int() {
-        builder!(isar, b, p, Int);
+        builder!(b, p, Int);
         b.write_null();
         assert_eq!(b.finish().read_int(p), IsarObject::NULL_INT);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, Int);
+        builder!(b, p, Int);
         b.write_int(123);
         assert_eq!(b.finish().read_int(p), 123);
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_float() {
-        builder!(isar, b, p, Float);
+        builder!(b, p, Float);
         b.write_null();
         assert!(b.finish().read_float(p).is_nan());
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, Float);
+        builder!(b, p, Float);
         b.write_float(123.123);
         assert!((b.finish().read_float(p) - 123.123).abs() < 0.000001);
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_long() {
-        builder!(isar, b, p, Long);
+        builder!(b, p, Long);
         b.write_null();
         assert_eq!(b.finish().read_long(p), IsarObject::NULL_LONG);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, Long);
+        builder!(b, p, Long);
         b.write_long(123123123123123123);
         assert_eq!(b.finish().read_long(p), 123123123123123123);
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_double() {
-        builder!(isar, b, p, Double);
+        builder!(b, p, Double);
         b.write_null();
         assert!(b.finish().read_double(p).is_nan());
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, Double);
+        builder!(b, p, Double);
         b.write_double(123123.123123123);
         assert!((b.finish().read_double(p) - 123123.123123123).abs() < 0.00000001);
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_string() {
-        builder!(isar, b, p, String);
+        builder!(b, p, String);
         b.write_null();
         assert_eq!(b.finish().read_string(p), None);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, String);
+        builder!(b, p, String);
         b.write_string(Some("hello"));
         assert_eq!(b.finish().read_string(p), Some("hello"));
         assert!(!b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, String);
+        builder!(b, p, String);
         b.write_string(Some(""));
         assert_eq!(b.finish().read_string(p), Some(""));
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_byte_list() {
-        builder!(isar, b, p, ByteList);
+        builder!(b, p, ByteList);
         b.write_null();
         assert_eq!(b.finish().read_byte_list(p), None);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, ByteList);
+        builder!(b, p, ByteList);
         b.write_byte_list(Some(&[1, 2, 3]));
         assert_eq!(b.finish().read_byte_list(p), Some(&[1, 2, 3][..]));
         assert!(!b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, ByteList);
+        builder!(b, p, ByteList);
         b.write_byte_list(Some(&[]));
         assert_eq!(b.finish().read_byte_list(p), Some(&[][..]));
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_int_list() {
-        builder!(isar, b, p, IntList);
+        builder!(b, p, IntList);
         b.write_null();
         assert_eq!(b.finish().read_int_list(p), None);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, IntList);
+        builder!(b, p, IntList);
         b.write_int_list(Some(&[1, 2, 3]));
         assert_eq!(b.finish().read_int_list(p), Some(vec![1, 2, 3]));
         assert!(!b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, IntList);
+        builder!(b, p, IntList);
         b.write_int_list(Some(&[]));
         assert_eq!(b.finish().read_int_list(p), Some(vec![]));
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_float_list() {
-        builder!(isar, b, p, FloatList);
+        builder!(b, p, FloatList);
         b.write_null();
         assert_eq!(b.finish().read_float_list(p), None);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, FloatList);
+        builder!(b, p, FloatList);
         b.write_float_list(Some(&[1.1, 2.2, 3.3]));
         assert_eq!(b.finish().read_float_list(p), Some(vec![1.1, 2.2, 3.3]));
         assert!(!b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, FloatList);
+        builder!(b, p, FloatList);
         b.write_float_list(Some(&[]));
         assert_eq!(b.finish().read_float_list(p), Some(vec![]));
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_long_list() {
-        builder!(isar, b, p, LongList);
+        builder!(b, p, LongList);
         b.write_null();
         assert_eq!(b.finish().read_long_list(p), None);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, LongList);
+        builder!(b, p, LongList);
         b.write_long_list(Some(&[1, 2, 3]));
         assert_eq!(b.finish().read_long_list(p), Some(vec![1, 2, 3]));
         assert!(!b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, LongList);
+        builder!(b, p, LongList);
         b.write_long_list(Some(&[]));
         assert_eq!(b.finish().read_long_list(p), Some(vec![]));
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_double_list() {
-        builder!(isar, b, p, DoubleList);
+        builder!(b, p, DoubleList);
         b.write_null();
         assert_eq!(b.finish().read_double_list(p), None);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, DoubleList);
+        builder!(b, p, DoubleList);
         b.write_double_list(Some(&[1.1, 2.2, 3.3]));
         assert_eq!(b.finish().read_double_list(p), Some(vec![1.1, 2.2, 3.3]));
         assert!(!b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, DoubleList);
+        builder!(b, p, DoubleList);
         b.write_double_list(Some(&[]));
         assert_eq!(b.finish().read_double_list(p), Some(vec![]));
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 
     #[test]
     fn test_read_string_list() {
-        builder!(isar, b, p, StringList);
+        builder!(b, p, StringList);
         b.write_null();
         assert_eq!(b.finish().read_string_list(p), None);
         assert!(b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, StringList);
+        builder!(b, p, StringList);
         b.write_string_list(Some(&[Some("hello"), None, Some(""), Some("last")]));
         assert_eq!(
             b.finish().read_string_list(p),
             Some(vec![Some("hello"), None, Some(""), Some("last")])
         );
         assert!(!b.finish().is_null(p));
-        isar.close();
 
-        builder!(isar, b, p, StringList);
+        builder!(b, p, StringList);
         b.write_string_list(Some(&[]));
         assert_eq!(b.finish().read_string_list(p), Some(vec![]));
         assert!(!b.finish().is_null(p));
-        isar.close();
     }
 }

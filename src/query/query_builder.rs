@@ -1,11 +1,11 @@
 use crate::error::Result;
+use crate::lmdb::ByteKey;
 use crate::object::isar_object::Property;
 use crate::query::filter::Filter;
 use crate::query::id_where_clause::IdWhereClause;
 use crate::query::where_clause::WhereClause;
 use crate::query::{Query, Sort};
 use crate::{collection::IsarCollection, index::index_key::IndexKey};
-use itertools::Itertools;
 
 use super::index_where_clause::IndexWhereClause;
 use crate::instance::IsarInstance;
@@ -33,11 +33,16 @@ impl<'a> QueryBuilder<'a> {
         }
     }
 
-    pub fn add_id_where_clause(&mut self, lower_id: i64, upper_id: i64, sort: Sort) -> Result<()> {
+    pub fn add_id_where_clause(&mut self, start: i64, end: i64) -> Result<()> {
         if self.where_clauses.is_none() {
             self.where_clauses = Some(vec![]);
         }
-        let wc = IdWhereClause::new(self.collection, lower_id, upper_id, sort);
+        let (lower, upper, sort) = if start > end {
+            (end, start, Sort::Descending)
+        } else {
+            (start, end, Sort::Ascending)
+        };
+        let wc = IdWhereClause::new(self.collection, lower, upper, sort);
         if !wc.is_empty() {
             self.where_clauses
                 .as_mut()
@@ -49,20 +54,25 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn add_index_where_clause(
         &mut self,
-        lower_key: IndexKey,
-        include_lower: bool,
-        upper_key: IndexKey,
-        include_upper: bool,
+        start: IndexKey,
+        include_start: bool,
+        end: IndexKey,
+        include_end: bool,
         skip_duplicates: bool,
-        sort: Sort,
     ) -> Result<()> {
-        self.collection.verify_index_key(&lower_key)?;
-        self.collection.verify_index_key(&upper_key)?;
-        let mut wc = IndexWhereClause::new(lower_key, upper_key, skip_duplicates, sort)?;
+        self.collection.verify_index_key(&start)?;
+        self.collection.verify_index_key(&end)?;
+        let desc = ByteKey::new(&start.bytes) > ByteKey::new(&end.bytes);
+        let (lower, include_lower, upper, include_upper, sort) = if desc {
+            (end, include_end, start, include_start, Sort::Descending)
+        } else {
+            (start, include_start, end, include_end, Sort::Ascending)
+        };
+        let mut wc = IndexWhereClause::new(lower, upper, skip_duplicates, sort)?;
         if self.where_clauses.is_none() {
             self.where_clauses = Some(vec![]);
         }
-        if wc.try_exclude(include_lower, include_upper) && !wc.is_empty() {
+        if wc.try_exclude(!include_lower, !include_upper) {
             self.where_clauses
                 .as_mut()
                 .unwrap()
@@ -93,20 +103,14 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn build(mut self) -> Query {
         if self.where_clauses.is_none() {
-            self.add_id_where_clause(IsarInstance::MIN_ID, IsarInstance::MAX_ID, Sort::Ascending)
+            self.add_id_where_clause(IsarInstance::MIN_ID, IsarInstance::MAX_ID)
                 .unwrap();
         }
-        let sort_unique = self.sort.into_iter().unique_by(|(p, _)| p.offset).collect();
-        let distinct_unique = self
-            .distinct
-            .into_iter()
-            .unique_by(|(p, _)| p.offset)
-            .collect();
         Query::new(
             self.where_clauses.unwrap(),
             self.filter,
-            sort_unique,
-            distinct_unique,
+            self.sort,
+            self.distinct,
             self.offset,
             self.limit,
         )

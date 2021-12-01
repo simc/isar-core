@@ -1,14 +1,12 @@
 use crossbeam_channel::unbounded;
 
 use crate::common::test_obj::TestObj;
-use crate::common::util::open_isar;
 
 mod common;
 
 #[test]
 fn test_delete() {
-    let isar = open_isar(TestObj::default_schema());
-    col!(isar, col);
+    isar!(isar, col, TestObj::default_schema());
     txn!(isar, txn);
 
     // put new object with id 1
@@ -35,8 +33,7 @@ fn test_delete() {
 
 #[test]
 fn test_delete_calls_notifiers() {
-    let isar = open_isar(TestObj::default_schema());
-    col!(isar, col);
+    isar!(isar, col, TestObj::default_schema());
 
     // create a new objects with id 1 and id 2
     txn!(isar, txn);

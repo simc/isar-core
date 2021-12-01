@@ -194,14 +194,14 @@ impl<'a> ObjectBuilder<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::object::data_type::DataType::*;
-    use crate::object::isar_object::IsarObject;
-    use crate::{col, isar};
+    use super::ObjectBuilder;
+    use crate::object::data_type::DataType::{self, *};
+    use crate::object::isar_object::{IsarObject, Property};
 
     macro_rules! builder {
         ($var:ident, $type:ident) => {
-            isar!(isar, col => col!("field" => $type));
-            let mut $var = col.new_object_builder(None);
+            let props = vec![Property::new(Long, 2), Property::new($type, 10)];
+            let mut $var = ObjectBuilder::new(&props, None);
             $var.write_long(1);
         };
     }
@@ -385,8 +385,15 @@ mod tests {
 
     #[test]
     pub fn test_write_multiple_static_types() {
-        isar!(isar, col => col!("byte" => Byte, "int" => Int, "float" => Float, "long" => Long, "double" => Double));
-        let mut b = col.new_object_builder(None);
+        let props = vec![
+            Property::new(DataType::Long, 2),
+            Property::new(DataType::Byte, 10),
+            Property::new(DataType::Int, 11),
+            Property::new(DataType::Float, 15),
+            Property::new(DataType::Long, 19),
+            Property::new(DataType::Double, 27),
+        ];
+        let mut b = ObjectBuilder::new(&props, None);
 
         b.write_long(1);
         b.write_byte(u8::MAX);
@@ -553,9 +560,7 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_finish_missing_properties() {
-        isar!(isar, col => col!("id" => Long, "field2" => Int));
-        let mut b = col.new_object_builder(None);
-        b.write_long(123);
+        builder!(b, Int);
         b.finish();
     }
 }

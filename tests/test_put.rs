@@ -1,14 +1,12 @@
 use isar_core::instance::IsarInstance;
 
 use crate::common::test_obj::TestObj;
-use crate::common::util::open_isar;
 
 mod common;
 
 #[test]
 fn test_id_only() {
-    let isar = open_isar(TestObj::default_schema());
-    col!(isar, col);
+    isar!(isar, col, TestObj::default_schema());
 
     txn!(isar, txn);
     let obj1 = TestObj::default(1);
@@ -37,8 +35,7 @@ fn test_id_only() {
 
 #[test]
 fn test_put_new() {
-    let isar = open_isar(TestObj::default_schema());
-    col!(isar, col);
+    isar!(isar, col, TestObj::default_schema());
     txn!(isar, txn);
 
     assert_eq!(col.auto_increment(&mut txn).unwrap(), IsarInstance::MIN_ID);
@@ -62,8 +59,7 @@ fn test_put_new() {
 
 #[test]
 fn test_put_existing() {
-    let isar = open_isar(TestObj::default_schema());
-    col!(isar, col);
+    isar!(isar, col, TestObj::default_schema());
     txn!(isar, txn);
 
     // put new object with id 1
@@ -93,8 +89,7 @@ fn test_put_existing() {
 
 #[test]
 fn test_many() {
-    let isar = open_isar(TestObj::default_schema());
-    col!(isar, col);
+    isar!(isar, col, TestObj::default_schema());
     txn!(isar, txn);
 
     let str_val = "some random string to store in the database";
@@ -121,8 +116,7 @@ fn test_many() {
 
 /*#[test]
 fn test_put_calls_notifiers() {
-    let isar = open_isar(TestObj::default_schema());
-    col!(isar, col);
+    isar!(isar, col, TestObj::default_schema());
 
     let mut txn = isar.begin_txn(true, false).unwrap();
 
