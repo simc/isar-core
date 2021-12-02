@@ -319,7 +319,7 @@ macro_rules! string_filter_struct {
                         value.to_lowercase()
                     };
                     if property.data_type == crate::object::data_type::DataType::$data_type {
-                        Ok(Filter::$name([<$name Cond>] {
+                        Ok(FilterCond::$name([<$name Cond>] {
                             property,
                             value,
                             case_sensitive,

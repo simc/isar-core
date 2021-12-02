@@ -51,8 +51,9 @@ pub unsafe extern "C" fn isar_create_instance(
         Ok(instance)
     }
 
-    run_async(
-        move || match open(name, dir, max_size as usize, schema_json, encryption_key) {
+    run_async(move || {
+        let isar = isar;
+        match open(name, dir, max_size as usize, schema_json, encryption_key) {
             Ok(instance) => {
                 isar.0.write(instance.as_ref());
                 dart_post_int(port, 0);
@@ -60,8 +61,8 @@ pub unsafe extern "C" fn isar_create_instance(
             Err(e) => {
                 dart_post_int(port, e.into_dart_err_code());
             }
-        },
-    );
+        };
+    });
 }
 
 #[no_mangle]
@@ -99,9 +100,9 @@ pub unsafe extern "C" fn isar_get_collection<'a>(
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_get_property_offsets(collection: &IsarCollection, offsets: *mut u32) {
-    let properties = collection.get_properties();
+    let properties = &collection.properties;
     let offsets = std::slice::from_raw_parts_mut(offsets, properties.len());
-    for (i, (_, p)) in properties.iter().enumerate() {
+    for (i, p) in properties.iter().enumerate() {
         offsets[i] = p.offset as u32;
     }
 }

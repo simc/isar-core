@@ -1,4 +1,4 @@
-use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
+use crate::raw_object_set::{RawObject, RawObjectSet};
 use crate::txn::IsarDartTxn;
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
@@ -87,10 +87,9 @@ pub unsafe extern "C" fn isar_link_get_first(
     oid: i64,
     object: &'static mut RawObject,
 ) -> i32 {
-    let object = RawObjectSend(object);
     isar_try_txn!(txn, move |txn| {
         collection.get_linked_objects(txn, link_index, backlink, oid, |o| {
-            object.0.set_object(Some(o));
+            object.set_object(Some(o));
             false
         })?;
         Ok(())
@@ -106,11 +105,8 @@ pub unsafe extern "C" fn isar_link_get_all(
     oid: i64,
     result: &'static mut RawObjectSet,
 ) -> i32 {
-    let result = RawObjectSetSend(result);
     isar_try_txn!(txn, move |txn| {
-        result
-            .0
-            .fill_from_link(collection, txn, link_index, backlink, oid)?;
+        result.fill_from_link(collection, txn, link_index, backlink, oid)?;
         Ok(())
     })
 }

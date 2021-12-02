@@ -1,4 +1,4 @@
-use super::raw_object_set::{RawObjectSet, RawObjectSetSend};
+use super::raw_object_set::RawObjectSet;
 use crate::txn::IsarDartTxn;
 use crate::UintSend;
 use isar_core::collection::IsarCollection;
@@ -17,50 +17,32 @@ pub extern "C" fn isar_qb_create(collection: &IsarCollection) -> *mut QueryBuild
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_id_where_clause(
     builder: &mut QueryBuilder,
-    lower_oid: i64,
-    upper_oid: i64,
-    ascending: bool,
+    start_id: i64,
+    end_id: i64,
 ) -> i32 {
-    let sort = if ascending {
-        Sort::Ascending
-    } else {
-        Sort::Descending
-    };
     isar_try! {
-        builder.add_id_where_clause(lower_oid,upper_oid,sort)?;
+        builder.add_id_where_clause(start_id, end_id)?;
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_index_where_clause<'a>(
     builder: &'a mut QueryBuilder,
-    lower_key: *mut IndexKey<'a>,
-    include_lower: bool,
-    upper_key: *mut IndexKey<'a>,
-    include_upper: bool,
+    start_key: *mut IndexKey<'a>,
+    include_start: bool,
+    end_key: *mut IndexKey<'a>,
+    include_end: bool,
     skip_duplicates: bool,
-    ascending: bool,
 ) -> i32 {
-    let equal = lower_key == upper_key;
-    let lower_key = *Box::from_raw(lower_key);
-    let upper_key = if equal {
-        lower_key.clone()
-    } else {
-        *Box::from_raw(upper_key)
-    };
-    let sort = if ascending {
-        Sort::Ascending
-    } else {
-        Sort::Descending
-    };
+    let start_key = *Box::from_raw(start_key);
+    let end_key = *Box::from_raw(end_key);
     isar_try! {
         builder.add_index_where_clause(
-            lower_key,
-            include_lower,
-            upper_key,
-            include_upper,
+            start_key,
+            include_start,
+            end_key,
+            include_end,
             skip_duplicates,
-            sort,
         )?;
     }
 }
@@ -78,14 +60,14 @@ pub unsafe extern "C" fn isar_qb_add_sort_by(
     property_index: u32,
     asc: bool,
 ) -> i32 {
-    let property = collection.get_properties().get(property_index as usize);
+    let property = collection.properties.get(property_index as usize);
     let sort = if asc {
         Sort::Ascending
     } else {
         Sort::Descending
     };
     isar_try! {
-        if let Some((_,property)) = property {
+        if let Some(property) = property {
             builder.add_sort(*property, sort);
         } else {
             illegal_arg("Property does not exist.")?;
@@ -100,9 +82,9 @@ pub unsafe extern "C" fn isar_qb_add_distinct_by(
     property_index: u32,
     case_sensitive: bool,
 ) -> i32 {
-    let property = collection.get_properties().get(property_index as usize);
+    let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some((_,property)) = property {
+        if let Some(property) = property {
             builder.add_distinct(*property, case_sensitive);
         } else {
             illegal_arg("Property does not exist.")?;
@@ -138,9 +120,8 @@ pub unsafe extern "C" fn isar_q_find(
     result: &'static mut RawObjectSet,
     limit: u32,
 ) -> i32 {
-    let result = RawObjectSetSend(result);
     isar_try_txn!(txn, move |txn| {
-        result.0.fill_from_query(query, txn, limit as usize)?;
+        result.fill_from_query(query, txn, limit as usize)?;
         Ok(())
     })
 }
@@ -188,6 +169,8 @@ pub unsafe extern "C" fn isar_q_export_json(
     let json = JsonBytes(json_bytes);
     let json_length = JsonLen(json_length);
     isar_try_txn!(txn, move |txn| {
+        let json = json;
+        let json_length = json_length;
         let exported_json = query.export_json(txn, collection, primitive_null, true)?;
         let bytes = serde_json::to_vec(&exported_json).unwrap();
         let mut bytes = bytes.into_boxed_slice();

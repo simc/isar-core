@@ -143,10 +143,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
 ) -> i32 {
     let op = AggregationOp::from_ordinal(operation).unwrap();
     let property = if op != AggregationOp::Count {
-        let (_, p) = collection
-            .get_properties()
-            .get(property_index as usize)
-            .unwrap();
+        let p = collection.properties.get(property_index as usize).unwrap();
         Some(*p)
     } else {
         None
@@ -154,6 +151,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
 
     let result = AggregationResultSend(result);
     isar_try_txn!(txn, move |txn| {
+        let result = result;
         let aggregate_result = aggregate(query, txn, op, property)?;
         result.0.write(Box::into_raw(Box::new(aggregate_result)));
         Ok(())

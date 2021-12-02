@@ -1,11 +1,10 @@
-use crate::raw_object_set::{RawObject, RawObjectSend, RawObjectSet, RawObjectSetSend};
+use crate::raw_object_set::{RawObject, RawObjectSet};
 use crate::txn::IsarDartTxn;
 use crate::{BoolSend, UintSend};
 use byteorder::{ByteOrder, LittleEndian};
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 use isar_core::index::index_key::IndexKey;
-use isar_core::instance::IsarInstance;
 use isar_core::object::isar_object::IsarObject;
 use isar_core::txn::IsarTxn;
 use serde_json::Value;
@@ -17,7 +16,6 @@ pub unsafe extern "C" fn isar_get(
     object: &'static mut RawObject,
     key: *mut IndexKey<'static>,
 ) -> i32 {
-    let object = RawObjectSend(object);
     let key = if !key.is_null() {
         Some(*Box::from_raw(key))
     } else {
@@ -27,10 +25,10 @@ pub unsafe extern "C" fn isar_get(
         let result = if let Some(key) = key {
             collection.get_by_index(txn, &key)?
         } else {
-            let oid = object.0.get_oid();
+            let oid = object.get_oid();
             collection.get(txn, oid)?
         };
-        object.0.set_object(result);
+        object.set_object(result);
         Ok(())
     })
 }
@@ -42,9 +40,8 @@ pub unsafe extern "C" fn isar_get_all(
     objects: &'static mut RawObjectSet,
     keys: *const *mut IndexKey<'static>,
 ) -> i32 {
-    let objects = RawObjectSetSend(objects);
     let keys = if !keys.is_null() {
-        let slice = std::slice::from_raw_parts(keys, objects.0.get_length());
+        let slice = std::slice::from_raw_parts(keys, objects.get_length());
         let keys: Vec<IndexKey<'static>> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
         Some(keys)
     } else {
@@ -52,12 +49,12 @@ pub unsafe extern "C" fn isar_get_all(
     };
     isar_try_txn!(txn, move |txn| {
         if let Some(keys) = keys {
-            for (object, key) in objects.0.get_objects().iter_mut().zip(keys) {
+            for (object, key) in objects.get_objects().iter_mut().zip(keys) {
                 let result = collection.get_by_index(txn, &key)?;
                 object.set_object(result);
             }
         } else {
-            for object in objects.0.get_objects() {
+            for object in objects.get_objects() {
                 let oid = object.get_oid();
                 let result = collection.get(txn, oid)?;
                 object.set_object(result);
@@ -88,12 +85,11 @@ pub unsafe extern "C" fn isar_put(
     txn: &mut IsarDartTxn,
     object: &'static mut RawObject,
 ) -> i32 {
-    let object = RawObjectSend(object);
     isar_try_txn!(txn, move |txn| {
-        let bytes = object.0.get_bytes();
+        let bytes = object.get_bytes();
         let auto_increment = update_auto_increment(collection, txn, bytes)?;
         collection.put(txn, IsarObject::from_bytes(bytes))?;
-        object.0.set_oid(auto_increment);
+        object.set_oid(auto_increment);
         Ok(())
     })
 }
@@ -104,9 +100,8 @@ pub unsafe extern "C" fn isar_put_all(
     txn: &mut IsarDartTxn,
     objects: &'static mut RawObjectSet,
 ) -> i32 {
-    let objects = RawObjectSetSend(objects);
     isar_try_txn!(txn, move |txn| {
-        for raw_obj in objects.0.get_objects() {
+        for raw_obj in objects.get_objects() {
             let bytes = raw_obj.get_bytes();
             let auto_increment = update_auto_increment(collection, txn, bytes)?;
             collection.put(txn, IsarObject::from_bytes(bytes))?;

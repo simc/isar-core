@@ -12,10 +12,7 @@ pub struct RawObject {
     buffer_length: u32,
 }
 
-#[repr(C)]
-pub struct RawObjectSend(pub &'static mut RawObject);
-
-unsafe impl Send for RawObjectSend {}
+unsafe impl Send for RawObject {}
 
 impl RawObject {
     pub fn new() -> Self {
@@ -59,10 +56,7 @@ pub struct RawObjectSet {
     length: u32,
 }
 
-#[repr(C)]
-pub struct RawObjectSetSend(pub &'static mut RawObjectSet);
-
-unsafe impl Send for RawObjectSetSend {}
+unsafe impl Send for RawObjectSet {}
 
 impl RawObjectSet {
     pub fn fill_from_query(

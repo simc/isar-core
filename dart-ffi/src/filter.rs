@@ -19,9 +19,9 @@ pub unsafe extern "C" fn isar_filter_and_or(
         .map(|f| *Box::from_raw(*f))
         .collect();
     let and_or = if and {
-        AndCond::filter(filters)
+        Filter::and(filters)
     } else {
-        OrCond::filter(filters)
+        Filter::or(filters)
     };
     let ptr = Box::into_raw(Box::new(and_or));
     filter.write(ptr);
@@ -31,7 +31,7 @@ pub unsafe extern "C" fn isar_filter_and_or(
 #[no_mangle]
 pub unsafe extern "C" fn isar_filter_not(filter: *mut *const Filter, condition: *mut Filter) -> u8 {
     let condition = *Box::from_raw(condition);
-    let not = NotCond::filter(condition);
+    let not = Filter::not(condition);
     let ptr = Box::into_raw(Box::new(not));
     filter.write(ptr);
     0
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn isar_filter_link(
 ) -> i32 {
     isar_try! {
         let condition = *Box::from_raw(condition);
-        let query_filter = LinkCond::filter(collection, link_index as usize, backlink, condition)?;
+        let query_filter = Filter::link(collection, link_index as usize, backlink, condition)?;
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
     }
@@ -60,9 +60,9 @@ pub unsafe extern "C" fn isar_filter_null_between(
     upper_unbounded: bool,
     property_index: u32,
 ) -> i32 {
-    let property = collection.get_properties().get(property_index as usize);
+    let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let query_filter = match property.data_type {
                 DataType::Byte => {
                     let upper = if upper_unbounded {
@@ -70,7 +70,7 @@ pub unsafe extern "C" fn isar_filter_null_between(
                     } else {
                         IsarObject::NULL_BYTE
                     };
-                    ByteBetweenCond::filter(*property, IsarObject::NULL_BYTE, upper)?
+                    Filter::byte(*property, IsarObject::NULL_BYTE, upper)?
                 },
                 DataType::Int => {
                     let upper = if upper_unbounded {
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn isar_filter_null_between(
                     } else {
                         IsarObject::NULL_INT
                     };
-                    IntBetweenCond::filter(*property, IsarObject::NULL_INT, upper)?
+                    Filter::int(*property, IsarObject::NULL_INT, upper)?
                 },
                 DataType::Float => {
                     let upper = if upper_unbounded {
@@ -86,7 +86,7 @@ pub unsafe extern "C" fn isar_filter_null_between(
                     } else {
                         IsarObject::NULL_FLOAT
                     };
-                    FloatBetweenCond::filter(*property, IsarObject::NULL_FLOAT, upper)?
+                    Filter::float(*property, IsarObject::NULL_FLOAT, upper)?
                 },
                 DataType::Long => {
                     let upper = if upper_unbounded {
@@ -94,7 +94,7 @@ pub unsafe extern "C" fn isar_filter_null_between(
                     } else {
                         IsarObject::NULL_LONG
                     };
-                    LongBetweenCond::filter(*property, IsarObject::NULL_LONG, upper)?
+                    Filter::long(*property, IsarObject::NULL_LONG, upper)?
                 },
                 DataType::Double => {
                     let upper = if upper_unbounded {
@@ -102,9 +102,9 @@ pub unsafe extern "C" fn isar_filter_null_between(
                     } else {
                         IsarObject::NULL_DOUBLE
                     };
-                    DoubleBetweenCond::filter(*property, IsarObject::NULL_DOUBLE, upper)?
+                    Filter::double(*property, IsarObject::NULL_DOUBLE, upper)?
                 },
-                DataType::String => StringBetweenCond::filter(*property, None, None, false)?,
+                DataType::String => Filter::string(*property, None, None, false)?,
                 _ => unreachable!(),
             };
             let ptr = Box::into_raw(Box::new(query_filter));
@@ -123,10 +123,10 @@ pub unsafe extern "C" fn isar_filter_byte_between(
     upper: u8,
     property_index: u32,
 ) -> i32 {
-    let property = collection.get_properties().get(property_index as usize);
+    let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some((_, property)) = property {
-            let query_filter = ByteBetweenCond::filter(*property, lower, upper)?;
+        if let Some(property) = property {
+            let query_filter = Filter::byte(*property, lower, upper)?;
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
         } else {
@@ -143,15 +143,15 @@ pub unsafe extern "C" fn isar_filter_long_between(
     upper: i64,
     property_index: u32,
 ) -> i32 {
-    let property = collection.get_properties().get(property_index as usize);
+    let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let query_filter = if property.data_type == DataType::Int {
                 let lower = lower.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 let upper = upper.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-                IntBetweenCond::filter(*property, lower, upper)?
+                Filter::int(*property, lower, upper)?
             } else {
-                LongBetweenCond::filter(*property, lower, upper)?
+                Filter::long(*property, lower, upper)?
             };
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
@@ -169,13 +169,13 @@ pub unsafe extern "C" fn isar_filter_double_between(
     upper: f64,
     property_index: u32,
 ) -> i32 {
-    let property = collection.get_properties().get(property_index as usize);
+    let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let query_filter = if property.data_type == DataType::Float {
-                FloatBetweenCond::filter(*property, lower as f32, upper as f32)?
+                Filter::float(*property, lower as f32, upper as f32)?
             } else {
-                DoubleBetweenCond::filter(*property, lower, upper)?
+                Filter::double(*property, lower, upper)?
             };
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
@@ -185,7 +185,7 @@ pub unsafe extern "C" fn isar_filter_double_between(
     }
 }
 
-#[macro_export]
+/*#[macro_export]
 macro_rules! filter_single_value_ffi {
     ($filter_name:ident, $function_name:ident, $type:ty) => {
         #[no_mangle]
@@ -198,7 +198,7 @@ macro_rules! filter_single_value_ffi {
             let property = collection.get_properties().get(property_index as usize);
             isar_try! {
                 if let Some((_, property)) = property {
-                    let query_filter = isar_core::query::filter::$filter_name::filter(*property, value)?;
+                    let query_filter = isar_core::query::filter::Filter::$filter_name(*property, value)?;
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
                 } else {
@@ -281,7 +281,7 @@ pub unsafe extern "C" fn isar_filter_string_between(
             illegal_arg("Property does not exist.")?;
         }
     }
-}
+}*/
 
 #[macro_export]
 macro_rules! filter_string_ffi {
@@ -294,15 +294,11 @@ macro_rules! filter_string_ffi {
             case_sensitive: bool,
             property_index: u32,
         ) -> i32 {
-            let property = collection.get_properties().get(property_index as usize);
+            let property = collection.properties.get(property_index as usize);
             isar_try! {
-                if let Some((_, property)) = property {
-                    let str = if !value.is_null() {
-                        Some(from_c_str(value)?)
-                    } else {
-                        None
-                    };
-                    let query_filter = isar_core::query::filter::$filter_name::filter(*property, str, case_sensitive)?;
+                if let Some(property) = property {
+                    let str = from_c_str(value)?;
+                    let query_filter = isar_core::query::filter::Filter::$filter_name(*property, str, case_sensitive)?;
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
                 } else {
@@ -313,7 +309,7 @@ macro_rules! filter_string_ffi {
     }
 }
 
-filter_string_ffi!(StringStartsWithCond, isar_filter_string_starts_with);
-filter_string_ffi!(StringEndsWithCond, isar_filter_string_ends_with);
-filter_string_ffi!(StringMatchesCond, isar_filter_string_matches);
-filter_string_ffi!(StringListContainsCond, isar_filter_string_list_contains);
+filter_string_ffi!(string_starts_with, isar_filter_string_starts_with);
+filter_string_ffi!(string_ends_with, isar_filter_string_ends_with);
+filter_string_ffi!(string_matches, isar_filter_string_matches);
+//filter_string_ffi!(StringListContainsCond, isar_filter_string_list_contains);
