@@ -54,7 +54,7 @@ pub unsafe extern "C" fn isar_filter_link(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_null_between(
+pub unsafe extern "C" fn isar_filter_null(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     upper_unbounded: bool,
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn isar_filter_null_between(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_byte_between(
+pub unsafe extern "C" fn isar_filter_byte(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     lower: u8,
@@ -136,7 +136,7 @@ pub unsafe extern "C" fn isar_filter_byte_between(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_long_between(
+pub unsafe extern "C" fn isar_filter_long(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     lower: i64,
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn isar_filter_long_between(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_double_between(
+pub unsafe extern "C" fn isar_filter_double(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     lower: f64,
@@ -250,10 +250,10 @@ pub unsafe extern "C" fn isar_filter_long_list_contains(
             illegal_arg("Property does not exist.")?;
         }
     }
-}
+}*/
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_string_between(
+pub unsafe extern "C" fn isar_filter_string(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     lower: *const c_char,
@@ -261,9 +261,9 @@ pub unsafe extern "C" fn isar_filter_string_between(
     case_sensitive: bool,
     property_index: u32,
 ) -> i32 {
-    let property = collection.get_properties().get(property_index as usize);
+    let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let lower = if !lower.is_null() {
                 Some(from_c_str(lower)?)
             } else {
@@ -274,14 +274,14 @@ pub unsafe extern "C" fn isar_filter_string_between(
             } else {
                 None
             };
-            let query_filter = isar_core::query::filter::StringBetweenCond::filter(*property, lower, upper, case_sensitive)?;
+            let query_filter = Filter::string(*property, lower, upper, case_sensitive)?;
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
         } else {
             illegal_arg("Property does not exist.")?;
         }
     }
-}*/
+}
 
 #[macro_export]
 macro_rules! filter_string_ffi {
