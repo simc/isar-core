@@ -7,7 +7,7 @@ use std::{ptr, slice};
 
 #[repr(C)]
 pub struct RawObject {
-    oid: i64,
+    id: i64,
     buffer: *mut u8,
     buffer_length: u32,
 }
@@ -17,7 +17,7 @@ unsafe impl Send for RawObject {}
 impl RawObject {
     pub fn new() -> Self {
         RawObject {
-            oid: i64::MIN,
+            id: i64::MIN,
             buffer: std::ptr::null_mut(),
             buffer_length: 0,
         }
@@ -28,12 +28,12 @@ impl RawObject {
         unsafe { slice::from_raw_parts_mut(self.buffer, self.buffer_length as usize) }
     }
 
-    pub fn get_oid(&mut self) -> i64 {
-        self.oid
+    pub fn get_id(&mut self) -> i64 {
+        self.id
     }
 
-    pub fn set_oid(&mut self, oid: i64) {
-        self.oid = oid;
+    pub fn set_id(&mut self, id: i64) {
+        self.id = id;
     }
 
     pub fn set_object(&mut self, object: Option<IsarObject>) {
@@ -85,10 +85,10 @@ impl RawObjectSet {
         txn: &mut IsarTxn,
         link_index: usize,
         backlink: bool,
-        oid: i64,
+        id: i64,
     ) -> Result<()> {
         let mut objects = vec![];
-        collection.get_linked_objects(txn, link_index, backlink, oid, |object| {
+        collection.get_linked_objects(txn, link_index, backlink, id, |object| {
             let mut raw_obj = RawObject::new();
             raw_obj.set_object(Some(object));
             objects.push(raw_obj);

@@ -25,8 +25,8 @@ pub unsafe extern "C" fn isar_get(
         let result = if let Some(key) = key {
             collection.get_by_index(txn, &key)?
         } else {
-            let oid = object.get_oid();
-            collection.get(txn, oid)?
+            let id = object.get_id();
+            collection.get(txn, id)?
         };
         object.set_object(result);
         Ok(())
@@ -55,8 +55,8 @@ pub unsafe extern "C" fn isar_get_all(
             }
         } else {
             for object in objects.get_objects() {
-                let oid = object.get_oid();
-                let result = collection.get(txn, oid)?;
+                let id = object.get_id();
+                let result = collection.get(txn, id)?;
                 object.set_object(result);
             }
         };
@@ -71,9 +71,9 @@ fn update_auto_increment(
 ) -> Result<i64> {
     let isar_object = IsarObject::from_bytes(bytes);
     if isar_object.is_null(IsarObject::ID_PROPERTY) {
-        let oid = collection.auto_increment(txn)?;
-        LittleEndian::write_i64(&mut bytes[IsarObject::ID_PROPERTY.offset..], oid);
-        Ok(oid)
+        let id = collection.auto_increment(txn)?;
+        LittleEndian::write_i64(&mut bytes[IsarObject::ID_PROPERTY.offset..], id);
+        Ok(id)
     } else {
         Ok(isar_object.read_id())
     }
@@ -89,7 +89,7 @@ pub unsafe extern "C" fn isar_put(
         let bytes = object.get_bytes();
         let auto_increment = update_auto_increment(collection, txn, bytes)?;
         collection.put(txn, IsarObject::from_bytes(bytes))?;
-        object.set_oid(auto_increment);
+        object.set_id(auto_increment);
         Ok(())
     })
 }
@@ -105,7 +105,7 @@ pub unsafe extern "C" fn isar_put_all(
             let bytes = raw_obj.get_bytes();
             let auto_increment = update_auto_increment(collection, txn, bytes)?;
             collection.put(txn, IsarObject::from_bytes(bytes))?;
-            raw_obj.set_oid(auto_increment)
+            raw_obj.set_id(auto_increment)
         }
         Ok(())
     })
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn isar_put_all(
 pub unsafe extern "C" fn isar_delete(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    oid: i64,
+    id: i64,
     key: *mut IndexKey<'static>,
     deleted: &'static mut bool,
 ) -> i32 {
@@ -129,7 +129,7 @@ pub unsafe extern "C" fn isar_delete(
         *deleted.0 = if let Some(key) = key {
             collection.delete_by_index(txn, &key)?
         } else {
-            collection.delete(txn, oid)?
+            collection.delete(txn, id)?
         };
         Ok(())
     })
@@ -139,19 +139,19 @@ pub unsafe extern "C" fn isar_delete(
 pub unsafe extern "C" fn isar_delete_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    oids: *const i64,
+    ids: *const i64,
     keys: *const *mut IndexKey<'static>,
-    oids_length: u32,
+    ids_length: u32,
     count: &'static mut u32,
 ) -> i32 {
     let keys = if !keys.is_null() {
-        let slice = std::slice::from_raw_parts(keys, oids_length as usize);
+        let slice = std::slice::from_raw_parts(keys, ids_length as usize);
         let keys: Vec<IndexKey<'static>> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
         Some(keys)
     } else {
         None
     };
-    let oids = std::slice::from_raw_parts(oids, oids_length as usize);
+    let ids = std::slice::from_raw_parts(ids, ids_length as usize);
     let count = UintSend(count);
     isar_try_txn!(txn, move |txn| {
         if let Some(keys) = keys {
@@ -161,8 +161,8 @@ pub unsafe extern "C" fn isar_delete_all(
                 }
             }
         } else {
-            for oid in oids {
-                if collection.delete(txn, *oid)? {
+            for id in ids {
+                if collection.delete(txn, *id)? {
                     *count.0 += 1;
                 }
             }

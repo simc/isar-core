@@ -23,12 +23,12 @@ pub extern "C" fn isar_watch_collection(
 pub unsafe extern "C" fn isar_watch_object(
     isar: &IsarInstance,
     collection: &IsarCollection,
-    oid: i64,
+    id: i64,
     port: DartPort,
 ) -> *mut WatchHandle {
     let handle = isar.watch_object(
         collection,
-        oid,
+        id,
         Box::new(move || {
             dart_post_int(port, 1);
         }),

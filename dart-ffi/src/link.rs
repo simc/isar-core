@@ -9,11 +9,11 @@ pub unsafe extern "C" fn isar_link(
     txn: &mut IsarDartTxn,
     link_index: usize,
     backlink: bool,
-    oid: i64,
-    target_oid: i64,
+    id: i64,
+    target_id: i64,
 ) -> i32 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
-        collection.link(txn, link_index, backlink, oid, target_oid)?;
+        collection.link(txn, link_index, backlink, id, target_id)?;
         Ok(())
     })
 }
@@ -24,11 +24,11 @@ pub unsafe extern "C" fn isar_link_unlink(
     txn: &mut IsarDartTxn,
     link_index: usize,
     backlink: bool,
-    oid: i64,
-    target_oid: i64,
+    id: i64,
+    target_id: i64,
 ) -> i32 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
-        collection.unlink(txn, link_index, backlink, oid, target_oid)?;
+        collection.unlink(txn, link_index, backlink, id, target_id)?;
         Ok(())
     })
 }
@@ -39,22 +39,22 @@ pub unsafe extern "C" fn isar_link_update_all(
     txn: &mut IsarDartTxn,
     link_index: usize,
     backlink: bool,
-    oid: i64,
+    id: i64,
     ids: *const i64,
     link_count: u32,
     unlink_count: u32,
 ) -> i32 {
     let ids = std::slice::from_raw_parts(ids, (link_count + unlink_count) as usize);
     isar_try_txn!(txn, move |txn| {
-        for target_oid in ids.iter().take(link_count as usize) {
-            collection.link(txn, link_index, backlink, oid, *target_oid)?;
+        for target_id in ids.iter().take(link_count as usize) {
+            collection.link(txn, link_index, backlink, id, *target_id)?;
         }
-        for target_oid in ids
+        for target_id in ids
             .iter()
             .skip(link_count as usize)
             .take(unlink_count as usize)
         {
-            collection.unlink(txn, link_index, backlink, oid, *target_oid)?;
+            collection.unlink(txn, link_index, backlink, id, *target_id)?;
         }
         Ok(())
     })
@@ -66,13 +66,13 @@ pub unsafe extern "C" fn isar_link_replace(
     txn: &mut IsarDartTxn,
     link_index: usize,
     backlink: bool,
-    oid: i64,
-    target_oid: i64,
+    id: i64,
+    target_id: i64,
 ) -> i32 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
-        collection.unlink_all(txn, link_index, backlink, oid)?;
-        if target_oid != i64::MIN {
-            collection.link(txn, link_index, backlink, oid, target_oid)?;
+        collection.unlink_all(txn, link_index, backlink, id)?;
+        if target_id != i64::MIN {
+            collection.link(txn, link_index, backlink, id, target_id)?;
         }
         Ok(())
     })
@@ -84,11 +84,11 @@ pub unsafe extern "C" fn isar_link_get_first(
     txn: &mut IsarDartTxn,
     link_index: usize,
     backlink: bool,
-    oid: i64,
+    id: i64,
     object: &'static mut RawObject,
 ) -> i32 {
     isar_try_txn!(txn, move |txn| {
-        collection.get_linked_objects(txn, link_index, backlink, oid, |o| {
+        collection.get_linked_objects(txn, link_index, backlink, id, |o| {
             object.set_object(Some(o));
             false
         })?;
@@ -102,11 +102,11 @@ pub unsafe extern "C" fn isar_link_get_all(
     txn: &mut IsarDartTxn,
     link_index: usize,
     backlink: bool,
-    oid: i64,
+    id: i64,
     result: &'static mut RawObjectSet,
 ) -> i32 {
     isar_try_txn!(txn, move |txn| {
-        result.fill_from_link(collection, txn, link_index, backlink, oid)?;
+        result.fill_from_link(collection, txn, link_index, backlink, id)?;
         Ok(())
     })
 }

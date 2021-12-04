@@ -52,7 +52,7 @@ impl IsarCollection {
             indexes,
             links,
             backlinks,
-            next_auto_increment: Cell::new(IsarInstance::MIN_ID),
+            next_auto_increment: Cell::new(IsarInstance::MIN_ID + 1),
         }
     }
 

@@ -137,15 +137,15 @@ pub unsafe extern "C" fn isar_q_delete(
     let limit = limit as usize;
     let count = UintSend(count);
     isar_try_txn!(txn, move |txn| {
-        let mut oids_to_delete = vec![];
+        let mut ids_to_delete = vec![];
         query.find_while(txn, |object| {
-            let oid = object.read_id();
-            oids_to_delete.push(oid);
-            oids_to_delete.len() <= limit
+            let id = object.read_id();
+            ids_to_delete.push(id);
+            ids_to_delete.len() <= limit
         })?;
-        *count.0 = oids_to_delete.len() as u32;
-        for oid in oids_to_delete {
-            collection.delete(txn, oid)?;
+        *count.0 = ids_to_delete.len() as u32;
+        for id in ids_to_delete {
+            collection.delete(txn, id)?;
         }
         Ok(())
     })
