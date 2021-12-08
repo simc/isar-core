@@ -9,14 +9,14 @@ use hashbrown::HashSet;
 #[derive(Clone)]
 pub(crate) enum WhereClause {
     Id(IdWhereClause),
-    Index(IndexWhereClause),
+    IsarIndex(IndexWhereClause),
 }
 
 impl WhereClause {
     pub fn matches(&self, id: i64, object: IsarObject) -> bool {
         match self {
             WhereClause::Id(wc) => wc.id_matches(id),
-            WhereClause::Index(wc) => wc.object_matches(object),
+            WhereClause::IsarIndex(wc) => wc.object_matches(object),
         }
     }
 
@@ -34,7 +34,7 @@ impl WhereClause {
             WhereClause::Id(wc) => wc.iter(&mut cursors.data, result_ids, |_, _, o| {
                 callback(&mut filter_cursors, o)
             }),
-            WhereClause::Index(wc) => wc.iter(
+            WhereClause::IsarIndex(wc) => wc.iter(
                 &mut cursors.data,
                 &mut cursors.index,
                 result_ids,
@@ -46,7 +46,7 @@ impl WhereClause {
     pub(crate) fn is_overlapping(&self, other: &Self) -> bool {
         match (self, other) {
             (WhereClause::Id(wc1), WhereClause::Id(wc2)) => wc1.is_overlapping(wc2),
-            (WhereClause::Index(wc1), WhereClause::Index(wc2)) => wc1.is_overlapping(wc2),
+            (WhereClause::IsarIndex(wc1), WhereClause::IsarIndex(wc2)) => wc1.is_overlapping(wc2),
             _ => false,
         }
     }

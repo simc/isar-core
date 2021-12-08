@@ -6,13 +6,30 @@ use crate::common::test_obj::TestObj;
 
 #[macro_export]
 macro_rules! isar (
-    ($isar:ident, $col:ident, $schema:expr) => {
+    ($isar:ident, $($col:ident, $schema:expr),+) => {
         let mut dir = std::env::temp_dir();
         let r: u64 = rand::random();
         dir.push(&r.to_string());
-        let schema =isar_core::schema:: Schema::new(vec![$schema]).unwrap();
-        let $isar = isar_core::instance::IsarInstance::open(&r.to_string(), dir, 100000000, schema).unwrap();
-        let $col = $isar.get_collection(0).unwrap();
+        let col_schemas = vec![$($schema),+];
+        let schema = isar_core::schema:: Schema::new(col_schemas).unwrap();
+        let $isar = isar_core::instance::IsarInstance::open(&r.to_string(), dir, 100000000, schema, None).unwrap();
+        col!($isar, $($col),+)
+    };
+);
+
+#[macro_export]
+macro_rules! col (
+    ($isar:expr, $($cols:ident),+) => {
+        col!(index $isar, 0, $($cols),+)
+    };
+
+    (index $isar:expr, $index:expr, $col:ident, $($cols:ident),+) => {
+        let $col = $isar.collections.get($index).unwrap();
+        col!(index $isar, $index + 1, $($cols),+)
+    };
+
+    (index $isar:expr, $index:expr, $col:ident) => {
+        let $col = $isar.collections.get($index).unwrap();
     };
 );
 

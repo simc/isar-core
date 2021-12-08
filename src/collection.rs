@@ -1,10 +1,11 @@
 use crate::cursor::IsarCursors;
 use crate::error::{illegal_arg, IsarError, Result};
-use crate::index::index_key::IndexKey;
-use crate::index::Index;
+use crate::index::IsarIndex;
+use crate::index_key::IndexKey;
 use crate::instance::IsarInstance;
 use crate::link::Link;
 use crate::lmdb::db::Db;
+use crate::link::IsarLink;
 use crate::lmdb::{verify_id, ByteKey, IntKey};
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
@@ -13,9 +14,7 @@ use crate::query::id_where_clause::IdWhereClause;
 use crate::query::query_builder::QueryBuilder;
 use crate::query::Sort;
 use crate::txn::{Cursors, IsarTxn};
-use crate::utils::debug::dump_db_oid;
 use crate::watch::change_set::ChangeSet;
-use hashbrown::HashMap;
 use serde_json::Value;
 use std::cell::Cell;
 
@@ -25,9 +24,9 @@ pub struct IsarCollection {
     pub property_names: Vec<String>,
     db: Db,
     static_size: usize,
-    indexes: Vec<Index>,
-    links: Vec<(String, Link)>,
-    backlinks: Vec<Link>,
+    pub(crate) indexes: Vec<IsarIndex>,
+    pub(crate) links: Vec<(String, IsarLink)>, // links from this collection
+    pub(crate) backlinks: Vec<IsarLink>,       // links to this collection
     next_auto_increment: Cell<i64>,
 }
 
@@ -40,9 +39,9 @@ impl IsarCollection {
         name: String,
         properties: Vec<Property>,
         property_names: Vec<String>,
-        indexes: Vec<Index>,
-        links: Vec<(String, Link)>,
-        backlinks: Vec<Link>,
+        indexes: Vec<IsarIndex>,
+        links: Vec<(String, IsarLink)>,
+        backlinks: Vec<IsarLink>,
     ) -> Self {
         let static_size = ObjectBuilder::calculate_static_size(&properties);
         IsarCollection {
@@ -58,17 +57,13 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn get_indexes(&self) -> &[Index] {
-        &self.indexes
-    }
-
     pub(crate) fn update_auto_increment(&self, id: i64) {
         if id >= self.next_auto_increment.get() {
             self.next_auto_increment.set(id + 1);
         }
     }
 
-    fn get_links_and_backlinks(&self) -> impl Iterator<Item = &Link> {
+    fn get_links_and_backlinks(&self) -> impl Iterator<Item = &IsarLink> {
         self.links
             .iter()
             .map(|(_, l)| l)
@@ -214,13 +209,15 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn get_link_backlink(&self, link_index: usize, backlink: bool) -> Result<Link> {
-        self.links
-            .get(link_index)
-            .map(|(_, l)| if backlink { l.to_backlink() } else { *l })
-            .ok_or(IsarError::IllegalArg {
-                message: "Link does not exist".to_string(),
-            })
+    pub(crate) fn get_link_backlink(&self, link_index: usize, backlink: bool) -> Result<IsarLink> {
+        let link = if backlink {
+            self.backlinks.get(link_index).copied()
+        } else {
+            self.links.get(link_index).map(|(_, l)| *l)
+        };
+        link.ok_or(IsarError::IllegalArg {
+            message: "IsarLink does not exist".to_string(),
+        })
     }
 
     pub fn link(
@@ -336,25 +333,10 @@ impl IsarCollection {
         }
     }
 
-    fn register_link_change(&self, change_set: Option<&mut ChangeSet>, link: Link) {
+    fn register_link_change(&self, change_set: Option<&mut ChangeSet>, link: IsarLink) {
         if let Some(change_set) = change_set {
             change_set.register_change(self.id, None, None);
             change_set.register_change(link.get_target_col_id(), None, None);
         }
-    }
-
-    pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashMap<i64, Vec<u8>> {
-        txn.read(|cursors| {
-            let map = dump_db_oid(&mut cursors.data, self.id)
-                .into_iter()
-                .map(|(k, v)| (IntKey::from_bytes(&k).get_id(), v))
-                .collect();
-            Ok(map)
-        })
-        .unwrap()
-    }
-
-    pub(crate) fn debug_get_indexes(&self) -> &[Index] {
-        &self.indexes
     }
 }

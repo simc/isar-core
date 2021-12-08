@@ -1,6 +1,6 @@
 use crate::collection::IsarCollection;
 use crate::error::{illegal_arg, IsarError, Result};
-use crate::link::Link;
+use crate::link::IsarLink;
 use crate::lmdb::cursor::Cursor;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::query::fast_wild_match::fast_wild_match;
@@ -130,7 +130,7 @@ enum FilterCond {
     Or(OrCond),
     Not(NotCond),
     Static(StaticCond),
-    Link(LinkCond),
+    IsarLink(LinkCond),
 }
 
 #[enum_dispatch(FilterCond)]
@@ -485,7 +485,7 @@ impl StaticCond {
 
 #[derive(Clone)]
 struct LinkCond {
-    link: Link,
+    link: IsarLink,
     filter: Box<FilterCond>,
 }
 
@@ -516,7 +516,7 @@ impl LinkCond {
         filter: FilterCond,
     ) -> Result<FilterCond> {
         let link = collection.get_link_backlink(link_index, backlink)?;
-        Ok(FilterCond::Link(LinkCond {
+        Ok(FilterCond::IsarLink(LinkCond {
             link,
             filter: Box::new(filter),
         }))

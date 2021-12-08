@@ -1,5 +1,6 @@
 use crate::error::IsarError::DbCorrupted;
 use crate::error::{IsarError, Result};
+use crate::instance::IsarInstance;
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::{IntKey, Key};
 use crate::object::isar_object::IsarObject;
@@ -19,9 +20,9 @@ pub(crate) struct Link {
     backlink: bool,
 }
 
-impl Link {
-    pub fn new(id: u16, backlink_id: u16, col_id: u16, target_col_id: u16) -> Link {
-        Link {
+impl IsarLink {
+    pub fn new(id: u16, backlink_id: u16, col_id: u16, target_col_id: u16) -> IsarLink {
+        IsarLink {
             id,
             col_id,
             backlink_id,
@@ -33,8 +34,8 @@ impl Link {
         self.target_col_id
     }
 
-    pub fn to_backlink(&self) -> Link {
-        Link {
+    pub fn to_backlink(&self) -> IsarLink {
+        IsarLink {
             id: self.backlink_id,
             backlink_id: self.id,
             col_id: self.target_col_id,
@@ -42,23 +43,23 @@ impl Link {
         }
     }
 
-    fn link_key(&self, oid: i64) -> IntKey {
+    pub fn link_key(&self, oid: i64) -> IntKey {
         IntKey::new(self.id, oid)
     }
 
-    fn link_target_key(&self, oid: i64) -> IntKey {
-        IntKey::new(self.target_col_id, oid)
+    pub fn link_target(&self, target_oid: i64) -> IntKey {
+        IntKey::new(self.target_col_id, target_oid)
     }
 
-    fn bl_key(&self, oid: i64) -> IntKey {
-        IntKey::new(self.backlink_id, oid)
+    pub fn bl_key(&self, target_oid: i64) -> IntKey {
+        IntKey::new(self.backlink_id, target_oid)
     }
 
-    fn bl_target_key(&self, oid: i64) -> IntKey {
+    pub fn bl_target(&self, oid: i64) -> IntKey {
         IntKey::new(self.col_id, oid)
     }
 
-    pub(crate) fn iter_ids<'txn, F>(
+    pub fn iter_ids<'txn, F>(
         &self,
         links_cursor: &mut Cursor<'txn>,
         oid: i64,
@@ -108,8 +109,8 @@ impl Link {
         }
 
         let link_key = self.link_key(oid);
-        let link_target_key = self.link_target_key(target_oid);
-        links_cursor.put(link_key, link_target_key.as_bytes())?;
+        let link_target = self.link_target(target_oid);
+        links_cursor.put(link_key, link_target.as_bytes())?;
 
         self.create_backlink(links_cursor, oid, target_oid)?;
 
@@ -118,9 +119,9 @@ impl Link {
 
     pub fn delete(&self, links_cursor: &mut Cursor, oid: i64, target_oid: i64) -> Result<bool> {
         let link_key = self.link_key(oid);
-        let link_target_key = self.link_target_key(target_oid);
+        let link_target = self.link_target(target_oid);
         let exists = links_cursor
-            .move_to_key_val(link_key, link_target_key.as_bytes())?
+            .move_to_key_val(link_key, link_target.as_bytes())?
             .is_some();
 
         if exists {
@@ -148,15 +149,15 @@ impl Link {
 
     fn create_backlink(&self, links_cursor: &mut Cursor, oid: i64, target_oid: i64) -> Result<()> {
         let bl_key = self.bl_key(target_oid);
-        let bl_target_key = self.bl_target_key(oid);
-        links_cursor.put(bl_key, bl_target_key.as_bytes())
+        let bl_target = self.bl_target(oid);
+        links_cursor.put(bl_key, bl_target.as_bytes())
     }
 
     fn delete_backlink(&self, links_cursor: &mut Cursor, oid: i64, target_oid: i64) -> Result<()> {
         let bl_key = self.bl_key(target_oid);
-        let bl_target_key = self.bl_target_key(oid);
+        let bl_target = self.bl_target(oid);
         let backlink_exists = links_cursor
-            .move_to_key_val(bl_key, bl_target_key.as_bytes())?
+            .move_to_key_val(bl_key, bl_target.as_bytes())?
             .is_some();
         if backlink_exists {
             links_cursor.delete_current()?;
@@ -184,26 +185,5 @@ impl Link {
             Ok(true)
         })?;
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashMap<i64, HashSet<i64>> {
-        txn.read(|cursors| {
-            let mut map: HashMap<i64, HashSet<i64>> = HashMap::new();
-            let entries = dump_db_oid(&mut cursors.links, self.id);
-            for (k, v) in entries {
-                let key = IntKey::from_bytes(&k);
-                let target_key = IntKey::from_bytes(&v);
-                if let Some(items) = map.get_mut(&key.get_id()) {
-                    items.insert(target_key.get_id());
-                } else {
-                    let mut set = HashSet::new();
-                    set.insert(target_key.get_id());
-                    map.insert(key.get_id(), set);
-                }
-            }
-            Ok(map)
-        })
-        .unwrap()
     }
 }

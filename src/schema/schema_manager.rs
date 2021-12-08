@@ -104,7 +104,7 @@ impl<'env> SchemaManger<'env> {
             .filter(|existing| !collections.iter().any(|c| existing.id == c.id));
 
         for col in removed_collections {
-            for index in col.get_indexes() {
+            for index in &col.indexes {
                 index.clear(&mut self.cursors)?;
             }
             IdWhereClause::new(

@@ -1,243 +1,275 @@
-/*#[cfg(test)]
-mod tests {
+mod common;
 
-    fn create_objects(isar: &IsarInstance, col: &IsarCollection) {
-        let mut ob1 = col.new_object_builder(None);
-        ob1.write_long(1);
+use isar_core::schema::collection_schema::LinkSchema;
+use isar_core::verify::verify_isar;
 
-        let mut ob2 = col.new_object_builder(None);
-        ob2.write_long(2);
+use crate::common::test_obj::TestObj;
 
-        let mut ob3 = col.new_object_builder(None);
-        ob3.write_long(3);
+#[test]
+fn test_create_aborts_if_object_not_existing() {
+    let col_schema = TestObj::schema("col1", &[], &[LinkSchema::new("l1", "col1")]);
+    isar!(isar, col1, col_schema);
+    txn!(isar, txn);
 
-        let mut txn = isar.begin_txn(true, true).unwrap();
-        col.put(&mut txn, ob1.finish()).unwrap();
-        col.put(&mut txn, ob2.finish()).unwrap();
-        col.put(&mut txn, ob3.finish()).unwrap();
-        txn.commit().unwrap();
-    }
+    let obj1 = TestObj::default(1);
+    obj1.save(col1, &mut txn);
 
-    #[test]
-    fn test_create_aborts_if_object_not_existing() {
-        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
+    // source object does not exist
+    let linked = col1.link(&mut txn, 0, false, 1, 5).unwrap();
+    assert!(!linked);
 
-        create_objects(&isar, col2);
+    // target object does not exist
+    let linked = col1.link(&mut txn, 0, false, 5, 2).unwrap();
+    assert!(!linked);
 
-        let link = Link::new(0, 1, col1.id, col2.id);
-        let mut txn = isar.begin_txn(true, false).unwrap();
+    verify_isar(&mut txn, vec![(col1, vec![obj1.to_bytes()], vec![])]);
 
-        let success = txn
-            .write(|c, _| link.create(&mut c.data, &mut c.links, 555, 0))
-            .unwrap();
-        assert!(!success);
-        assert!(link.debug_dump(&mut txn).is_empty());
+    txn.abort();
+    isar.close();
+}
 
-        txn.abort();
-        isar.close();
-    }
+#[test]
+fn test_create() {
+    let col1_schema = TestObj::schema(
+        "col1",
+        &[],
+        &[LinkSchema::new("l1", "col1"), LinkSchema::new("l2", "col2")],
+    );
+    let col2_schema = TestObj::schema("col2", &[], &[]);
+    isar!(isar, col1, col1_schema, col2, col2_schema);
+    txn!(isar, txn);
 
-    #[test]
-    fn test_create_aborts_if_target_object_not_existing() {
-        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
+    let obj1 = TestObj::default(1);
+    obj1.save(col1, &mut txn);
 
-        create_objects(&isar, col1);
+    let obj2 = TestObj::default(2);
+    obj2.save(col2, &mut txn);
 
-        let link = Link::new(0, 1, col1.id, col2.id);
-        let mut txn = isar.begin_txn(true, false).unwrap();
+    // same collection
+    let linked = col1.link(&mut txn, 0, false, 1, 1).unwrap();
+    assert!(linked);
 
-        let success = txn
-            .write(|c, _| link.create(&mut c.data, &mut c.links, 0, 555))
-            .unwrap();
-        assert!(!success);
-        assert!(link.debug_dump(&mut txn).is_empty());
+    // different collection
+    let linked = col1.link(&mut txn, 1, false, 1, 2).unwrap();
+    assert!(linked);
 
-        txn.abort();
-        isar.close();
-    }
+    verify_isar(
+        &mut txn,
+        vec![
+            (
+                col1,
+                vec![obj1.to_bytes()],
+                vec![("l1", 1, 1), ("l2", 1, 2)],
+            ),
+            (col2, vec![obj2.to_bytes()], vec![]),
+        ],
+    );
 
-    #[test]
-    fn test_create() {
-        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
+    txn.abort();
+    isar.close();
+}
 
-        create_objects(&isar, col1);
-        create_objects(&isar, col2);
+/*
+#[test]
+fn test_create_aborts_if_target_object_not_existing() {
+    isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
-        let link = Link::new(123, 456, col1.id, col2.id);
-        let mut txn = isar.begin_txn(true, false).unwrap();
+    create_objects(&isar, col1);
 
-        txn.write(|c, _| {
-            assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
-            Ok(())
-        })
+    let link = IsarLink::new(0, 1, col1.id, col2.id);
+    let mut txn = isar.begin_txn(true, false).unwrap();
+
+    let success = txn
+        .write(|c, _| link.create(&mut c.data, &mut c.links, 0, 555))
         .unwrap();
+    assert!(!success);
+    assert!(link.debug_dump(&mut txn).is_empty());
 
-        assert_eq!(
-            link.debug_dump(&mut txn),
-            map!(1 => set![1, 2], 2 => set![2])
-        );
+    txn.abort();
+    isar.close();
+}
 
-        assert_eq!(
-            link.to_backlink().debug_dump(&mut txn),
-            map!(1 => set![1], 2 => set![1, 2])
-        );
+#[test]
+fn test_create() {
+    isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
-        txn.abort();
-        isar.close();
-    }
+    create_objects(&isar, col1);
+    create_objects(&isar, col2);
 
-    #[test]
-    fn test_create_same_collection() {
-        isar!(isar, col => col!());
+    let link = IsarLink::new(123, 456, col1.id, col2.id);
+    let mut txn = isar.begin_txn(true, false).unwrap();
 
-        create_objects(&isar, col);
+    txn.write(|c, _| {
+        assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
+        Ok(())
+    })
+    .unwrap();
 
-        let link = Link::new(123, 456, col.id, col.id);
-        let mut txn = isar.begin_txn(true, false).unwrap();
+    assert_eq!(
+        link.debug_dump(&mut txn),
+        map!(1 => set![1, 2], 2 => set![2])
+    );
 
-        txn.write(|c, _| {
-            assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
-            Ok(())
-        })
-        .unwrap();
+    assert_eq!(
+        link.to_backlink().debug_dump(&mut txn),
+        map!(1 => set![1], 2 => set![1, 2])
+    );
 
-        assert_eq!(
-            link.debug_dump(&mut txn),
-            map!(1 => set![1, 2], 2 => set![2])
-        );
+    txn.abort();
+    isar.close();
+}
 
-        assert_eq!(
-            link.to_backlink().debug_dump(&mut txn),
-            map!(1 => set![1], 2 => set![1, 2])
-        );
+#[test]
+fn test_create_same_collection() {
+    isar!(isar, col => col!());
 
-        txn.abort();
-        isar.close();
-    }
+    create_objects(&isar, col);
 
-    #[test]
-    fn test_delete() {
-        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
+    let link = IsarLink::new(123, 456, col.id, col.id);
+    let mut txn = isar.begin_txn(true, false).unwrap();
 
-        create_objects(&isar, col1);
-        create_objects(&isar, col2);
+    txn.write(|c, _| {
+        assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
+        Ok(())
+    })
+    .unwrap();
 
-        let link = Link::new(123, 456, col1.id, col2.id);
-        let mut txn = isar.begin_txn(true, false).unwrap();
+    assert_eq!(
+        link.debug_dump(&mut txn),
+        map!(1 => set![1, 2], 2 => set![2])
+    );
 
-        txn.write(|c, _| {
-            assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
+    assert_eq!(
+        link.to_backlink().debug_dump(&mut txn),
+        map!(1 => set![1], 2 => set![1, 2])
+    );
 
-            assert!(link.delete(&mut c.links, 1, 2).unwrap());
-            assert!(link.delete(&mut c.links, 2, 2).unwrap());
-            assert!(!link.delete(&mut c.links, 2, 2).unwrap());
-            assert!(!link.delete(&mut c.links, 3, 2).unwrap());
-            Ok(())
-        })
-        .unwrap();
+    txn.abort();
+    isar.close();
+}
 
-        assert_eq!(link.debug_dump(&mut txn), map!(1 => set![1]));
+#[test]
+fn test_delete() {
+    isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
-        assert_eq!(link.to_backlink().debug_dump(&mut txn), map!(1 => set![1]));
+    create_objects(&isar, col1);
+    create_objects(&isar, col2);
 
-        txn.abort();
-        isar.close();
-    }
+    let link = IsarLink::new(123, 456, col1.id, col2.id);
+    let mut txn = isar.begin_txn(true, false).unwrap();
 
-    #[test]
-    fn test_delete_same_collection() {
-        isar!(isar, col => col!());
+    txn.write(|c, _| {
+        assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
 
-        create_objects(&isar, col);
+        assert!(link.delete(&mut c.links, 1, 2).unwrap());
+        assert!(link.delete(&mut c.links, 2, 2).unwrap());
+        assert!(!link.delete(&mut c.links, 2, 2).unwrap());
+        assert!(!link.delete(&mut c.links, 3, 2).unwrap());
+        Ok(())
+    })
+    .unwrap();
 
-        let link = Link::new(123, 456, col.id, col.id);
-        let mut txn = isar.begin_txn(true, false).unwrap();
+    assert_eq!(link.debug_dump(&mut txn), map!(1 => set![1]));
 
-        txn.write(|c, _| {
-            assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
+    assert_eq!(link.to_backlink().debug_dump(&mut txn), map!(1 => set![1]));
 
-            assert!(link.delete(&mut c.links, 1, 2).unwrap());
-            assert!(link.delete(&mut c.links, 2, 2).unwrap());
-            assert!(!link.delete(&mut c.links, 2, 2).unwrap());
-            assert!(!link.delete(&mut c.links, 3, 2).unwrap());
-            Ok(())
-        })
-        .unwrap();
+    txn.abort();
+    isar.close();
+}
 
-        assert_eq!(link.debug_dump(&mut txn), map!(1 => set![1]));
+#[test]
+fn test_delete_same_collection() {
+    isar!(isar, col => col!());
 
-        assert_eq!(link.to_backlink().debug_dump(&mut txn), map!(1 => set![1]));
+    create_objects(&isar, col);
 
-        txn.abort();
-        isar.close();
-    }
+    let link = IsarLink::new(123, 456, col.id, col.id);
+    let mut txn = isar.begin_txn(true, false).unwrap();
 
-    #[test]
-    fn test_delete_all_for_object() {
-        isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
+    txn.write(|c, _| {
+        assert!(link.create(&mut c.data, &mut c.links, 1, 1).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 1, 2).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
 
-        create_objects(&isar, col1);
-        create_objects(&isar, col2);
+        assert!(link.delete(&mut c.links, 1, 2).unwrap());
+        assert!(link.delete(&mut c.links, 2, 2).unwrap());
+        assert!(!link.delete(&mut c.links, 2, 2).unwrap());
+        assert!(!link.delete(&mut c.links, 3, 2).unwrap());
+        Ok(())
+    })
+    .unwrap();
 
-        let link = Link::new(123, 456, col1.id, col2.id);
-        let mut txn = isar.begin_txn(true, false).unwrap();
+    assert_eq!(link.debug_dump(&mut txn), map!(1 => set![1]));
 
-        txn.write(|c, _| {
-            assert!(link.create(&mut c.data, &mut c.links, 2, 3).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 3, 2).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 3, 1).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
+    assert_eq!(link.to_backlink().debug_dump(&mut txn), map!(1 => set![1]));
 
-            link.delete_all_for_object(&mut c.links, 2).unwrap();
-            Ok(())
-        })
-        .unwrap();
+    txn.abort();
+    isar.close();
+}
 
-        assert_eq!(link.debug_dump(&mut txn), map!(3 => set![1, 2]));
+#[test]
+fn test_delete_all_for_object() {
+    isar!(isar, col1 => col!("col1"), col2 => col!("col2"));
 
-        assert_eq!(
-            link.to_backlink().debug_dump(&mut txn),
-            map!(1 => set![3], 2 => set![3])
-        );
+    create_objects(&isar, col1);
+    create_objects(&isar, col2);
 
-        txn.abort();
-        isar.close();
-    }
+    let link = IsarLink::new(123, 456, col1.id, col2.id);
+    let mut txn = isar.begin_txn(true, false).unwrap();
 
-    #[test]
-    fn test_clear() {
-        isar!(isar, col => col!());
+    txn.write(|c, _| {
+        assert!(link.create(&mut c.data, &mut c.links, 2, 3).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 3, 2).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 3, 1).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
 
-        create_objects(&isar, col);
+        link.delete_all_for_object(&mut c.links, 2).unwrap();
+        Ok(())
+    })
+    .unwrap();
 
-        let link = Link::new(123, 456, col.id, col.id);
-        let mut txn = isar.begin_txn(true, false).unwrap();
+    assert_eq!(link.debug_dump(&mut txn), map!(3 => set![1, 2]));
 
-        txn.write(|c, _| {
-            assert!(link.create(&mut c.data, &mut c.links, 2, 3).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 3, 2).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 3, 1).unwrap());
-            assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
+    assert_eq!(
+        link.to_backlink().debug_dump(&mut txn),
+        map!(1 => set![3], 2 => set![3])
+    );
 
-            link.clear(&mut c.links).unwrap();
-            Ok(())
-        })
-        .unwrap();
+    txn.abort();
+    isar.close();
+}
 
-        assert!(link.debug_dump(&mut txn).is_empty());
+#[test]
+fn test_clear() {
+    isar!(isar, col => col!());
 
-        assert!(link.to_backlink().debug_dump(&mut txn).is_empty());
+    create_objects(&isar, col);
 
-        txn.abort();
-        isar.close();
-    }
+    let link = IsarLink::new(123, 456, col.id, col.id);
+    let mut txn = isar.begin_txn(true, false).unwrap();
+
+    txn.write(|c, _| {
+        assert!(link.create(&mut c.data, &mut c.links, 2, 3).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 3, 2).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 3, 1).unwrap());
+        assert!(link.create(&mut c.data, &mut c.links, 2, 2).unwrap());
+
+        link.clear(&mut c.links).unwrap();
+        Ok(())
+    })
+    .unwrap();
+
+    assert!(link.debug_dump(&mut txn).is_empty());
+
+    assert!(link.to_backlink().debug_dump(&mut txn).is_empty());
+
+    txn.abort();
+    isar.close();
 }
 */

@@ -1,15 +1,15 @@
-use crate::index::{Index, MAX_STRING_INDEX_SIZE};
+use crate::index::{IsarIndex, MAX_STRING_INDEX_SIZE};
 use std::hash::Hasher;
 use wyhash::{wyhash, WyHash};
 
 #[derive(Clone)]
 pub struct IndexKey<'a> {
-    pub(crate) index: &'a Index,
+    pub(crate) index: &'a IsarIndex,
     pub(crate) bytes: Vec<u8>,
 }
 
 impl<'a> IndexKey<'a> {
-    pub(crate) fn new(index: &'a Index) -> Self {
+    pub(crate) fn new(index: &'a IsarIndex) -> Self {
         IndexKey {
             index: index,
             bytes: index.get_prefix(),
@@ -137,7 +137,7 @@ mod tests {
             (255, vec![255]),
         ];
 
-        let index = Index::new(0, 0, vec![], false, false);
+        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new(&index);
             index_key.add_byte(val);
@@ -157,7 +157,7 @@ mod tests {
             (i32::MAX, vec![255, 255, 255, 255]),
         ];
 
-        let index = Index::new(0, 0, vec![], false, false);
+        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new(&index);
             index_key.add_int(val);
@@ -177,7 +177,7 @@ mod tests {
             (i64::MAX, vec![255, 255, 255, 255, 255, 255, 255, 255]),
         ];
 
-        let index = Index::new(0, 0, vec![], false, false);
+        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new(&index);
             index_key.add_long(val);
@@ -201,7 +201,7 @@ mod tests {
             (f32::INFINITY, vec![255, 128, 0, 0]),
         ];
 
-        let index = Index::new(0, 0, vec![], false, false);
+        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new(&index);
             index_key.add_float(val);
@@ -231,7 +231,7 @@ mod tests {
             (f64::INFINITY, vec![255, 240, 0, 0, 0, 0, 0, 0]),
         ];
 
-        let index = Index::new(0, 0, vec![], false, false);
+        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new(&index);
             index_key.add_double(val);
@@ -271,7 +271,7 @@ mod tests {
             ),
         ];
 
-        let index = Index::new(0, 0, vec![], false, false);
+        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (str, hash, hash_lc) in pairs {
             let mut index_key = IndexKey::new(&index);
             index_key.add_string_hash(str, true);
@@ -316,7 +316,7 @@ mod tests {
             //(Some(&long_str), long_str_bytes, long_str_lc_bytes),
         ];
 
-        let index = Index::new(0, 0, vec![], false, false);
+        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (str, bytes, bytes_lc) in pairs {
             let mut index_key = IndexKey::new(&index);
             index_key.add_string_value(str, true);
@@ -336,7 +336,7 @@ mod tests {
             ("tESt", b"tESt".to_vec(), b"test".to_vec()),
         ];
 
-        let index = Index::new(0, 0, vec![], false, false);
+        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (str, bytes, bytes_lc) in pairs {
             let mut index_key = IndexKey::new(&index);
             index_key.add_string_word(str, true);

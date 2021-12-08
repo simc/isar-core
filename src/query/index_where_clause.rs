@@ -1,6 +1,6 @@
 use crate::error::{illegal_arg, IsarError, Result};
-use crate::index::index_key::IndexKey;
-use crate::index::Index;
+use crate::index::IsarIndex;
+use crate::index_key::IndexKey;
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::{ByteKey, IntKey};
 use crate::object::isar_object::IsarObject;
@@ -11,7 +11,7 @@ use hashbrown::HashSet;
 pub(crate) struct IndexWhereClause {
     lower_key: Vec<u8>,
     upper_key: Vec<u8>,
-    index: Index,
+    index: IsarIndex,
     skip_duplicates: bool,
     sort: Sort,
 }

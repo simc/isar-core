@@ -27,8 +27,8 @@ static INSTANCES: Lazy<RwLock<HashMap<String, Arc<IsarInstance>>>> =
 pub struct IsarInstance {
     env: Env,
     dbs: DataDbs,
-    name: String,
-    collections: Vec<IsarCollection>,
+    pub name: String,
+    pub collections: Vec<IsarCollection>,
     watchers: Mutex<IsarWatchers>,
     watcher_modifier_sender: Sender<WatcherModifier>,
 }
@@ -121,14 +121,6 @@ impl IsarInstance {
 
         let txn = self.env.txn(write)?;
         IsarTxn::new(self, txn, write, change_set)
-    }
-
-    pub fn get_collection(&self, collection_index: usize) -> Option<&IsarCollection> {
-        self.collections.get(collection_index)
-    }
-
-    pub fn get_collection_by_name(&self, collection_name: &str) -> Option<&IsarCollection> {
-        self.collections.iter().find(|c| c.name == collection_name)
     }
 
     fn new_watcher(&self, start: WatcherModifier, stop: WatcherModifier) -> WatchHandle {

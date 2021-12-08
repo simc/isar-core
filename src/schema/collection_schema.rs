@@ -1,7 +1,7 @@
 use crate::collection::IsarCollection;
 use crate::error::{schema_error, Result};
-use crate::index::{Index, IndexProperty};
-use crate::link::Link;
+use crate::index::{IndexProperty, IsarIndex};
+use crate::link::IsarLink;
 use crate::object::data_type::DataType;
 use crate::object::isar_object::Property;
 use enum_ordinalize::Ordinalize;
@@ -163,7 +163,7 @@ impl CollectionSchema {
                     .find(|p| p.name == index_property.name)
                     .cloned();
                 if property.is_none() {
-                    schema_error("Index property does not exist")?;
+                    schema_error("IsarIndex property does not exist")?;
                 }
                 let property = property.unwrap();
 
@@ -232,7 +232,7 @@ impl CollectionSchema {
         (properties, property_names)
     }
 
-    fn get_indexes(&self, properties: &[Property], property_names: &[String]) -> Vec<Index> {
+    fn get_indexes(&self, properties: &[Property], property_names: &[String]) -> Vec<IsarIndex> {
         self.indexes
             .iter()
             .map(|index| {
@@ -246,7 +246,7 @@ impl CollectionSchema {
                     })
                     .collect_vec();
 
-                Index::new(
+                IsarIndex::new(
                     index.id.unwrap(),
                     self.id.unwrap(),
                     properties,
@@ -257,7 +257,7 @@ impl CollectionSchema {
             .collect()
     }
 
-    fn get_links(&self, cols: &[CollectionSchema]) -> Vec<(String, Link)> {
+    fn get_links(&self, cols: &[CollectionSchema]) -> Vec<(String, IsarLink)> {
         self.links
             .iter()
             .map(|l| {
@@ -267,7 +267,7 @@ impl CollectionSchema {
                     .unwrap()
                     .id
                     .unwrap();
-                let link = Link::new(
+                let link = IsarLink::new(
                     l.id.unwrap(),
                     l.backlink_id.unwrap(),
                     self.id.unwrap(),
@@ -278,7 +278,7 @@ impl CollectionSchema {
             .collect()
     }
 
-    fn get_backlinks(&self, cols: &[CollectionSchema]) -> Vec<Link> {
+    fn get_backlinks(&self, cols: &[CollectionSchema]) -> Vec<IsarLink> {
         cols.iter()
             .filter(|c| c.id != self.id)
             .flat_map(|c| {
@@ -286,7 +286,7 @@ impl CollectionSchema {
                     .iter()
                     .filter(|l| l.target_col == self.name)
                     .map(|l| {
-                        Link::new(
+                        IsarLink::new(
                             l.backlink_id.unwrap(),
                             l.id.unwrap(),
                             c.id.unwrap(),

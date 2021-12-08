@@ -1,19 +1,16 @@
 use crate::error::{IsarError, Result};
 use crate::index::index_key::IndexKey;
 use crate::lmdb::db::Db;
+use crate::index_key::IndexKey;
 use crate::lmdb::{ByteKey, IntKey, Key};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::query::index_where_clause::IndexWhereClause;
 use crate::query::Sort;
 use crate::schema::collection_schema::IndexType;
-use crate::txn::{Cursors, IsarTxn};
-use crate::utils::debug::dump_db;
-use hashbrown::HashSet;
+use crate::txn::Cursors;
 use itertools::Itertools;
 use unicode_segmentation::UnicodeSegmentation;
-
-pub mod index_key;
 
 pub const MAX_STRING_INDEX_SIZE: usize = 1024;
 
@@ -55,16 +52,16 @@ impl IndexProperty {
 }
 
 #[derive(Clone, Eq, PartialEq)]
-pub(crate) struct Index {
+pub(crate) struct IsarIndex {
     db: Db,
     pub properties: Vec<IndexProperty>,
     pub unique: bool,
     pub replace: bool,
 }
 
-impl Index {
+impl IsarIndex {
     pub fn new(db: Db, properties: Vec<IndexProperty>, unique: bool, replace: bool) -> Self {
-        Index {
+        IsarIndex {
             db,
             properties,
             unique,

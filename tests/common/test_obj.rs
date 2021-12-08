@@ -1,13 +1,15 @@
+use std::vec;
+
 use isar_core::collection::IsarCollection;
-use isar_core::index::index_key::IndexKey;
+use isar_core::index_key::IndexKey;
 use isar_core::object::data_type::DataType;
 use isar_core::object::isar_object::{IsarObject, Property};
 use isar_core::object::object_builder::ObjectBuilder;
 use isar_core::schema::collection_schema::{
-    CollectionSchema, IndexPropertySchema, IndexSchema, IndexType, PropertySchema,
+    CollectionSchema, IndexPropertySchema, IndexSchema, IndexType, LinkSchema, PropertySchema,
 };
 use isar_core::txn::IsarTxn;
-use isar_core::utils::debug::verify_col;
+use isar_core::verify::verify_isar;
 use itertools::Itertools;
 
 #[derive(PartialEq, Debug)]
@@ -75,7 +77,7 @@ impl TestObj {
         IndexPropertySchema::new("string", index_type, Some(case_sensitive))
     }
 
-    pub fn schema(name: &str, indexes: &[IndexSchema]) -> CollectionSchema {
+    pub fn schema(name: &str, indexes: &[IndexSchema], links: &[LinkSchema]) -> CollectionSchema {
         let properties = vec![
             PropertySchema::new("id", DataType::Long),
             PropertySchema::new("byte", DataType::Byte),
@@ -84,11 +86,11 @@ impl TestObj {
             PropertySchema::new("double", DataType::Double),
             PropertySchema::new("string", DataType::String),
         ];
-        CollectionSchema::new(name, properties, indexes.to_vec(), vec![])
+        CollectionSchema::new(name, properties, indexes.to_vec(), links.to_vec())
     }
 
-    pub fn default_schema() -> CollectionSchema {
-        let indexes = vec![
+    pub fn default_indexes() -> Vec<IndexSchema> {
+        vec![
             IndexSchema::new(vec![Self::id_index()], false, false),
             IndexSchema::new(vec![Self::byte_index()], false, false),
             IndexSchema::new(vec![Self::int_index()], false, false),
@@ -99,8 +101,12 @@ impl TestObj {
                 false,
                 false,
             ),
-        ];
-        Self::schema("obj", &indexes)
+        ]
+    }
+
+    pub fn default_schema() -> CollectionSchema {
+        let indexes = Self::default_indexes();
+        Self::schema("obj", &indexes, &[])
     }
 
     pub fn default_index_key(col: &IsarCollection, prop: Property) -> IndexKey {
@@ -108,7 +114,7 @@ impl TestObj {
         col.new_index_key(prop_index).unwrap()
     }
 
-    pub fn to_isar(&self) -> ObjectBuilder {
+    pub fn to_bytes(&self) -> Vec<u8> {
         let mut builder = ObjectBuilder::new(&TestObj::PROPS, None);
         builder.write_long(self.id);
         builder.write_byte(self.byte);
@@ -116,7 +122,7 @@ impl TestObj {
         builder.write_float(self.float);
         builder.write_double(self.double);
         builder.write_string(self.string.as_deref());
-        builder
+        builder.finish().as_bytes().to_vec()
     }
 
     pub fn get(col: &IsarCollection, txn: &mut IsarTxn, id: i64) -> Option<Self> {
@@ -125,14 +131,13 @@ impl TestObj {
     }
 
     pub fn save(&self, col: &IsarCollection, txn: &mut IsarTxn) {
-        let ob = self.to_isar();
-        col.put(txn, ob.finish()).unwrap();
+        let bytes = self.to_bytes();
+        col.put(txn, IsarObject::from_bytes(&bytes)).unwrap();
     }
 
     pub fn verify(col: &IsarCollection, txn: &mut IsarTxn, objects: &[&TestObj]) {
-        let builders = objects.iter().map(|o| o.to_isar()).collect_vec();
-        let objects = builders.iter().map(|b| b.finish()).collect_vec();
-        verify_col(col, txn, &objects);
+        let bytes = objects.iter().map(|o| o.to_bytes()).collect_vec();
+        verify_isar(txn, vec![(col, bytes, vec![])]);
     }
 }
 

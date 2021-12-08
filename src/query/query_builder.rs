@@ -1,11 +1,12 @@
+use crate::collection::IsarCollection;
 use crate::error::Result;
+use crate::index_key::IndexKey;
 use crate::lmdb::ByteKey;
 use crate::object::isar_object::Property;
 use crate::query::filter::Filter;
 use crate::query::id_where_clause::IdWhereClause;
 use crate::query::where_clause::WhereClause;
 use crate::query::{Query, Sort};
-use crate::{collection::IsarCollection, index::index_key::IndexKey};
 
 use super::index_where_clause::IndexWhereClause;
 use crate::instance::IsarInstance;
@@ -76,7 +77,7 @@ impl<'a> QueryBuilder<'a> {
             self.where_clauses
                 .as_mut()
                 .unwrap()
-                .push(WhereClause::Index(wc));
+                .push(WhereClause::IsarIndex(wc));
         }
         Ok(())
     }

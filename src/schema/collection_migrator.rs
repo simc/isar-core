@@ -1,18 +1,18 @@
 use crate::collection::IsarCollection;
 use crate::error::Result;
-use crate::index::Index;
+use crate::index::IsarIndex;
 use crate::txn::Cursors;
 
 pub(crate) struct CollectionMigrator<'a> {
     collection: &'a IsarCollection,
-    removed_indexes: Vec<&'a Index>,
-    added_indexes: Vec<&'a Index>,
+    removed_indexes: Vec<&'a IsarIndex>,
+    added_indexes: Vec<&'a IsarIndex>,
 }
 
 impl<'a> CollectionMigrator<'a> {
     pub fn create(collection: &'a IsarCollection, existing_collection: &'a IsarCollection) -> Self {
-        let added_indexes = Self::get_diff_indexes(collection, existing_collection);
-        let removed_indexes = Self::get_diff_indexes(existing_collection, collection);
+        let added_indexes = Self::get_added_indexes(existing_collection, collection);
+        let removed_indexes = Self::get_added_indexes(collection, existing_collection);
 
         CollectionMigrator {
             collection,
@@ -21,15 +21,15 @@ impl<'a> CollectionMigrator<'a> {
         }
     }
 
-    fn get_diff_indexes<'c>(col1: &'c IsarCollection, col2: &IsarCollection) -> Vec<&'c Index> {
-        let mut diff_indexes = vec![];
-        for index_col1 in col1.get_indexes() {
-            let col2_contains_index = col2.get_indexes().iter().any(|i| i.id == index_col1.id);
-            if !col2_contains_index {
-                diff_indexes.push(index_col1);
+    fn get_added_indexes<'c>(old: &IsarCollection, new: &'c IsarCollection) -> Vec<&'c IsarIndex> {
+        let mut added_indexes = vec![];
+        for index in &new.indexes {
+            let old_contains_index = old.indexes.iter().any(|i| i.id == index.id);
+            if !old_contains_index {
+                added_indexes.push(index);
             }
         }
-        diff_indexes
+        added_indexes
     }
 
     pub fn migrate<'b>(self, cursors: &mut Cursors<'b>, cursors2: &mut Cursors<'b>) -> Result<()> {
