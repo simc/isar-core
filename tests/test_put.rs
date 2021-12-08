@@ -38,7 +38,10 @@ fn test_put_new() {
     isar!(isar, col, TestObj::default_schema());
     txn!(isar, txn);
 
-    assert_eq!(col.auto_increment(&mut txn).unwrap(), IsarInstance::MIN_ID);
+    assert_eq!(
+        col.auto_increment(&mut txn).unwrap(),
+        IsarInstance::MIN_ID + 1
+    );
 
     // put new object with id 1
     let obj1 = TestObj::default(1);

@@ -2,38 +2,41 @@ use crate::error::Result;
 use crate::lmdb::cursor::Cursor;
 use crate::lmdb::error::lmdb_result;
 use crate::lmdb::txn::Txn;
-use lmdb_sys as ffi;
 use std::ffi::CString;
 
 #[derive(Copy, Clone)]
 pub struct Db {
-    pub dbi: ffi::MDB_dbi,
+    pub(crate) dbi: ffi::MDBX_dbi,
     pub dup: bool,
 }
 
 impl Db {
+    pub fn get_id(&self) -> u64 {
+        self.dbi as u64
+    }
+
     pub fn open(txn: &Txn, name: &str, int_key: bool, dup: bool, int_dup: bool) -> Result<Self> {
         let name = CString::new(name.as_bytes()).unwrap();
-        let mut flags = ffi::MDB_CREATE;
+        let mut flags = ffi::MDBX_CREATE;
         if int_key {
-            flags |= ffi::MDB_INTEGERKEY;
+            flags |= ffi::MDBX_INTEGERKEY;
         }
         if dup {
-            flags |= ffi::MDB_DUPSORT;
+            flags |= ffi::MDBX_DUPSORT;
             if int_dup {
-                flags |= ffi::MDB_INTEGERDUP;
+                flags |= ffi::MDBX_INTEGERDUP | ffi::MDBX_DUPFIXED;
             }
         }
 
-        let mut dbi: ffi::MDB_dbi = 0;
+        let mut dbi: ffi::MDBX_dbi = 0;
         unsafe {
-            lmdb_result(ffi::mdb_dbi_open(txn.txn, name.as_ptr(), flags, &mut dbi))?;
+            lmdb_result(ffi::mdbx_dbi_open(txn.txn, name.as_ptr(), flags, &mut dbi))?;
         }
         Ok(Self { dbi, dup })
     }
 
     pub fn cursor<'txn>(&self, txn: &'txn Txn) -> Result<Cursor<'txn>> {
-        Cursor::open(txn, &self)
+        Cursor::open(txn, self)
     }
 }
 

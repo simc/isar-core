@@ -59,7 +59,6 @@ impl From<LmdbError> for IsarError {
     fn from(e: LmdbError) -> Self {
         match e {
             LmdbError::MapFull {} => IsarError::DbFull {},
-            LmdbError::CryptoFail {} => IsarError::CryptoError {},
             LmdbError::Other { code, message } => IsarError::LmdbError { code, message },
             _ => IsarError::LmdbError {
                 code: e.to_err_code(),

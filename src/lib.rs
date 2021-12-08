@@ -7,6 +7,7 @@ compile_error!("Only little endian systems are supported.");
 compile_error!("Only 64-bit systems are supported at this time.");
 
 pub mod collection;
+mod cursor;
 pub mod error;
 pub mod index;
 pub mod instance;

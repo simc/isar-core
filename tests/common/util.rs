@@ -11,7 +11,7 @@ macro_rules! isar (
         let r: u64 = rand::random();
         dir.push(&r.to_string());
         let schema =isar_core::schema:: Schema::new(vec![$schema]).unwrap();
-        let $isar = isar_core::instance::IsarInstance::open(&r.to_string(), dir, 100000000, schema, None).unwrap();
+        let $isar = isar_core::instance::IsarInstance::open(&r.to_string(), dir, 100000000, schema).unwrap();
         let $col = $isar.get_collection(0).unwrap();
     };
 );

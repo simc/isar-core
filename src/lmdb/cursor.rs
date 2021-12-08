@@ -4,33 +4,51 @@ use crate::lmdb::error::{lmdb_result, LmdbError};
 use crate::lmdb::txn::Txn;
 use crate::lmdb::{from_mdb_val, to_mdb_val, Key, KeyVal, EMPTY_KEY, EMPTY_VAL};
 use core::ptr;
-use lmdb_sys as ffi;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
-#[derive(Clone)]
+pub struct UnboundCursor {
+    cursor: *mut ffi::MDBX_cursor,
+}
+
+impl UnboundCursor {
+    pub(crate) fn new() -> Self {
+        let mut cursor = unsafe { ffi::mdbx_cursor_create(ptr::null_mut()) };
+
+        UnboundCursor { cursor }
+    }
+
+    pub fn bind<'txn>(self, txn: &'txn Txn, db: Db) -> Result<Cursor<'txn>> {
+        unsafe {
+            lmdb_result(ffi::mdbx_cursor_bind(txn.txn, self.cursor, db.dbi))?;
+        }
+
+        Ok(Cursor {
+            cursor: self,
+            _marker: PhantomData::default(),
+        })
+    }
+}
+
+impl Drop for UnboundCursor {
+    fn drop(&mut self) {
+        unsafe { ffi::mdbx_cursor_close(self.cursor) }
+    }
+}
+
 pub struct Cursor<'txn> {
-    cursor: *mut ffi::MDB_cursor,
-    write: bool,
+    cursor: UnboundCursor,
     _marker: PhantomData<&'txn ()>,
 }
 
 impl<'txn> Cursor<'txn> {
-    pub(crate) fn open(txn: &'txn Txn, db: &Db) -> Result<Cursor<'txn>> {
-        let mut cursor: *mut ffi::MDB_cursor = ptr::null_mut();
-
-        unsafe { lmdb_result(ffi::mdb_cursor_open(txn.txn, db.dbi, &mut cursor))? }
-
-        Ok(Cursor {
-            cursor,
-            write: txn.write,
-            _marker: PhantomData,
-        })
+    pub fn unbind(self) -> UnboundCursor {
+        self.cursor
     }
 
     #[allow(clippy::try_err)]
     fn op_get(
-        &self,
+        &mut self,
         op: u32,
         key: Option<&[u8]>,
         val: Option<&[u8]>,
@@ -38,11 +56,17 @@ impl<'txn> Cursor<'txn> {
         let mut key = key.map_or(EMPTY_KEY, |key| unsafe { to_mdb_val(key) });
         let mut data = val.map_or(EMPTY_VAL, |val| unsafe { to_mdb_val(val) });
 
-        let result =
-            unsafe { lmdb_result(ffi::mdb_cursor_get(self.cursor, &mut key, &mut data, op)) };
+        let result = unsafe {
+            lmdb_result(ffi::mdbx_cursor_get(
+                self.cursor.cursor,
+                &mut key,
+                &mut data,
+                op,
+            ))
+        };
 
         match result {
-            Ok(()) => {
+            Ok(_) => {
                 let key = unsafe { from_mdb_val(&key) };
                 let data = unsafe { from_mdb_val(&data) };
                 Ok(Some((key, data)))
@@ -53,31 +77,31 @@ impl<'txn> Cursor<'txn> {
     }
 
     pub fn move_to(&mut self, key: impl Key) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_SET_KEY, Some(key.as_bytes()), None)
+        self.op_get(ffi::MDBX_SET_KEY, Some(key.as_bytes()), None)
     }
 
     pub fn move_to_key_val(&mut self, key: impl Key, val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_GET_BOTH, Some(key.as_bytes()), Some(val))
+        self.op_get(ffi::MDBX_GET_BOTH, Some(key.as_bytes()), Some(val))
     }
 
     pub fn move_to_gte(&mut self, key: impl Key) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_SET_RANGE, Some(key.as_bytes()), None)
+        self.op_get(ffi::MDBX_SET_RANGE, Some(key.as_bytes()), None)
     }
 
     pub fn move_to_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_NEXT_DUP, None, None)
+        self.op_get(ffi::MDBX_NEXT_DUP, None, None)
     }
 
     pub fn move_to_prev(&mut self) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_PREV, None, None)
+        self.op_get(ffi::MDBX_PREV, None, None)
     }
 
     pub fn move_to_prev_key(&mut self) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_PREV_NODUP, None, None)
+        self.op_get(ffi::MDBX_PREV_NODUP, None, None)
     }
 
     pub fn move_to_last(&mut self) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDB_LAST, None, None)
+        self.op_get(ffi::MDBX_LAST, None, None)
     }
 
     pub fn put(&self, key: impl Key, data: &[u8]) -> Result<()> {
@@ -87,7 +111,7 @@ impl<'txn> Cursor<'txn> {
 
     #[allow(clippy::try_err)]
     pub fn put_no_override(&self, key: impl Key, data: &[u8]) -> Result<bool> {
-        let result = self.put_internal(key, data, ffi::MDB_NOOVERWRITE);
+        let result = self.put_internal(key, data, ffi::MDBX_NOOVERWRITE);
         match result {
             Ok(()) => Ok(true),
             Err(LmdbError::KeyExist {}) => Ok(false),
@@ -101,19 +125,22 @@ impl<'txn> Cursor<'txn> {
         data: &[u8],
         flags: u32,
     ) -> std::result::Result<(), LmdbError> {
-        assert!(self.write);
         unsafe {
-            let mut key = to_mdb_val(key.as_bytes());
+            let key = to_mdb_val(key.as_bytes());
             let mut data = to_mdb_val(data);
-            lmdb_result(ffi::mdb_cursor_put(self.cursor, &mut key, &mut data, flags))?;
+            lmdb_result(ffi::mdbx_cursor_put(
+                self.cursor.cursor,
+                &key,
+                &mut data,
+                flags,
+            ))?;
         }
         Ok(())
     }
 
     /// Requires the cursor to have a valid position
     pub fn delete_current(&mut self) -> Result<()> {
-        assert!(self.write);
-        unsafe { lmdb_result(ffi::mdb_cursor_del(self.cursor, 0))? };
+        unsafe { lmdb_result(ffi::mdbx_cursor_del(self.cursor.cursor, 0))? };
 
         Ok(())
     }
@@ -179,10 +206,10 @@ impl<'txn> Cursor<'txn> {
         }
 
         let next = match (ascending, skip_duplicates) {
-            (true, true) => ffi::MDB_NEXT_NODUP,
-            (true, false) => ffi::MDB_NEXT,
-            (false, true) => ffi::MDB_PREV_NODUP,
-            (false, false) => ffi::MDB_PREV,
+            (true, true) => ffi::MDBX_NEXT_NODUP,
+            (true, false) => ffi::MDBX_NEXT,
+            (false, true) => ffi::MDBX_PREV_NODUP,
+            (false, false) => ffi::MDBX_PREV,
         };
         loop {
             if let Some((key, val)) = self.op_get(next, None, None)? {
@@ -199,7 +226,7 @@ impl<'txn> Cursor<'txn> {
         }
     }
 
-    pub fn iter_dups<'a>(
+    pub fn iter_dups(
         &mut self,
         key: impl Key,
         mut callback: impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
@@ -219,14 +246,6 @@ impl<'txn> Cursor<'txn> {
             } else {
                 return Ok(true);
             }
-        }
-    }
-}
-
-impl<'txn> Drop for Cursor<'txn> {
-    fn drop(&mut self) {
-        if !self.write {
-            unsafe { ffi::mdb_cursor_close(self.cursor) }
         }
     }
 }

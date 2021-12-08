@@ -3,7 +3,6 @@
 use crate::error::{IsarError, Result};
 use crate::instance::IsarInstance;
 use core::slice;
-use lmdb_sys as ffi;
 use std::cmp::{min, Ordering};
 use std::convert::TryInto;
 use std::ffi::c_void;
@@ -17,34 +16,34 @@ pub mod txn;
 
 pub type KeyVal<'txn> = (&'txn [u8], &'txn [u8]);
 
-pub const EMPTY_KEY: ffi::MDB_val = ffi::MDB_val {
-    mv_size: 0,
-    mv_data: 0 as *mut c_void,
+pub const EMPTY_KEY: ffi::MDBX_val = ffi::MDBX_val {
+    iov_len: 0,
+    iov_base: 0 as *mut c_void,
 };
 
-pub const EMPTY_VAL: ffi::MDB_val = ffi::MDB_val {
-    mv_size: 0,
-    mv_data: 0 as *mut c_void,
+pub const EMPTY_VAL: ffi::MDBX_val = ffi::MDBX_val {
+    iov_len: 0,
+    iov_base: 0 as *mut c_void,
 };
 
 const ID_PREFIX_MASK: u64 = 0xffff_ffff_ffff;
 const ID_OFFSET: i64 = i64::MIN - IsarInstance::MIN_ID;
 
 #[inline]
-pub unsafe fn from_mdb_val<'a>(val: &ffi::MDB_val) -> &'a [u8] {
-    slice::from_raw_parts(val.mv_data as *const u8, val.mv_size as usize)
+pub unsafe fn from_mdb_val<'a>(val: &ffi::MDBX_val) -> &'a [u8] {
+    slice::from_raw_parts(val.iov_base as *const u8, val.iov_len as usize)
 }
 
 #[inline]
-pub unsafe fn from_mdb_val_mut<'a>(val: &mut ffi::MDB_val) -> &'a mut [u8] {
-    slice::from_raw_parts_mut(val.mv_data as *mut u8, val.mv_size as usize)
+pub unsafe fn from_mdb_val_mut<'a>(val: &mut ffi::MDBX_val) -> &'a mut [u8] {
+    slice::from_raw_parts_mut(val.iov_base as *mut u8, val.iov_len as usize)
 }
 
 #[inline]
-pub unsafe fn to_mdb_val(value: &[u8]) -> ffi::MDB_val {
-    ffi::MDB_val {
-        mv_size: value.len(),
-        mv_data: value.as_ptr() as *mut libc::c_void,
+pub unsafe fn to_mdb_val(value: &[u8]) -> ffi::MDBX_val {
+    ffi::MDBX_val {
+        iov_len: value.len(),
+        iov_base: value.as_ptr() as *mut libc::c_void,
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::error::{IsarError, Result};
 use crate::index::index_key::IndexKey;
+use crate::lmdb::db::Db;
 use crate::lmdb::{ByteKey, IntKey, Key};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
@@ -55,32 +56,20 @@ impl IndexProperty {
 
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct Index {
-    pub id: u16,
-    pub col_id: u16,
+    db: Db,
     pub properties: Vec<IndexProperty>,
     pub unique: bool,
     pub replace: bool,
 }
 
 impl Index {
-    pub fn new(
-        id: u16,
-        col_id: u16,
-        properties: Vec<IndexProperty>,
-        unique: bool,
-        replace: bool,
-    ) -> Self {
+    pub fn new(db: Db, properties: Vec<IndexProperty>, unique: bool, replace: bool) -> Self {
         Index {
-            id,
-            col_id,
+            db,
             properties,
             unique,
             replace,
         }
-    }
-
-    pub fn get_prefix(&self) -> Vec<u8> {
-        self.id.to_be_bytes().to_vec()
     }
 
     pub fn create_for_object<F>(
@@ -238,26 +227,5 @@ impl Index {
                 }
             }
         }
-    }
-
-    pub fn debug_dump(&self, txn: &mut IsarTxn) -> HashSet<(Vec<u8>, Vec<u8>)> {
-        txn.read(|cursors| {
-            let set = dump_db(&mut cursors.index, Some(&self.id.to_be_bytes()))
-                .into_iter()
-                .map(|(key, val)| (key.to_vec(), val.to_vec()))
-                .collect();
-            Ok(set)
-        })
-        .unwrap()
-    }
-
-    pub fn debug_create_keys(&self, object: IsarObject) -> Vec<Vec<u8>> {
-        let mut keys = vec![];
-        self.create_keys(object, |key| {
-            keys.push(key.to_vec());
-            Ok(true)
-        })
-        .unwrap();
-        keys
     }
 }

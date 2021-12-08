@@ -7,7 +7,7 @@ use hashbrown::HashSet;
 
 #[derive(Clone)]
 pub(crate) struct IdWhereClause {
-    prefix: u16,
+    db: Db,
     lower: i64,
     upper: i64,
     sort: Sort,

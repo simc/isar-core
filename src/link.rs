@@ -5,6 +5,7 @@ use crate::lmdb::{IntKey, Key};
 use crate::object::isar_object::IsarObject;
 
 use crate::instance::IsarInstance;
+use crate::lmdb::db::Db;
 #[cfg(test)]
 use {
     crate::txn::IsarTxn, crate::utils::debug::dump_db_oid, hashbrown::HashMap, hashbrown::HashSet,
@@ -12,10 +13,10 @@ use {
 
 #[derive(Copy, Clone)]
 pub(crate) struct Link {
-    id: u16,
-    col_id: u16,
-    backlink_id: u16,
-    target_col_id: u16,
+    db: Db,
+    source_db: Db,
+    target_db: Db,
+    backlink: bool,
 }
 
 impl Link {

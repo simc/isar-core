@@ -1,8 +1,10 @@
+use crate::cursor::IsarCursors;
 use crate::error::{illegal_arg, IsarError, Result};
 use crate::index::index_key::IndexKey;
 use crate::index::Index;
 use crate::instance::IsarInstance;
 use crate::link::Link;
+use crate::lmdb::db::Db;
 use crate::lmdb::{verify_id, ByteKey, IntKey};
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
@@ -18,10 +20,10 @@ use serde_json::Value;
 use std::cell::Cell;
 
 pub struct IsarCollection {
-    pub id: u16,
     pub name: String,
     pub properties: Vec<Property>,
     pub property_names: Vec<String>,
+    db: Db,
     static_size: usize,
     indexes: Vec<Index>,
     links: Vec<(String, Link)>,
@@ -34,7 +36,7 @@ unsafe impl Sync for IsarCollection {}
 
 impl IsarCollection {
     pub(crate) fn new(
-        id: u16,
+        db: Db,
         name: String,
         properties: Vec<Property>,
         property_names: Vec<String>,
@@ -44,7 +46,7 @@ impl IsarCollection {
     ) -> Self {
         let static_size = ObjectBuilder::calculate_static_size(&properties);
         IsarCollection {
-            id,
+            db,
             name,
             properties,
             property_names,
@@ -82,7 +84,7 @@ impl IsarCollection {
     }
 
     pub fn new_index_key(&self, index_index: usize) -> Option<IndexKey> {
-        self.indexes.get(index_index).map(|i| IndexKey::new(i))
+        self.indexes.get(index_index).map(IndexKey::new)
     }
 
     pub(crate) fn verify_index_key(&self, key: &IndexKey) -> Result<()> {
@@ -110,7 +112,7 @@ impl IsarCollection {
         verify_id(id)?;
         txn.read(|cursors| {
             let object = cursors
-                .data
+                .get_cursor(self.db)?
                 .move_to(IntKey::new(self.id, id))?
                 .map(|(_, v)| IsarObject::from_bytes(v));
             Ok(object)
@@ -127,7 +129,7 @@ impl IsarCollection {
             let index_result = cursors.index.move_to(ByteKey::new(&key.bytes))?;
             if let Some((_, key)) = index_result {
                 let object = cursors
-                    .data
+                    .get_cursor(self.db)?
                     .move_to(ByteKey::new(key))?
                     .map(|(_, v)| IsarObject::from_bytes(v));
                 Ok(object)
@@ -143,7 +145,7 @@ impl IsarCollection {
 
     fn put_internal(
         &self,
-        cursors: &mut Cursors,
+        cursors: &IsarCursors,
         mut change_set: Option<&mut ChangeSet>,
         object: IsarObject,
     ) -> Result<()> {
@@ -189,7 +191,7 @@ impl IsarCollection {
 
     pub(crate) fn delete_internal(
         &self,
-        cursors: &mut Cursors,
+        cursors: &IsarCursors,
         delete_links: bool,
         change_set: Option<&mut ChangeSet>,
         id: i64,

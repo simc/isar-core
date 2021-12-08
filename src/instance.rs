@@ -38,19 +38,12 @@ impl IsarInstance {
     pub const MAX_ID: i64 = (1 << 47) - 1;
     pub const ENCRYPTION_KEY_LEN: usize = 32;
 
-    pub fn open(
-        name: &str,
-        dir: PathBuf,
-        max_size: usize,
-        schema: Schema,
-        encryption_key: Option<&[u8]>,
-    ) -> Result<Arc<Self>> {
+    pub fn open(name: &str, dir: PathBuf, max_size: usize, schema: Schema) -> Result<Arc<Self>> {
         let mut lock = INSTANCES.write().unwrap();
         match lock.entry(name.to_string()) {
             Entry::Occupied(e) => Ok(e.get().clone()),
             Entry::Vacant(e) => {
-                let new_instance =
-                    Self::open_internal(e.key(), dir, max_size, schema, encryption_key)?;
+                let new_instance = Self::open_internal(e.key(), dir, max_size, schema)?;
                 let instance_ref = e.insert(Arc::new(new_instance));
                 Ok(instance_ref.clone())
             }
@@ -62,18 +55,11 @@ impl IsarInstance {
         mut dir: PathBuf,
         max_size: usize,
         schema: Schema,
-        encryption_key: Option<&[u8]>,
     ) -> Result<Self> {
-        if let Some(encryption_key) = encryption_key {
-            if encryption_key.len() != IsarInstance::ENCRYPTION_KEY_LEN {
-                return illegal_arg("Wrong Encryption key size.");
-            }
-        }
-
         dir.push(name);
         let path = dir.to_str().unwrap();
         let _ = create_dir_all(path);
-        let env = Env::create(path, 4, max_size, encryption_key)?;
+        let env = Env::create(path, 4, max_size)?;
         let dbs = IsarInstance::open_databases(&env)?;
 
         let txn = env.txn(true)?;
