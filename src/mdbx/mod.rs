@@ -35,7 +35,7 @@ pub unsafe fn from_mdb_val_mut<'a>(val: &mut ffi::MDBX_val) -> &'a mut [u8] {
 #[inline]
 pub unsafe fn to_mdb_val(value: &[u8]) -> ffi::MDBX_val {
     ffi::MDBX_val {
-        iov_len: value.len(),
+        iov_len: std::mem::transmute(value.len()), // fixes weird error on Android
         iov_base: value.as_ptr() as *mut libc::c_void,
     }
 }
