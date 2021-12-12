@@ -1,3 +1,5 @@
+cargo-features = ["strip"]
+
 [package]
 name = "isar-core-dart-ffi"
 version = "0.0.0"

@@ -71,13 +71,7 @@ impl<'a> JsonEncodeDecode {
                     DataType::Byte => ob.write_byte(Self::value_to_byte(value)?),
                     DataType::Int => ob.write_int(Self::value_to_int(value)?),
                     DataType::Float => ob.write_float(Self::value_to_float(value)?),
-                    DataType::Long => {
-                        let mut long_value = Self::value_to_long(value)?;
-                        if property.is_id() && value.is_null() {
-                            long_value = collection.auto_increment_internal()?;
-                        }
-                        ob.write_long(long_value)
-                    }
+                    DataType::Long => ob.write_long(Self::value_to_long(value)?),
                     DataType::Double => ob.write_double(Self::value_to_double(value)?),
                     DataType::String => ob.write_string(Self::value_to_string(value)?),
                     DataType::ByteList => {
@@ -112,9 +106,6 @@ impl<'a> JsonEncodeDecode {
                         }
                     }
                 }
-            } else if property.is_id() {
-                let oid = collection.auto_increment_internal()?;
-                ob.write_long(oid);
             } else {
                 ob.write_null();
             }

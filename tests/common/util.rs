@@ -12,7 +12,7 @@ macro_rules! isar (
         dir.push(&r.to_string());
         let col_schemas = vec![$($schema),+];
         let schema = isar_core::schema:: Schema::new(col_schemas).unwrap();
-        let $isar = isar_core::instance::IsarInstance::open(&r.to_string(), dir, 100000000, schema, None).unwrap();
+        let $isar = isar_core::instance::IsarInstance::open(&r.to_string(), dir, 100000000, schema).unwrap();
         col!($isar, $($col),+)
     };
 );
@@ -63,7 +63,7 @@ pub fn assert_find<'a>(txn: &'a mut IsarTxn, query: Query, objects: &[&TestObj])
         .find_all_vec(txn)
         .unwrap()
         .iter()
-        .map(|o| TestObj::from(*o))
+        .map(|(_, o)| TestObj::from(*o))
         .collect_vec();
     let borrowed = result.iter().collect_vec();
     assert_eq!(&borrowed, objects);

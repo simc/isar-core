@@ -47,7 +47,7 @@ fn aggregate(
         Ordering::Less
     };
 
-    query.find_while(txn, |obj| {
+    query.find_while(txn, |_, obj| {
         if op == AggregationOp::Count {
             count += 1;
             return true;

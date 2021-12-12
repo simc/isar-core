@@ -1,8 +1,8 @@
 use crate::error::Result;
-use crate::lmdb::db::Db;
-use crate::lmdb::error::{lmdb_result, LmdbError};
-use crate::lmdb::txn::Txn;
-use crate::lmdb::{from_mdb_val, to_mdb_val, Key, KeyVal, EMPTY_KEY, EMPTY_VAL};
+use crate::mdbx::db::Db;
+use crate::mdbx::error::{lmdb_result, LmdbError};
+use crate::mdbx::txn::Txn;
+use crate::mdbx::{from_mdb_val, to_mdb_val, ByteKey, KeyVal, EMPTY_KEY, EMPTY_VAL};
 use core::ptr;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -13,7 +13,7 @@ pub struct UnboundCursor {
 
 impl UnboundCursor {
     pub(crate) fn new() -> Self {
-        let mut cursor = unsafe { ffi::mdbx_cursor_create(ptr::null_mut()) };
+        let cursor = unsafe { ffi::mdbx_cursor_create(ptr::null_mut()) };
 
         UnboundCursor { cursor }
     }
@@ -76,16 +76,16 @@ impl<'txn> Cursor<'txn> {
         }
     }
 
-    pub fn move_to(&mut self, key: impl Key) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDBX_SET_KEY, Some(key.as_bytes()), None)
+    pub fn move_to(&mut self, key: &[u8]) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDBX_SET_KEY, Some(key), None)
     }
 
-    pub fn move_to_key_val(&mut self, key: impl Key, val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDBX_GET_BOTH, Some(key.as_bytes()), Some(val))
+    pub fn move_to_key_val(&mut self, key: &[u8], val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDBX_GET_BOTH, Some(key), Some(val))
     }
 
-    pub fn move_to_gte(&mut self, key: impl Key) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDBX_SET_RANGE, Some(key.as_bytes()), None)
+    pub fn move_to_gte(&mut self, key: &[u8]) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDBX_SET_RANGE, Some(key), None)
     }
 
     pub fn move_to_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
@@ -104,13 +104,13 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDBX_LAST, None, None)
     }
 
-    pub fn put(&self, key: impl Key, data: &[u8]) -> Result<()> {
+    pub fn put(&mut self, key: &[u8], data: &[u8]) -> Result<()> {
         self.put_internal(key, data, 0)?;
         Ok(())
     }
 
     #[allow(clippy::try_err)]
-    pub fn put_no_override(&self, key: impl Key, data: &[u8]) -> Result<bool> {
+    pub fn put_no_override(&mut self, key: &[u8], data: &[u8]) -> Result<bool> {
         let result = self.put_internal(key, data, ffi::MDBX_NOOVERWRITE);
         match result {
             Ok(()) => Ok(true),
@@ -120,13 +120,13 @@ impl<'txn> Cursor<'txn> {
     }
 
     fn put_internal(
-        &self,
-        key: impl Key,
+        &mut self,
+        key: &[u8],
         data: &[u8],
         flags: u32,
     ) -> std::result::Result<(), LmdbError> {
         unsafe {
-            let key = to_mdb_val(key.as_bytes());
+            let key = to_mdb_val(key);
             let mut data = to_mdb_val(data);
             lmdb_result(ffi::mdbx_cursor_put(
                 self.cursor.cursor,
@@ -146,25 +146,28 @@ impl<'txn> Cursor<'txn> {
     }
 
     #[inline(never)]
-    fn iter_between_first<K: Key>(
+    fn iter_between_first(
         &mut self,
-        lower_key: K,
-        upper_key: K,
+        lower_key: &[u8],
+        upper_key: &[u8],
         ascending: bool,
     ) -> Result<Option<KeyVal<'txn>>> {
+        let lower_key = ByteKey::new(lower_key);
+        let upper_key = ByteKey::new(upper_key);
+
         if upper_key < lower_key {
             return Ok(None);
         }
 
         let first_entry = if !ascending {
-            if let Some(first_entry) = self.move_to_gte(upper_key)? {
+            if let Some(first_entry) = self.move_to_gte(upper_key.bytes)? {
                 Some(first_entry)
             } else {
                 // If some key between upper_key and lower_key happens to be the last key in the db
                 self.move_to_last()?
             }
         } else {
-            self.move_to_gte(lower_key)?
+            self.move_to_gte(lower_key.bytes)?
         };
 
         if let Some((key, _)) = first_entry {
@@ -185,20 +188,25 @@ impl<'txn> Cursor<'txn> {
         }
     }
 
-    pub fn iter_between<K: Key>(
+    pub fn iter_between(
         &mut self,
-        lower_key: K,
-        upper_key: K,
+        lower_key: &[u8],
+        upper_key: &[u8],
         skip_duplicates: bool,
         ascending: bool,
-        mut callback: impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
+        mut callback: impl FnMut(&'txn [u8], &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
+        let lower_key = ByteKey::new(lower_key);
+        let upper_key = ByteKey::new(upper_key);
+
         if upper_key < lower_key {
             return Ok(true);
         }
 
-        if let Some((key, val)) = self.iter_between_first(lower_key, upper_key, ascending)? {
-            if !callback(self, key, val)? {
+        if let Some((key, val)) =
+            self.iter_between_first(lower_key.bytes, upper_key.bytes, ascending)?
+        {
+            if !callback(key, val)? {
                 return Ok(false);
             }
         } else {
@@ -217,7 +225,7 @@ impl<'txn> Cursor<'txn> {
                     || (!ascending && lower_key.cmp_bytes(key) == Ordering::Greater)
                 {
                     return Ok(true);
-                } else if !callback(self, key, val)? {
+                } else if !callback(key, val)? {
                     return Ok(false);
                 }
             } else {
@@ -228,19 +236,19 @@ impl<'txn> Cursor<'txn> {
 
     pub fn iter_dups(
         &mut self,
-        key: impl Key,
-        mut callback: impl FnMut(&mut Cursor<'txn>, &'txn [u8], &'txn [u8]) -> Result<bool>,
+        key: &[u8],
+        mut callback: impl FnMut(&mut Self, &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
-        if let Some((key, val)) = self.move_to(key)? {
-            if !callback(self, key, val)? {
+        if let Some((_, val)) = self.move_to(key)? {
+            if !callback(self, val)? {
                 return Ok(true);
             }
         } else {
             return Ok(true);
         }
         loop {
-            if let Some((key, val)) = self.move_to_dup()? {
-                if !callback(self, key, val)? {
+            if let Some((_, val)) = self.move_to_dup()? {
+                if !callback(self, val)? {
                     return Ok(false);
                 }
             } else {
@@ -252,9 +260,9 @@ impl<'txn> Cursor<'txn> {
 
 #[cfg(test)]
 mod tests {
-    /*use crate::lmdb::db::Db;
-    use crate::lmdb::env::tests::get_env;
-    use crate::lmdb::env::Env;
+    /*use crate::mdbx::db::Db;
+    use crate::mdbx::env::tests::get_env;
+    use crate::mdbx::env::Env;
     use itertools::Itertools;
     use std::sync::{Arc, Mutex};
 

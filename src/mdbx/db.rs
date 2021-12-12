@@ -1,17 +1,16 @@
 use crate::error::Result;
-use crate::lmdb::cursor::Cursor;
-use crate::lmdb::error::lmdb_result;
-use crate::lmdb::txn::Txn;
+use crate::mdbx::error::lmdb_result;
+use crate::mdbx::txn::Txn;
 use std::ffi::CString;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Db {
     pub(crate) dbi: ffi::MDBX_dbi,
     pub dup: bool,
 }
 
 impl Db {
-    pub fn get_id(&self) -> u64 {
+    pub fn runtime_id(&self) -> u64 {
         self.dbi as u64
     }
 
@@ -35,8 +34,14 @@ impl Db {
         Ok(Self { dbi, dup })
     }
 
-    pub fn cursor<'txn>(&self, txn: &'txn Txn) -> Result<Cursor<'txn>> {
-        Cursor::open(txn, self)
+    pub fn clear(&self, txn: &Txn) -> Result<()> {
+        unsafe { lmdb_result(ffi::mdbx_drop(txn.txn, self.dbi, false)) }?;
+        Ok(())
+    }
+
+    pub fn drop(self, txn: &Txn) -> Result<()> {
+        unsafe { lmdb_result(ffi::mdbx_drop(txn.txn, self.dbi, true)) }?;
+        Ok(())
     }
 }
 

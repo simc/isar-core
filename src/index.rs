@@ -1,24 +1,13 @@
+use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
-use crate::index::index_key::IndexKey;
-use crate::lmdb::db::Db;
-use crate::index_key::IndexKey;
-use crate::lmdb::{ByteKey, IntKey, Key};
+use crate::key::{IdKey, IndexKey};
+use crate::mdbx::db::Db;
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
-use crate::query::index_where_clause::IndexWhereClause;
-use crate::query::Sort;
-use crate::schema::collection_schema::IndexType;
-use crate::txn::Cursors;
+use crate::schema::index_schema::IndexType;
+use crate::txn::IsarTxn;
 use itertools::Itertools;
 use unicode_segmentation::UnicodeSegmentation;
-
-pub const MAX_STRING_INDEX_SIZE: usize = 1024;
-
-/*
-
-Null values are always considered the "smallest" element.
-
- */
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct IndexProperty {
@@ -53,103 +42,111 @@ impl IndexProperty {
 
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct IsarIndex {
-    db: Db,
     pub properties: Vec<IndexProperty>,
     pub unique: bool,
     pub replace: bool,
+    db: Db,
 }
 
 impl IsarIndex {
+    pub const MAX_STRING_INDEX_SIZE: usize = 1024;
+
     pub fn new(db: Db, properties: Vec<IndexProperty>, unique: bool, replace: bool) -> Self {
         IsarIndex {
-            db,
             properties,
             unique,
             replace,
+            db,
         }
     }
 
     pub fn create_for_object<F>(
         &self,
-        cursors: &mut Cursors,
-        oid: i64,
+        cursors: &IsarCursors,
+        id_key: &IdKey,
         object: IsarObject,
         mut delete_existing: F,
     ) -> Result<()>
     where
-        F: FnMut(&mut Cursors, i64) -> Result<()>,
+        F: FnMut(&IdKey) -> Result<()>,
     {
-        let id_key = IntKey::new(self.col_id, oid);
+        let mut cursor = cursors.get_cursor(self.db)?;
         self.create_keys(object, |key| {
-            self.create_for_object_key(cursors, id_key, ByteKey::new(key), &mut delete_existing)?;
+            if self.unique {
+                let success = cursor.put_no_override(key.as_bytes(), id_key.as_bytes())?;
+                if !success {
+                    if self.replace {
+                        delete_existing(id_key)?;
+                        cursor.put(key.as_bytes(), id_key.as_bytes())?;
+                    } else {
+                        return Err(IsarError::UniqueViolated {});
+                    }
+                }
+            } else {
+                cursor.put(key.as_bytes(), id_key.as_bytes())?;
+            }
             Ok(true)
         })
-    }
-
-    fn create_for_object_key<F>(
-        &self,
-        cursors: &mut Cursors,
-        id_key: IntKey,
-        key: ByteKey,
-        mut delete_existing: F,
-    ) -> Result<()>
-    where
-        F: FnMut(&mut Cursors, i64) -> Result<()>,
-    {
-        if self.unique {
-            let success = cursors.index.put_no_override(key, id_key.as_bytes())?;
-            if !success {
-                if self.replace {
-                    delete_existing(cursors, id_key.get_id())?;
-                } else {
-                    return Err(IsarError::UniqueViolated {});
-                }
-            }
-        } else {
-            cursors.index.put(key, id_key.as_bytes())?;
-        }
-        Ok(())
     }
 
     pub fn delete_for_object(
         &self,
-        cursors: &mut Cursors,
-        oid: i64,
+        cursors: &IsarCursors,
+        id_key: &IdKey,
         object: IsarObject,
     ) -> Result<()> {
-        let key = IntKey::new(self.col_id, oid);
-        let oid_bytes = key.as_bytes();
+        let mut cursor = cursors.get_cursor(self.db)?;
         self.create_keys(object, |key| {
-            let entry = cursors
-                .index
-                .move_to_key_val(ByteKey::new(key), oid_bytes)?;
+            let entry = cursor.move_to_key_val(key.as_bytes(), id_key.as_bytes())?;
             if entry.is_some() {
-                cursors.index.delete_current()?;
+                cursor.delete_current()?;
             }
             Ok(true)
         })
     }
 
-    pub fn clear(&self, cursors: &mut Cursors) -> Result<()> {
-        IndexWhereClause::new(
-            IndexKey::new(self),
-            IndexKey::new(self),
-            false,
-            Sort::Ascending,
-        )?
-        .iter_ids(&mut cursors.index, |cursor, _| {
-            cursor.delete_current()?;
-            Ok(true)
+    pub fn iter_between<'txn, 'env>(
+        &self,
+        cursors: &IsarCursors<'txn, 'env>,
+        lower_key: &IndexKey,
+        upper_key: &IndexKey,
+        skip_duplicates: bool,
+        ascending: bool,
+        mut callback: impl FnMut(IdKey<'txn>) -> Result<bool>,
+    ) -> Result<bool> {
+        let mut cursor = cursors.get_cursor(self.db)?;
+        cursor.iter_between(
+            lower_key.as_bytes(),
+            upper_key.as_bytes(),
+            skip_duplicates,
+            ascending,
+            |_, id_key| callback(IdKey::from_bytes(id_key)),
+        )
+    }
+
+    pub fn get_id<'txn, 'env>(
+        &self,
+        cursors: &IsarCursors<'txn, 'env>,
+        key: &IndexKey,
+    ) -> Result<Option<IdKey<'txn>>> {
+        let mut result = None;
+        self.iter_between(cursors, key, key, false, true, |id_key| {
+            result = Some(id_key);
+            Ok(false)
         })?;
-        Ok(())
+        Ok(result)
+    }
+
+    pub fn clear(&self, txn: &mut IsarTxn) -> Result<()> {
+        txn.clear_db(self.db)
     }
 
     pub fn create_keys(
         &self,
         object: IsarObject,
-        mut callback: impl FnMut(&[u8]) -> Result<bool>,
+        mut callback: impl FnMut(&IndexKey) -> Result<bool>,
     ) -> Result<()> {
-        let mut key = IndexKey::new(self);
+        let mut key = IndexKey::new();
         Self::fill_single_key(&mut key, &self.properties, object);
 
         let last_property = self.properties.last().unwrap();
@@ -166,7 +163,7 @@ impl IsarIndex {
             });
             result
         } else {
-            callback(&key.bytes)?;
+            callback(&key)?;
             Ok(())
         }
     }
@@ -211,7 +208,7 @@ impl IsarIndex {
         key: &mut IndexKey,
         property: IndexProperty,
         object: IsarObject,
-        mut callback: impl FnMut(&[u8]) -> bool,
+        mut callback: impl FnMut(&IndexKey) -> bool,
     ) {
         let key_len = key.len();
         let value = property.get_string_with_case(object);
@@ -219,7 +216,7 @@ impl IsarIndex {
             for word in str.unicode_words().unique() {
                 key.truncate(key_len);
                 key.add_string_word(word, property.case_sensitive.unwrap());
-                if !callback(&key.bytes) {
+                if !callback(key) {
                     break;
                 }
             }

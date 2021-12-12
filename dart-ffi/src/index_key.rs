@@ -1,24 +1,12 @@
 use crate::from_c_str;
-use isar_core::collection::IsarCollection;
-use isar_core::error::illegal_arg;
-use isar_core::index::index_key::IndexKey;
+use isar_core::key::IndexKey;
 use std::os::raw::c_char;
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_key_create<'a>(
-    collection: &'a IsarCollection,
-    key: *mut *const IndexKey<'a>,
-    index_index: i32,
-) -> i32 {
-    isar_try! {
-        let index_key = collection.new_index_key(index_index as usize);
-        if let Some(index_key) = index_key {
-            let ptr = Box::into_raw(Box::new(index_key));
-            key.write(ptr);
-        } else {
-            illegal_arg("Unknown index.")?;
-        };
-    }
+pub unsafe extern "C" fn isar_key_create(key: *mut *const IndexKey) {
+    let index_key = IndexKey::new();
+    let ptr = Box::into_raw(Box::new(index_key));
+    key.write(ptr);
 }
 
 #[no_mangle]

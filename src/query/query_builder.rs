@@ -1,15 +1,12 @@
+use super::index_where_clause::IndexWhereClause;
 use crate::collection::IsarCollection;
 use crate::error::Result;
-use crate::index_key::IndexKey;
-use crate::lmdb::ByteKey;
+use crate::key::IndexKey;
 use crate::object::isar_object::Property;
 use crate::query::filter::Filter;
 use crate::query::id_where_clause::IdWhereClause;
 use crate::query::where_clause::WhereClause;
 use crate::query::{Query, Sort};
-
-use super::index_where_clause::IndexWhereClause;
-use crate::instance::IsarInstance;
 
 pub struct QueryBuilder<'a> {
     collection: &'a IsarCollection,
@@ -43,7 +40,7 @@ impl<'a> QueryBuilder<'a> {
         } else {
             (start, end, Sort::Ascending)
         };
-        let wc = IdWhereClause::new(self.collection, lower, upper, sort);
+        let wc = IdWhereClause::new(self.collection.db, lower, upper, sort);
         if !wc.is_empty() {
             self.where_clauses
                 .as_mut()
@@ -55,21 +52,27 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn add_index_where_clause(
         &mut self,
+        index_index: usize,
         start: IndexKey,
         include_start: bool,
         end: IndexKey,
         include_end: bool,
         skip_duplicates: bool,
     ) -> Result<()> {
-        self.collection.verify_index_key(&start)?;
-        self.collection.verify_index_key(&end)?;
-        let desc = ByteKey::new(&start.bytes) > ByteKey::new(&end.bytes);
-        let (lower, include_lower, upper, include_upper, sort) = if desc {
+        let index = self.collection.get_index_by_index(index_index)?;
+        let (lower, include_lower, upper, include_upper, sort) = if start > end {
             (end, include_end, start, include_start, Sort::Descending)
         } else {
             (start, include_start, end, include_end, Sort::Ascending)
         };
-        let mut wc = IndexWhereClause::new(lower, upper, skip_duplicates, sort)?;
+        let mut wc = IndexWhereClause::new(
+            self.collection.db,
+            index.clone(),
+            lower,
+            upper,
+            skip_duplicates,
+            sort,
+        )?;
         if self.where_clauses.is_none() {
             self.where_clauses = Some(vec![]);
         }
@@ -77,7 +80,7 @@ impl<'a> QueryBuilder<'a> {
             self.where_clauses
                 .as_mut()
                 .unwrap()
-                .push(WhereClause::IsarIndex(wc));
+                .push(WhereClause::Index(wc));
         }
         Ok(())
     }
@@ -104,10 +107,10 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn build(mut self) -> Query {
         if self.where_clauses.is_none() {
-            self.add_id_where_clause(IsarInstance::MIN_ID, IsarInstance::MAX_ID)
-                .unwrap();
+            self.add_id_where_clause(i64::MIN, i64::MAX).unwrap();
         }
         Query::new(
+            self.collection.instance_id,
             self.where_clauses.unwrap(),
             self.filter,
             self.sort,

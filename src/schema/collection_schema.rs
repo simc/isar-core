@@ -1,111 +1,27 @@
-use crate::collection::IsarCollection;
-use crate::error::{schema_error, Result};
-use crate::index::{IndexProperty, IsarIndex};
-use crate::link::IsarLink;
+use crate::error::{schema_error, IsarError, Result};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::Property;
-use enum_ordinalize::Ordinalize;
+use crate::schema::index_schema::{IndexSchema, IndexType};
+use crate::schema::link_schema::LinkSchema;
+use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
 
-#[derive(PartialEq, Serialize, Deserialize, Clone, Debug)]
-pub struct PropertySchema {
-    pub(crate) name: String,
-    #[serde(rename = "type")]
-    pub(crate) data_type: DataType,
-    pub(crate) offset: Option<usize>,
-}
-
-impl PropertySchema {
-    pub fn new(name: &str, data_type: DataType) -> PropertySchema {
-        PropertySchema {
-            name: name.to_string(),
-            data_type,
-            offset: None,
-        }
-    }
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Serialize_repr, Deserialize_repr, Debug, Ordinalize)]
-#[repr(u8)]
-pub enum IndexType {
-    Value,
-    Hash,
-    Words,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct IndexPropertySchema {
-    #[serde(rename = "name")]
-    pub(crate) name: String,
-    #[serde(rename = "indexType")]
-    pub(crate) index_type: IndexType,
-    #[serde(rename = "caseSensitive")]
-    pub(crate) case_sensitive: Option<bool>,
-}
-
-impl IndexPropertySchema {
-    pub fn new(
-        name: &str,
-        index_type: IndexType,
-        case_sensitive: Option<bool>,
-    ) -> IndexPropertySchema {
-        IndexPropertySchema {
-            name: name.to_string(),
-            index_type,
-            case_sensitive,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct IndexSchema {
-    pub(crate) id: Option<u16>,
-    pub(crate) properties: Vec<IndexPropertySchema>,
-    pub(crate) unique: bool,
-    pub(crate) replace: bool,
-}
-
-impl IndexSchema {
-    pub fn new(properties: Vec<IndexPropertySchema>, unique: bool, replace: bool) -> IndexSchema {
-        IndexSchema {
-            id: None,
-            properties,
-            unique,
-            replace,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct LinkSchema {
-    pub(crate) id: Option<u16>,
-    #[serde(rename = "backlinkId")]
-    pub(crate) backlink_id: Option<u16>,
-    pub(crate) name: String,
-    #[serde(rename = "collection")]
-    pub(crate) target_col: String,
-}
-
-impl LinkSchema {
-    pub fn new(name: &str, target_collection_name: &str) -> Self {
-        LinkSchema {
-            id: None,
-            backlink_id: None,
-            name: name.to_string(),
-            target_col: target_collection_name.to_string(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq)]
 pub struct CollectionSchema {
-    pub(crate) id: Option<u16>,
     pub(crate) name: String,
     pub(crate) properties: Vec<PropertySchema>,
+    #[serde(default)]
+    #[serde(skip_serializing)]
+    pub(crate) hidden_properties: Vec<String>,
     pub(crate) indexes: Vec<IndexSchema>,
     pub(crate) links: Vec<LinkSchema>,
+}
+
+impl PartialEq for CollectionSchema {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
 }
 
 impl CollectionSchema {
@@ -116,21 +32,27 @@ impl CollectionSchema {
         links: Vec<LinkSchema>,
     ) -> CollectionSchema {
         CollectionSchema {
-            id: None,
             name: name.to_string(),
             properties,
+            hidden_properties: vec![],
             indexes,
             links,
         }
     }
 
-    pub fn get_name(&self) -> &str {
-        &self.name
+    fn verify_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            schema_error("Empty names are not allowed")
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) fn verify(&mut self) -> Result<()> {
-        if self.name.is_empty() {
-            schema_error("Empty collection names are not allowed")?;
+        Self::verify_name(&self.name)?;
+
+        for property in &self.properties {
+            Self::verify_name(&property.name)?;
         }
 
         let properties_link_names = self
@@ -140,13 +62,6 @@ impl CollectionSchema {
             .chain(self.links.iter().map(|l| l.name.as_str()));
         if properties_link_names.unique().count() < self.properties.len() + self.links.len() {
             schema_error("Duplicate property or link name")?;
-        }
-        if let Some(property) = self.properties.first() {
-            if property.data_type != DataType::Long {
-                schema_error("Id property has incorrect data type")?;
-            }
-        } else {
-            schema_error("At least the id property needs to be defined")?;
         }
 
         for index in &self.indexes {
@@ -196,197 +111,52 @@ impl CollectionSchema {
         }
 
         for link in &self.links {
-            if link.name.is_empty() {
-                schema_error("Empty link names are not allowed")?;
-            }
+            Self::verify_name(&link.name)?;
         }
 
         Ok(())
     }
 
-    pub(super) fn get_isar_collection(&self, cols: &[CollectionSchema]) -> IsarCollection {
-        let (properties, property_names) = self.get_properties();
-        let indexes = self.get_indexes(&properties, &property_names);
-        let links = self.get_links(cols);
-        let backlinks = self.get_backlinks(cols);
+    pub(crate) fn merge_properties(&mut self, existing: &Self) -> Result<()> {
+        let mut properties = existing.properties.clone();
+        for property in &self.properties {
+            let existing_property = existing.properties.iter().find(|p| p.name == property.name);
+            if let Some(existing_property) = existing_property {
+                if property.data_type != existing_property.data_type {
+                    return Err(IsarError::SchemaError {
+                        message: format!(
+                            "Property \"{}\" already exists but has a different type",
+                            property.name
+                        ),
+                    });
+                }
+            } else {
+                properties.push(property.clone());
+            }
+        }
+        for property in &existing.properties {
+            if !self.properties.contains(property) {
+                self.hidden_properties.push(property.name.clone())
+            }
+        }
+        self.properties = properties;
 
-        IsarCollection::new(
-            self.id.unwrap(),
-            self.name.clone(),
-            properties,
-            property_names,
-            indexes,
-            links,
-            backlinks,
-        )
+        Ok(())
     }
 
-    fn get_properties(&self) -> (Vec<Property>, Vec<String>) {
+    pub(crate) fn get_properties(&self) -> (Vec<Property>, Vec<String>) {
         let mut properties = vec![];
         let mut property_names = vec![];
-        for p in &self.properties {
-            let property = Property::new(p.data_type, p.offset.unwrap());
-            properties.push(property);
-            property_names.push(p.name.clone());
+        let mut offset = 2;
+        for property_schema in &self.properties {
+            if !self.hidden_properties.contains(&property_schema.name) {
+                let property = Property::new(property_schema.data_type, offset);
+                properties.push(property);
+                property_names.push(property_schema.name.clone());
+            }
+            offset += property_schema.data_type.get_static_size();
         }
         (properties, property_names)
-    }
-
-    fn get_indexes(&self, properties: &[Property], property_names: &[String]) -> Vec<IsarIndex> {
-        self.indexes
-            .iter()
-            .map(|index| {
-                let properties = index
-                    .properties
-                    .iter()
-                    .map(|ips| {
-                        let p_index = property_names.iter().position(|n| n == &ips.name).unwrap();
-                        let property = properties.get(p_index).unwrap();
-                        IndexProperty::new(*property, ips.index_type, ips.case_sensitive)
-                    })
-                    .collect_vec();
-
-                IsarIndex::new(
-                    index.id.unwrap(),
-                    self.id.unwrap(),
-                    properties,
-                    index.unique,
-                    index.replace,
-                )
-            })
-            .collect()
-    }
-
-    fn get_links(&self, cols: &[CollectionSchema]) -> Vec<(String, IsarLink)> {
-        self.links
-            .iter()
-            .map(|l| {
-                let target_col_id = cols
-                    .iter()
-                    .find(|c| c.name == l.target_col)
-                    .unwrap()
-                    .id
-                    .unwrap();
-                let link = IsarLink::new(
-                    l.id.unwrap(),
-                    l.backlink_id.unwrap(),
-                    self.id.unwrap(),
-                    target_col_id,
-                );
-                (l.name.clone(), link)
-            })
-            .collect()
-    }
-
-    fn get_backlinks(&self, cols: &[CollectionSchema]) -> Vec<IsarLink> {
-        cols.iter()
-            .filter(|c| c.id != self.id)
-            .flat_map(|c| {
-                c.links
-                    .iter()
-                    .filter(|l| l.target_col == self.name)
-                    .map(|l| {
-                        IsarLink::new(
-                            l.backlink_id.unwrap(),
-                            l.id.unwrap(),
-                            c.id.unwrap(),
-                            self.id.unwrap(),
-                        )
-                    })
-                    .collect_vec()
-            })
-            .collect()
-    }
-
-    fn find_next_offset(properties: &[PropertySchema]) -> usize {
-        properties
-            .iter()
-            .map(|p| p.offset.unwrap() + p.data_type.get_static_size())
-            .max()
-            .unwrap_or(2) // u16 static
-    }
-
-    fn check_indexes_equal(
-        index1: &IndexSchema,
-        properties1: &[PropertySchema],
-        index2: &IndexSchema,
-        properties2: &[PropertySchema],
-    ) -> bool {
-        if index1.unique != index2.unique || index1.properties.len() != index2.properties.len() {
-            return false;
-        }
-        for (ip1, ip2) in index1.properties.iter().zip(index2.properties.iter()) {
-            if ip1 != ip2 {
-                return false;
-            }
-            let p1 = properties1.iter().find(|p| p.name == ip1.name).unwrap();
-            let p2 = properties2.iter().find(|p| p.name == ip2.name).unwrap();
-            if p1 != p2 {
-                return false;
-            }
-        }
-        true
-    }
-
-    pub(super) fn update_with_existing_collection(
-        &mut self,
-        existing_col: Option<&CollectionSchema>,
-        get_id: &mut impl FnMut() -> u16,
-    ) -> Result<()> {
-        if let Some(existing_col) = existing_col {
-            self.id = existing_col.id;
-        } else {
-            self.id = Some(get_id());
-        }
-
-        let existing_properties: &[PropertySchema] = existing_col.map_or(&[], |e| &e.properties);
-        let mut next_offset = Self::find_next_offset(existing_properties);
-        for (i, property) in &mut self.properties.iter_mut().enumerate() {
-            let existing_property = existing_properties.iter().find(|i| i.name == property.name);
-            if let Some(existing_property) = existing_property {
-                if existing_property.data_type != property.data_type {
-                    return schema_error(
-                        "The type of properties must not change between versions.",
-                    );
-                }
-                property.offset = existing_property.offset;
-            } else {
-                if existing_col.is_some() && i == 0 {
-                    return schema_error("The id property must not change between versions");
-                }
-                property.offset = Some(next_offset);
-                next_offset += property.data_type.get_static_size();
-            }
-        }
-
-        let existing_indexes: &[IndexSchema] = existing_col.map_or(&[], |e| &e.indexes);
-        let properties = &self.properties;
-        for index in &mut self.indexes {
-            let existing_index = existing_indexes
-                .iter()
-                .find(|i| Self::check_indexes_equal(index, properties, i, existing_properties));
-            if let Some(existing_index) = existing_index {
-                index.id = existing_index.id;
-            } else {
-                index.id = Some(get_id());
-            }
-        }
-
-        let existing_links: &[LinkSchema] = existing_col.map_or(&[], |e| &e.links);
-        for link in &mut self.links {
-            let existing_link = existing_links
-                .iter()
-                .find(|l| l.name == link.name && l.target_col == link.target_col);
-            if let Some(existing_link) = existing_link {
-                link.id = existing_link.id;
-                link.backlink_id = existing_link.backlink_id;
-            } else {
-                link.id = Some(get_id());
-                link.backlink_id = Some(get_id());
-            }
-        }
-
-        Ok(())
     }
 }
 

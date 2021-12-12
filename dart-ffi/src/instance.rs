@@ -23,37 +23,27 @@ pub unsafe extern "C" fn isar_create_instance(
     dir: *const c_char,
     max_size: i64,
     schema_json: *const c_char,
-    encryption_key: *const u8,
     port: DartPort,
 ) {
     let isar = IsarInstanceSend(isar);
     let name = from_c_str(name).unwrap();
     let dir = PathBuf::from_str(from_c_str(dir).unwrap()).unwrap();
     let schema_json = from_c_str(schema_json).unwrap();
-    let encryption_key = if !encryption_key.is_null() {
-        Some(std::slice::from_raw_parts(
-            encryption_key,
-            IsarInstance::ENCRYPTION_KEY_LEN,
-        ))
-    } else {
-        None
-    };
 
     fn open(
         name: &str,
         dir: PathBuf,
         max_size: usize,
         schema_json: &str,
-        encryption_key: Option<&[u8]>,
     ) -> Result<Arc<IsarInstance>> {
         let schema = Schema::from_json(schema_json.as_bytes())?;
-        let instance = IsarInstance::open(name, dir, max_size, schema, encryption_key)?;
+        let instance = IsarInstance::open(name, dir, max_size, schema)?;
         Ok(instance)
     }
 
     run_async(move || {
         let isar = isar;
-        match open(name, dir, max_size as usize, schema_json, encryption_key) {
+        match open(name, dir, max_size as usize, schema_json) {
             Ok(instance) => {
                 isar.0.write(instance.as_ref());
                 dart_post_int(port, 0);
@@ -89,7 +79,7 @@ pub unsafe extern "C" fn isar_get_collection<'a>(
     index: u32,
 ) -> i32 {
     isar_try! {
-        let new_collection = isar.get_collection(index as usize);
+        let new_collection = isar.collections.get(index as usize);
         if let Some(new_collection) = new_collection {
             collection.write(new_collection);
         } else {

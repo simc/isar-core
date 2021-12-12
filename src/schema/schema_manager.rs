@@ -1,34 +1,43 @@
+use crate::collection::IsarCollection;
 use crate::error::{IsarError, Result};
-use crate::instance::IsarInstance;
-use crate::lmdb::cursor::Cursor;
-use crate::lmdb::{ByteKey, IntKey};
-use crate::query::Sort;
-use crate::schema::collection_migrator::CollectionMigrator;
+use crate::link::IsarLink;
+use crate::mdbx::cursor::{Cursor, UnboundCursor};
+use crate::mdbx::db::Db;
+use crate::mdbx::txn::Txn;
+use crate::schema::collection_schema::CollectionSchema;
+use crate::schema::index_schema::IndexSchema;
+use crate::schema::link_schema::LinkSchema;
 use crate::schema::Schema;
-use crate::txn::Cursors;
-use crate::{collection::IsarCollection, query::id_where_clause::IdWhereClause};
 use std::convert::TryInto;
+use std::hash::Hasher;
+use xxhash_rust::xxh3::Xxh3;
 
 const ISAR_VERSION: u64 = 1;
-const INFO_VERSION_KEY: ByteKey = ByteKey::new(b"version");
-const INFO_SCHEMA_KEY: ByteKey = ByteKey::new(b"schema");
+const INFO_VERSION_KEY: &[u8] = b"version";
+const INFO_SCHEMA_KEY: &[u8] = b"schema";
 
-pub(crate) struct SchemaManger<'env> {
-    info_cursor: Cursor<'env>,
-    cursors: Cursors<'env>,
-    cursors2: Cursors<'env>,
+pub(crate) struct SchemaManger<'a> {
+    instance_id: u64,
+    txn: &'a Txn<'a>,
+    info_cursor: Cursor<'a>,
+    hasher: Xxh3,
 }
 
-impl<'env> SchemaManger<'env> {
-    pub fn new(info_cursor: Cursor<'env>, cursors: Cursors<'env>, cursors2: Cursors<'env>) -> Self {
-        SchemaManger {
-            info_cursor,
-            cursors,
-            cursors2,
-        }
+impl<'a> SchemaManger<'a> {
+    pub fn create(instance_id: u64, txn: &'a Txn<'a>) -> Result<Self> {
+        let info_db = Db::open(txn, "_info", false, false, false)?;
+        let info_cursor = UnboundCursor::new();
+        let mut manager = SchemaManger {
+            instance_id,
+            txn,
+            info_cursor: info_cursor.bind(txn, info_db)?,
+            hasher: Xxh3::new(),
+        };
+        manager.check_isar_version()?;
+        Ok(manager)
     }
 
-    pub fn check_isar_version(&mut self) -> Result<()> {
+    fn check_isar_version(&mut self) -> Result<()> {
         let version = self.info_cursor.move_to(INFO_VERSION_KEY)?;
         if let Some((_, version)) = version {
             let version_num = u64::from_le_bytes(version.try_into().unwrap());
@@ -42,47 +51,110 @@ impl<'env> SchemaManger<'env> {
         Ok(())
     }
 
-    pub fn get_collections(mut self, mut schema: Schema) -> Result<Vec<IsarCollection>> {
+    fn get_existing_schema(&mut self) -> Result<Schema> {
         let existing_schema_bytes = self.info_cursor.move_to(INFO_SCHEMA_KEY)?;
 
-        let existing_collections = if let Some((_, existing_schema_bytes)) = existing_schema_bytes {
-            let existing_schema = serde_json::from_slice(existing_schema_bytes).map_err(|e| {
-                IsarError::DbCorrupted {
-                    message: format!("Could not deserialize existing schema: {}", e),
-                }
-            })?;
-            schema.update_with_existing_schema(Some(&existing_schema))?;
-            existing_schema.build_collections()
+        if let Some((_, existing_schema_bytes)) = existing_schema_bytes {
+            serde_json::from_slice(existing_schema_bytes).map_err(|e| IsarError::DbCorrupted {
+                message: format!("Could not deserialize existing schema: {}", e),
+            })
         } else {
-            schema.update_with_existing_schema(None)?;
-            vec![]
-        };
-
-        self.save_schema(&schema)?;
-        let collections = schema.build_collections();
-        for collection in &collections {
-            self.update_oid_counter(collection)?;
+            Schema::new(vec![])
         }
-        self.perform_migration(&collections, &existing_collections)?;
-
-        Ok(collections)
     }
 
-    fn update_oid_counter(&mut self, collection: &IsarCollection) -> Result<()> {
-        let next_key = IntKey::new(collection.id + 1, IsarInstance::MIN_ID);
-        let next_entry = self.cursors.data.move_to_gte(next_key)?;
-        let greatest_qualifying_oid = if next_entry.is_some() {
-            self.cursors.data.move_to_prev_key()?
-        } else {
-            self.cursors.data.move_to_last()?
-        };
+    fn get_db_name(
+        &mut self,
+        col: &CollectionSchema,
+        index: Option<&IndexSchema>,
+        link: Option<&LinkSchema>,
+    ) -> String {
+        self.hasher.reset();
+        self.hasher.write(col.name.as_bytes());
+        if let Some(index) = index {
+            self.hasher.write(b"index");
+            for p in &index.properties {
+                self.hasher.write(p.name.as_bytes());
+            }
+        } else if let Some(link) = link {
+            self.hasher.write(b"link");
+            self.hasher.write(link.name.as_bytes());
+        }
+        let hash = self.hasher.finish();
+        hash.to_string()
+    }
 
-        if let Some((oid, _)) = greatest_qualifying_oid {
-            let key = IntKey::from_bytes(oid);
-            if key.get_prefix() == collection.id {
-                collection.update_auto_increment(key.get_id());
+    fn open_collection_db(&mut self, col: &CollectionSchema) -> Result<Db> {
+        let db_name = self.get_db_name(col, None, None);
+        Db::open(self.txn, &db_name, true, false, false)
+    }
+
+    fn open_index_db(&mut self, col: &CollectionSchema, index: &IndexSchema) -> Result<Db> {
+        let db_name = self.get_db_name(col, Some(index), None);
+        Db::open(self.txn, &db_name, false, !index.unique, false)
+    }
+
+    fn open_link_db(&mut self, col: &CollectionSchema, link: &LinkSchema) -> Result<Db> {
+        let db_name = self.get_db_name(col, None, Some(link));
+        Db::open(self.txn, &db_name, true, false, true)
+    }
+
+    fn delete_collection(&mut self, col: &CollectionSchema) -> Result<()> {
+        let db = self.open_collection_db(col)?;
+        db.drop(self.txn)?;
+        for index in &col.indexes {
+            self.delete_index(col, index)?;
+        }
+        for link in &col.links {
+            self.delete_link(col, link)?;
+        }
+        Ok(())
+    }
+
+    fn delete_index(&mut self, col: &CollectionSchema, index: &IndexSchema) -> Result<()> {
+        let db = self.open_index_db(col, index)?;
+        db.drop(self.txn)
+    }
+
+    fn delete_link(&mut self, col: &CollectionSchema, link: &LinkSchema) -> Result<()> {
+        let db = self.open_link_db(col, link)?;
+        db.drop(self.txn)
+    }
+
+    pub fn perform_migration(&mut self, schema: &mut Schema) -> Result<()> {
+        let existing_schema = self.get_existing_schema()?;
+
+        let deleted_cols = get_added(&schema.collections, &existing_schema.collections);
+        for col in deleted_cols {
+            self.delete_collection(col)?;
+        }
+
+        for col in schema.collections.iter_mut() {
+            let existing_col = existing_schema.get_collection(&col.name);
+            if let Some(existing_col) = existing_col {
+                col.merge_properties(existing_col)?;
+
+                let added_indexes = get_added(&existing_col.indexes, &col.indexes);
+                for index in added_indexes {
+                    let db = self.open_index_db(&col, index)?;
+                    // todo create index
+                    // don't close index dbi
+                }
+
+                let deleted_indexes = get_added(&col.indexes, &existing_col.indexes);
+                for index in deleted_indexes {
+                    self.delete_index(existing_col, index)?;
+                }
+
+                let deleted_links = get_added(&existing_col.links, &col.links);
+                for link in deleted_links {
+                    self.delete_link(existing_col, link)?;
+                }
             }
         }
+
+        self.save_schema(schema)?;
+
         Ok(())
     }
 
@@ -94,42 +166,75 @@ impl<'env> SchemaManger<'env> {
         Ok(())
     }
 
-    fn perform_migration(
-        &mut self,
-        collections: &[IsarCollection],
-        existing_collections: &[IsarCollection],
-    ) -> Result<()> {
-        let removed_collections = existing_collections
-            .iter()
-            .filter(|existing| !collections.iter().any(|c| existing.id == c.id));
-
-        for col in removed_collections {
-            for index in &col.indexes {
-                index.clear(&mut self.cursors)?;
-            }
-            IdWhereClause::new(
-                col,
-                IsarInstance::MIN_ID,
-                IsarInstance::MAX_ID,
-                Sort::Ascending,
-            )
-            .iter(&mut self.cursors.data, None, |c, _, _| {
-                c.delete_current()?;
-                Ok(true)
-            })?;
+    pub fn open_collections(&mut self, schema: &Schema) -> Result<Vec<IsarCollection>> {
+        let mut cols = vec![];
+        for col_schema in &schema.collections {
+            cols.push(self.open_collection(schema, col_schema)?);
         }
-
-        for col in collections {
-            let existing = existing_collections
-                .iter()
-                .find(|existing| existing.id == col.id);
-
-            if let Some(existing) = existing {
-                let migrator = CollectionMigrator::create(col, existing);
-                migrator.migrate(&mut self.cursors, &mut self.cursors2)?;
-            }
-        }
-
-        Ok(())
+        Ok(cols)
     }
+
+    fn open_collection(
+        &mut self,
+        schema: &Schema,
+        collection_schema: &CollectionSchema,
+    ) -> Result<IsarCollection> {
+        let db = self.open_collection_db(collection_schema)?;
+        let (properties, property_names) = collection_schema.get_properties();
+
+        let mut indexes = vec![];
+        for index_schema in &collection_schema.indexes {
+            let db = self.open_index_db(collection_schema, index_schema)?;
+            let index = index_schema.as_index(db, &properties, &property_names);
+            indexes.push(index);
+        }
+
+        let mut links = vec![];
+        for link_schema in &collection_schema.links {
+            let link_db = self.open_link_db(collection_schema, link_schema)?;
+            let target_col_schema = schema.get_collection(&link_schema.target_col).unwrap();
+            let target_db = self.open_collection_db(target_col_schema)?;
+            let link = IsarLink::new(link_db, db, target_db);
+            links.push((link_schema.name.clone(), link));
+        }
+
+        let mut backlinks = vec![];
+        for other_col_schema in &schema.collections {
+            if collection_schema.name != other_col_schema.name {
+                for link_schema in &other_col_schema.links {
+                    if link_schema.target_col == collection_schema.name {
+                        let other_col_id = self.open_collection_db(other_col_schema)?;
+                        let link_db = self.open_link_db(other_col_schema, link_schema)?;
+                        let link = IsarLink::new(link_db, other_col_id, db);
+                        backlinks.push(link);
+                    }
+                }
+            }
+        }
+
+        Ok(IsarCollection::new(
+            db,
+            self.instance_id,
+            collection_schema.name.clone(),
+            properties,
+            property_names,
+            indexes,
+            links,
+            backlinks,
+        ))
+    }
+}
+
+fn get_added<'a, E>(left: &'a [E], right: &'a [E]) -> Vec<&'a E>
+where
+    E: Eq,
+{
+    let mut added_items = vec![];
+    for right_item in right {
+        let has_left = left.iter().any(|i| i == right_item);
+        if !has_left {
+            added_items.push(right_item);
+        }
+    }
+    added_items
 }

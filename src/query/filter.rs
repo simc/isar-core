@@ -1,11 +1,11 @@
 use crate::collection::IsarCollection;
+use crate::cursor::IsarCursors;
 use crate::error::{illegal_arg, IsarError, Result};
+use crate::key::IdKey;
 use crate::link::IsarLink;
-use crate::lmdb::cursor::Cursor;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::query::fast_wild_match::fast_wild_match;
 use enum_dispatch::enum_dispatch;
-use hashbrown::HashSet;
 use itertools::Itertools;
 use paste::paste;
 
@@ -13,6 +13,11 @@ use paste::paste;
 pub struct Filter(FilterCond);
 
 impl Filter {
+    pub fn id(lower: i64, upper: i64) -> Result<Filter> {
+        let filter_cond = IdBetweenCond::filter(lower, upper)?;
+        Ok(Filter(filter_cond))
+    }
+
     pub fn byte(property: Property, lower: u8, upper: u8) -> Result<Filter> {
         let filter_cond = ByteBetweenCond::filter(property, lower, upper)?;
         Ok(Filter(filter_cond))
@@ -105,16 +110,18 @@ impl Filter {
 
     pub(crate) fn evaluate(
         &self,
+        id: &IdKey,
         object: IsarObject,
-        cursors: Option<&mut FilterCursors>,
+        cursors: Option<&IsarCursors>,
     ) -> Result<bool> {
-        self.0.evaluate(object, cursors)
+        self.0.evaluate(id, object, cursors)
     }
 }
 
 #[enum_dispatch]
 #[derive(Clone)]
 enum FilterCond {
+    IdBetween(IdBetweenCond),
     ByteBetween(ByteBetweenCond),
     IntBetween(IntBetweenCond),
     LongBetween(LongBetweenCond),
@@ -135,16 +142,30 @@ enum FilterCond {
 
 #[enum_dispatch(FilterCond)]
 trait Condition {
-    fn evaluate(&self, object: IsarObject, cursors: Option<&mut FilterCursors>) -> Result<bool>;
-
-    fn get_linked_collections(&self, col_ids: &mut HashSet<u16>);
+    fn evaluate(
+        &self,
+        id: &IdKey,
+        object: IsarObject,
+        cursors: Option<&IsarCursors>,
+    ) -> Result<bool>;
 }
 
-pub(crate) struct FilterCursors<'txn, 'a>(&'a mut Cursor<'txn>, &'a mut Cursor<'txn>);
+#[derive(Clone)]
+struct IdBetweenCond {
+    lower: i64,
+    upper: i64,
+}
 
-impl<'txn, 'a> FilterCursors<'txn, 'a> {
-    pub fn new(primary: &'a mut Cursor<'txn>, links: &'a mut Cursor<'txn>) -> Self {
-        FilterCursors(primary, links)
+impl IdBetweenCond {
+    fn filter(lower: i64, upper: i64) -> Result<FilterCond> {
+        Ok(FilterCond::IdBetween(IdBetweenCond { lower, upper }))
+    }
+}
+
+impl Condition for IdBetweenCond {
+    fn evaluate(&self, id: &IdKey, _object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+        let id = id.get_id();
+        Ok(self.lower <= id && self.upper >= id)
     }
 }
 
@@ -182,12 +203,10 @@ macro_rules! primitive_filter_between {
         filter_between_struct!($name, $data_type, $type);
         paste! {
             impl Condition for [<$name Cond>] {
-                fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
+                fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
                     let val = object.$prop_accessor(self.property);
                     Ok(self.lower <= val && self.upper >= val)
                 }
-
-                fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
             }
         }
     };
@@ -199,7 +218,7 @@ macro_rules! float_filter_between {
         filter_between_struct!($name, $data_type, $type);
         paste! {
             impl Condition for [<$name Cond>] {
-                fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
+                fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
                     let val = object.$prop_accessor(self.property);
                     let result = if self.upper.is_nan() {
                         self.lower.is_nan() && val.is_nan()
@@ -210,8 +229,6 @@ macro_rules! float_filter_between {
                     };
                     Ok(result)
                 }
-
-                fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
             }
         }
     };
@@ -262,7 +279,7 @@ impl StringBetweenCond {
 }
 
 impl Condition for StringBetweenCond {
-    fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
+    fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
         let obj_str = object.read_string(self.property);
         let result = if let Some(obj_str) = obj_str {
             let mut matches = true;
@@ -292,8 +309,6 @@ impl Condition for StringBetweenCond {
         };
         Ok(result)
     }
-
-    fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
 }
 
 #[macro_export]
@@ -339,7 +354,7 @@ macro_rules! string_filter {
         string_filter_struct!($name, String);
         paste! {
             impl Condition for [<$name Cond>] {
-                fn evaluate(&self, object: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
+                fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
                     let other_str = object.read_string(self.property);
                     let result = if let Some(other_str) = other_str {
                         if self.case_sensitive {
@@ -354,8 +369,6 @@ macro_rules! string_filter {
                     };
                     Ok(result)
                 }
-
-                fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
             }
         }
     };
@@ -385,21 +398,16 @@ struct AndCond {
 impl Condition for AndCond {
     fn evaluate(
         &self,
+        id: &IdKey,
         object: IsarObject,
-        mut cursors: Option<&mut FilterCursors>,
+        cursors: Option<&IsarCursors>,
     ) -> Result<bool> {
         for filter in &self.filters {
-            if !filter.evaluate(object, cursors.as_deref_mut())? {
+            if !filter.evaluate(id, object, cursors)? {
                 return Ok(false);
             }
         }
         Ok(true)
-    }
-
-    fn get_linked_collections(&self, col_ids: &mut HashSet<u16>) {
-        for filter in &self.filters {
-            filter.get_linked_collections(col_ids);
-        }
     }
 }
 
@@ -417,21 +425,16 @@ struct OrCond {
 impl Condition for OrCond {
     fn evaluate(
         &self,
+        id: &IdKey,
         object: IsarObject,
-        mut cursors: Option<&mut FilterCursors>,
+        cursors: Option<&IsarCursors>,
     ) -> Result<bool> {
         for filter in &self.filters {
-            if filter.evaluate(object, cursors.as_deref_mut())? {
+            if filter.evaluate(id, object, cursors)? {
                 return Ok(true);
             }
         }
         Ok(false)
-    }
-
-    fn get_linked_collections(&self, col_ids: &mut HashSet<u16>) {
-        for filter in &self.filters {
-            filter.get_linked_collections(col_ids);
-        }
     }
 }
 
@@ -447,12 +450,13 @@ struct NotCond {
 }
 
 impl Condition for NotCond {
-    fn evaluate(&self, object: IsarObject, cursors: Option<&mut FilterCursors>) -> Result<bool> {
-        Ok(!self.filter.evaluate(object, cursors)?)
-    }
-
-    fn get_linked_collections(&self, col_ids: &mut HashSet<u16>) {
-        self.filter.get_linked_collections(col_ids);
+    fn evaluate(
+        &self,
+        id: &IdKey,
+        object: IsarObject,
+        cursors: Option<&IsarCursors>,
+    ) -> Result<bool> {
+        Ok(!self.filter.evaluate(id, object, cursors)?)
     }
 }
 
@@ -470,11 +474,9 @@ struct StaticCond {
 }
 
 impl Condition for StaticCond {
-    fn evaluate(&self, _: IsarObject, _: Option<&mut FilterCursors>) -> Result<bool> {
+    fn evaluate(&self, _id: &IdKey, _: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
         Ok(self.value)
     }
-
-    fn get_linked_collections(&self, _: &mut HashSet<u16>) {}
 }
 
 impl StaticCond {
@@ -490,21 +492,23 @@ struct LinkCond {
 }
 
 impl Condition for LinkCond {
-    fn evaluate(&self, object: IsarObject, cursors: Option<&mut FilterCursors>) -> Result<bool> {
-        let oid = object.read_id();
+    fn evaluate(
+        &self,
+        id: &IdKey,
+        _object: IsarObject,
+        cursors: Option<&IsarCursors>,
+    ) -> Result<bool> {
         if let Some(cursors) = cursors {
             self.link
-                .iter(cursors.0, cursors.1, oid, |object| {
-                    self.filter.evaluate(object, None).map(|matches| !matches)
+                .iter(cursors, id, |id, object| {
+                    self.filter
+                        .evaluate(&id, object, None)
+                        .map(|matches| !matches)
                 })
                 .map(|none_matches| !none_matches)
         } else {
             Err(IsarError::VersionError {})
         }
-    }
-
-    fn get_linked_collections(&self, col_ids: &mut HashSet<u16>) {
-        col_ids.insert(self.link.get_target_col_id());
     }
 }
 

@@ -1,76 +1,70 @@
 use crate::collection::IsarCollection;
 use crate::error::*;
-use crate::lmdb::cursor::Cursor;
-use crate::lmdb::db::Db;
-use crate::lmdb::env::Env;
-use crate::lmdb::txn::Txn;
+use crate::mdbx::env::Env;
 use crate::query::Query;
 use crate::schema::schema_manager::SchemaManger;
 use crate::schema::Schema;
-use crate::txn::{Cursors, IsarTxn};
+use crate::txn::IsarTxn;
 use crate::watch::change_set::ChangeSet;
 use crate::watch::isar_watchers::{IsarWatchers, WatcherModifier};
 use crate::watch::watcher::WatcherCallback;
 use crate::watch::WatchHandle;
 use crossbeam_channel::{unbounded, Sender};
-use hashbrown::hash_map::Entry;
-use hashbrown::HashMap;
+use intmap::IntMap;
 use once_cell::sync::Lazy;
 use rand::random;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
+use xxhash_rust::xxh3::xxh3_64;
 
-static INSTANCES: Lazy<RwLock<HashMap<String, Arc<IsarInstance>>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+static INSTANCES: Lazy<RwLock<IntMap<Arc<IsarInstance>>>> =
+    Lazy::new(|| RwLock::new(IntMap::new()));
 
 pub struct IsarInstance {
-    env: Env,
-    dbs: DataDbs,
     pub name: String,
     pub collections: Vec<IsarCollection>,
+    pub(crate) instance_id: u64,
+
+    env: Env,
     watchers: Mutex<IsarWatchers>,
     watcher_modifier_sender: Sender<WatcherModifier>,
 }
 
 impl IsarInstance {
-    pub const MIN_ID: i64 = -(1 << 47);
-    pub const MAX_ID: i64 = (1 << 47) - 1;
-    pub const ENCRYPTION_KEY_LEN: usize = 32;
-
     pub fn open(name: &str, dir: PathBuf, max_size: usize, schema: Schema) -> Result<Arc<Self>> {
         let mut lock = INSTANCES.write().unwrap();
-        match lock.entry(name.to_string()) {
-            Entry::Occupied(e) => Ok(e.get().clone()),
-            Entry::Vacant(e) => {
-                let new_instance = Self::open_internal(e.key(), dir, max_size, schema)?;
-                let instance_ref = e.insert(Arc::new(new_instance));
-                Ok(instance_ref.clone())
-            }
+        let instance_id = xxh3_64(name.as_bytes());
+        let instance = lock.get(instance_id);
+        if let Some(instance) = instance {
+            Ok(instance.clone())
+        } else {
+            let new_instance = Self::open_internal(name, instance_id, dir, max_size, schema)?;
+            let new_instance = Arc::new(new_instance);
+            lock.insert(instance_id, new_instance.clone());
+            Ok(new_instance)
         }
     }
 
     fn open_internal(
         name: &str,
+        instance_id: u64,
         mut dir: PathBuf,
         max_size: usize,
-        schema: Schema,
+        mut schema: Schema,
     ) -> Result<Self> {
         dir.push(name);
         let path = dir.to_str().unwrap();
         let _ = create_dir_all(path);
-        let env = Env::create(path, 4, max_size)?;
-        let dbs = IsarInstance::open_databases(&env)?;
+
+        let db_count = schema.count_dbs() as u64;
+        let env = Env::create(path, db_count, max_size)?;
 
         let txn = env.txn(true)?;
         let collections = {
-            let info_cursor = dbs.open_info_cursor(&txn)?;
-            let cursors = dbs.open_cursors(&txn)?;
-            let cursors2 = dbs.open_cursors(&txn)?;
-
-            let mut manager = SchemaManger::new(info_cursor, cursors, cursors2);
-            manager.check_isar_version()?;
-            manager.get_collections(schema)?
+            let mut manager = SchemaManger::create(instance_id, &txn)?;
+            manager.perform_migration(&mut schema)?;
+            manager.open_collections(&schema)?
         };
         txn.commit()?;
 
@@ -78,35 +72,17 @@ impl IsarInstance {
 
         Ok(IsarInstance {
             env,
-            dbs,
             name: name.to_string(),
             collections,
+            instance_id,
             watchers: Mutex::new(IsarWatchers::new(rx)),
             watcher_modifier_sender: tx,
         })
     }
 
     pub fn get_instance(name: &str) -> Option<Arc<Self>> {
-        INSTANCES.read().unwrap().get(name).cloned()
-    }
-
-    fn open_databases(env: &Env) -> Result<DataDbs> {
-        let txn = env.txn(true)?;
-        let info = Db::open(&txn, "info", false, false, false)?;
-        let data = Db::open(&txn, "data", true, false, false)?;
-        let index = Db::open(&txn, "index", false, true, true)?;
-        let links = Db::open(&txn, "links", true, true, true)?;
-        txn.commit()?;
-        Ok(DataDbs {
-            info,
-            data,
-            index,
-            links,
-        })
-    }
-
-    pub(crate) fn open_cursors<'txn>(&self, txn: &'txn Txn<'txn>) -> Result<Cursors<'txn>> {
-        self.dbs.open_cursors(txn)
+        let instance_id = xxh3_64(name.as_bytes());
+        INSTANCES.read().unwrap().get(instance_id).cloned()
     }
 
     pub fn begin_txn(&self, write: bool, silent: bool) -> Result<IsarTxn> {
@@ -120,7 +96,7 @@ impl IsarInstance {
         };
 
         let txn = self.env.txn(write)?;
-        IsarTxn::new(self, txn, write, change_set)
+        IsarTxn::new(self.instance_id, txn, write, change_set)
     }
 
     fn new_watcher(&self, start: WatcherModifier, stop: WatcherModifier) -> WatchHandle {
@@ -138,7 +114,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
-        let col_id = collection.id;
+        let col_id = collection.get_runtime_id();
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -157,7 +133,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
-        let col_id = collection.id;
+        let col_id = collection.get_runtime_id();
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -177,7 +153,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = random();
-        let col_id = collection.id;
+        let col_id = collection.get_runtime_id();
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -195,32 +171,10 @@ impl IsarInstance {
             let mut lock = INSTANCES.write().unwrap();
             // Check again to make sure there are no new references
             if Arc::strong_count(&self) == 2 {
-                lock.remove(&self.name);
+                lock.remove(self.instance_id);
                 return true;
             }
         }
         false
-    }
-}
-
-struct DataDbs {
-    pub info: Db,
-    pub data: Db,
-    pub index: Db,
-    pub links: Db,
-}
-
-impl DataDbs {
-    fn open_cursors<'txn>(&self, txn: &'txn Txn) -> Result<Cursors<'txn>> {
-        Ok(Cursors {
-            data: self.data.cursor(txn)?,
-            data2: self.data.cursor(txn)?,
-            index: self.index.cursor(txn)?,
-            links: self.links.cursor(txn)?,
-        })
-    }
-
-    fn open_info_cursor<'txn>(&self, txn: &'txn Txn) -> Result<Cursor<'txn>> {
-        self.info.cursor(txn)
     }
 }

@@ -1,19 +1,14 @@
 use crate::cursor::IsarCursors;
-use crate::error::{illegal_arg, IsarError, Result};
+use crate::error::{IsarError, Result};
 use crate::index::IsarIndex;
-use crate::index_key::IndexKey;
-use crate::instance::IsarInstance;
-use crate::link::Link;
-use crate::lmdb::db::Db;
+use crate::key::{IdKey, IndexKey};
 use crate::link::IsarLink;
-use crate::lmdb::{verify_id, ByteKey, IntKey};
+use crate::mdbx::db::Db;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::object::object_builder::ObjectBuilder;
-use crate::query::id_where_clause::IdWhereClause;
 use crate::query::query_builder::QueryBuilder;
-use crate::query::Sort;
-use crate::txn::{Cursors, IsarTxn};
+use crate::txn::IsarTxn;
 use crate::watch::change_set::ChangeSet;
 use serde_json::Value;
 use std::cell::Cell;
@@ -22,11 +17,14 @@ pub struct IsarCollection {
     pub name: String,
     pub properties: Vec<Property>,
     pub property_names: Vec<String>,
-    db: Db,
-    static_size: usize,
+
+    pub(crate) instance_id: u64,
+    pub(crate) db: Db,
     pub(crate) indexes: Vec<IsarIndex>,
     pub(crate) links: Vec<(String, IsarLink)>, // links from this collection
     pub(crate) backlinks: Vec<IsarLink>,       // links to this collection
+
+    static_size: usize,
     next_auto_increment: Cell<i64>,
 }
 
@@ -36,6 +34,7 @@ unsafe impl Sync for IsarCollection {}
 impl IsarCollection {
     pub(crate) fn new(
         db: Db,
+        instance_id: u64,
         name: String,
         properties: Vec<Property>,
         property_names: Vec<String>,
@@ -45,6 +44,7 @@ impl IsarCollection {
     ) -> Self {
         let static_size = ObjectBuilder::calculate_static_size(&properties);
         IsarCollection {
+            instance_id,
             db,
             name,
             properties,
@@ -53,7 +53,7 @@ impl IsarCollection {
             indexes,
             links,
             backlinks,
-            next_auto_increment: Cell::new(IsarInstance::MIN_ID + 1),
+            next_auto_increment: Cell::new(i64::MIN + 1),
         }
     }
 
@@ -78,24 +78,13 @@ impl IsarCollection {
         QueryBuilder::new(self)
     }
 
-    pub fn new_index_key(&self, index_index: usize) -> Option<IndexKey> {
-        self.indexes.get(index_index).map(IndexKey::new)
-    }
-
-    pub(crate) fn verify_index_key(&self, key: &IndexKey) -> Result<()> {
-        if key.index.col_id != self.id {
-            return illegal_arg("Invalid IndexKey for this collection");
-        }
-        Ok(())
-    }
-
     pub fn auto_increment(&self, _txn: &mut IsarTxn) -> Result<i64> {
         self.auto_increment_internal()
     }
 
     pub(crate) fn auto_increment_internal(&self) -> Result<i64> {
         let id = self.next_auto_increment.get();
-        if id <= IsarInstance::MAX_ID {
+        if id < i64::MAX {
             self.next_auto_increment.set(id + 1);
             Ok(id)
         } else {
@@ -103,50 +92,66 @@ impl IsarCollection {
         }
     }
 
+    pub(crate) fn get_runtime_id(&self) -> u64 {
+        self.db.runtime_id()
+    }
+
     pub fn get<'txn>(&self, txn: &'txn mut IsarTxn, id: i64) -> Result<Option<IsarObject<'txn>>> {
-        verify_id(id)?;
-        txn.read(|cursors| {
-            let object = cursors
-                .get_cursor(self.db)?
-                .move_to(IntKey::new(self.id, id))?
+        txn.read(self.instance_id, |cursors| {
+            let mut cursor = cursors.get_cursor(self.db)?;
+            let id_key = IdKey::new(id);
+            let object = cursor
+                .move_to(id_key.as_bytes())?
                 .map(|(_, v)| IsarObject::from_bytes(v));
             Ok(object)
         })
     }
 
+    pub(crate) fn get_index_by_index(&self, index_index: usize) -> Result<&IsarIndex> {
+        self.indexes
+            .get(index_index)
+            .ok_or(IsarError::UnknownIndex {})
+    }
+
     pub fn get_by_index<'txn>(
         &self,
         txn: &'txn mut IsarTxn,
+        index_index: usize,
         key: &IndexKey,
     ) -> Result<Option<IsarObject<'txn>>> {
-        self.verify_index_key(key)?;
-        txn.read(|cursors| {
-            let index_result = cursors.index.move_to(ByteKey::new(&key.bytes))?;
-            if let Some((_, key)) = index_result {
-                let object = cursors
-                    .get_cursor(self.db)?
-                    .move_to(ByteKey::new(key))?
-                    .map(|(_, v)| IsarObject::from_bytes(v));
-                Ok(object)
+        let index = self.get_index_by_index(index_index)?;
+        txn.read(self.instance_id, |cursors| {
+            if let Some(id_key) = index.get_id(cursors, key)? {
+                let mut cursor = cursors.get_cursor(self.db)?;
+                let (_, bytes) =
+                    cursor
+                        .move_to(id_key.as_bytes())?
+                        .ok_or(IsarError::DbCorrupted {
+                            message: "Invalid index entry".to_string(),
+                        })?;
+                Ok(Some(IsarObject::from_bytes(bytes)))
             } else {
                 Ok(None)
             }
         })
     }
 
-    pub fn put(&self, txn: &mut IsarTxn, object: IsarObject) -> Result<()> {
-        txn.write(|cursors, change_set| self.put_internal(cursors, change_set, object))
+    pub fn put(&self, txn: &mut IsarTxn, id: i64, object: IsarObject) -> Result<()> {
+        txn.write(self.instance_id, |cursors, change_set| {
+            self.put_internal(cursors, change_set, id, object)
+        })
     }
 
     fn put_internal(
         &self,
         cursors: &IsarCursors,
         mut change_set: Option<&mut ChangeSet>,
+        id: i64,
         object: IsarObject,
     ) -> Result<()> {
-        let id = object.read_id();
-        verify_id(id)?;
-        self.delete_internal(cursors, false, change_set.as_deref_mut(), id)?;
+        let id_key = IdKey::new(id);
+
+        self.delete_internal(cursors, false, change_set.as_deref_mut(), &id_key)?;
         self.update_auto_increment(id);
 
         /*if !self.object_info.verify_object(object) {
@@ -154,30 +159,38 @@ impl IsarCollection {
         }*/
 
         for index in &self.indexes {
-            index.create_for_object(cursors, id, object, |cursors, id| {
-                self.delete_internal(cursors, true, change_set.as_deref_mut(), id)?;
+            index.create_for_object(cursors, &id_key, object, |id_key| {
+                self.delete_internal(cursors, true, change_set.as_deref_mut(), &id_key)?;
                 Ok(())
             })?;
         }
 
-        cursors
-            .data
-            .put(IntKey::new(self.id, id), object.as_bytes())?;
-        self.register_object_change(change_set, id, object);
+        let mut cursor = cursors.get_cursor(self.db)?;
+        cursor.put(id_key.as_bytes(), object.as_bytes())?;
+        if let Some(change_set) = change_set {
+            change_set.register_change(self.get_runtime_id(), Some(id), Some(object));
+        }
         Ok(())
     }
 
     pub fn delete(&self, txn: &mut IsarTxn, id: i64) -> Result<bool> {
-        txn.write(|cursors, change_set| self.delete_internal(cursors, true, change_set, id))
+        txn.write(self.instance_id, |cursors, change_set| {
+            let id_key = IdKey::new(id);
+            self.delete_internal(cursors, true, change_set, &id_key)
+        })
     }
 
-    pub fn delete_by_index(&self, txn: &mut IsarTxn, key: &IndexKey) -> Result<bool> {
-        self.verify_index_key(key)?;
-        txn.write(|cursors, change_set| {
-            let index_result = cursors.index.move_to(ByteKey::new(&key.bytes))?;
-            if let Some((_, key)) = index_result {
-                let id = IntKey::from_bytes(key).get_id();
-                self.delete_internal(cursors, true, change_set, id)
+    pub fn delete_by_index(
+        &self,
+        txn: &mut IsarTxn,
+        index_index: usize,
+        key: &IndexKey,
+    ) -> Result<bool> {
+        let index = self.get_index_by_index(index_index)?;
+        txn.write(self.instance_id, |cursors, change_set| {
+            if let Some(id_key) = index.get_id(cursors, key)? {
+                self.delete_internal(cursors, true, change_set, &id_key)?;
+                Ok(true)
             } else {
                 Ok(false)
             }
@@ -189,20 +202,24 @@ impl IsarCollection {
         cursors: &IsarCursors,
         delete_links: bool,
         change_set: Option<&mut ChangeSet>,
-        id: i64,
+        id_key: &IdKey,
     ) -> Result<bool> {
-        if let Some((_, object)) = cursors.data.move_to(IntKey::new(self.id, id))? {
+        let mut cursor = cursors.get_cursor(self.db)?;
+        if let Some((_, object)) = cursor.move_to(id_key.as_bytes())? {
             let object = IsarObject::from_bytes(object);
             for index in &self.indexes {
-                index.delete_for_object(cursors, id, object)?;
+                index.delete_for_object(cursors, id_key, object)?;
             }
             if delete_links {
                 for link in self.get_links_and_backlinks() {
-                    link.delete_all_for_object(&mut cursors.links, id)?;
+                    link.delete_all_for_object(&cursors, id_key)?;
                 }
             }
-            self.register_object_change(change_set, id, object);
-            cursors.data.delete_current()?;
+            if let Some(change_set) = change_set {
+                let id = id_key.get_id();
+                change_set.register_change(self.get_runtime_id(), Some(id), Some(object));
+            }
+            cursor.delete_current()?;
             Ok(true)
         } else {
             Ok(false)
@@ -229,9 +246,11 @@ impl IsarCollection {
         target_id: i64,
     ) -> Result<bool> {
         let link = self.get_link_backlink(link_index, backlink)?;
-        txn.write(|cursors, change_set| {
+        txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
-            link.create(&mut cursors.data, &mut cursors.links, id, target_id)
+            let source_key = IdKey::new(id);
+            let target_key = IdKey::new(target_id);
+            link.create(cursors, &source_key, &target_key)
         })
     }
 
@@ -244,9 +263,11 @@ impl IsarCollection {
         target_id: i64,
     ) -> Result<bool> {
         let link = self.get_link_backlink(link_index, backlink)?;
-        txn.write(|cursors, change_set| {
+        txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
-            link.delete(&mut cursors.links, id, target_id)
+            let source_key = IdKey::new(id);
+            let target_key = IdKey::new(target_id);
+            link.delete(&cursors, &source_key, &target_key)
         })
     }
 
@@ -258,9 +279,10 @@ impl IsarCollection {
         id: i64,
     ) -> Result<()> {
         let link = self.get_link_backlink(link_index, backlink)?;
-        txn.write(|cursors, change_set| {
+        txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
-            link.delete_all_for_object(&mut cursors.links, id)
+            let id_key = IdKey::new(id);
+            link.delete_all_for_object(&cursors, &id_key)
         })
     }
 
@@ -273,70 +295,56 @@ impl IsarCollection {
         mut callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(IsarObject<'txn>) -> bool,
+        F: FnMut(i64, IsarObject<'txn>) -> bool,
     {
         let link = self.get_link_backlink(link_index, backlink)?;
-        txn.read(|cursors| {
-            link.iter(&mut cursors.data, &mut cursors.links, id, |object| {
-                Ok(callback(object))
+        txn.read(self.instance_id, |cursors| {
+            let source_id_key = IdKey::new(id);
+            link.iter(&cursors, &source_id_key, |id, object| {
+                Ok(callback(id.get_id(), object))
             })
         })
     }
 
-    pub fn clear(&self, txn: &mut IsarTxn) -> Result<usize> {
-        txn.write(|cursors, mut change_set| {
-            let mut counter = 0;
-            for index in &self.indexes {
-                index.clear(cursors)?;
-            }
-            for link in self.get_links_and_backlinks() {
-                link.clear(&mut cursors.links)?;
-            }
-            IdWhereClause::new(
-                self,
-                IsarInstance::MIN_ID,
-                IsarInstance::MAX_ID,
-                Sort::Ascending,
-            )
-            .iter(&mut cursors.data, None, |cursor, id, object| {
-                self.register_object_change(change_set.as_deref_mut(), id.get_id(), object);
-                cursor.delete_current()?;
-                counter += 1;
-                Ok(true)
-            })?;
-            Ok(counter)
-        })
+    pub fn clear(&self, txn: &mut IsarTxn) -> Result<()> {
+        for index in &self.indexes {
+            index.clear(txn)?;
+        }
+        for link in self.get_links_and_backlinks() {
+            link.clear(txn)?;
+        }
+        txn.clear_db(self.db)?;
+        txn.register_all_changed(self.get_runtime_id())?;
+        Ok(())
     }
 
-    pub fn import_json(&self, txn: &mut IsarTxn, json: Value) -> Result<()> {
-        txn.write(|cursors, mut change_set| {
+    pub fn import_json(&self, txn: &mut IsarTxn, id_name: Option<&str>, json: Value) -> Result<()> {
+        txn.write(self.instance_id, |cursors, mut change_set| {
             let array = json.as_array().ok_or(IsarError::InvalidJson {})?;
             let mut ob_result_cache = None;
             for value in array {
+                let id = if let Some(id_name) = id_name {
+                    value
+                        .get(id_name)
+                        .ok_or(IsarError::InvalidJson {})?
+                        .as_i64()
+                        .ok_or(IsarError::InvalidJson {})?
+                } else {
+                    self.auto_increment_internal()?
+                };
                 let ob = JsonEncodeDecode::decode(self, value, ob_result_cache)?;
                 let object = ob.finish();
-                self.put_internal(cursors, change_set.as_deref_mut(), object)?;
+                self.put_internal(cursors, change_set.as_deref_mut(), id, object)?;
                 ob_result_cache = Some(ob.recycle());
             }
             Ok(())
         })
     }
 
-    fn register_object_change(
-        &self,
-        change_set: Option<&mut ChangeSet>,
-        id: i64,
-        object: IsarObject,
-    ) {
-        if let Some(change_set) = change_set {
-            change_set.register_change(self.id, Some(id), Some(object));
-        }
-    }
-
     fn register_link_change(&self, change_set: Option<&mut ChangeSet>, link: IsarLink) {
         if let Some(change_set) = change_set {
-            change_set.register_change(self.id, None, None);
-            change_set.register_change(link.get_target_col_id(), None, None);
+            change_set.register_change(self.get_runtime_id(), None, None);
+            change_set.register_change(link.get_target_col_runtime_id(), None, None);
         }
     }
 }

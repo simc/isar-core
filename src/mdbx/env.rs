@@ -1,6 +1,6 @@
 use crate::error::{IsarError, Result};
-use crate::lmdb::error::lmdb_result;
-use crate::lmdb::txn::Txn;
+use crate::mdbx::error::lmdb_result;
+use crate::mdbx::txn::Txn;
 use core::ptr;
 use std::ffi::CString;
 
@@ -49,7 +49,7 @@ impl Env {
                 ptr::null_mut(),
             ))?;
         }
-        Ok(Txn::new(txn, write))
+        Ok(Txn::new(txn))
     }
 }
 

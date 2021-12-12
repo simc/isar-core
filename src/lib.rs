@@ -10,13 +10,15 @@ pub mod collection;
 mod cursor;
 pub mod error;
 pub mod index;
-pub mod index_key;
 pub mod instance;
+pub mod key;
 mod link;
-mod lmdb;
+mod mdbx;
 pub mod object;
 pub mod query;
 pub mod schema;
 pub mod txn;
 pub mod verify;
 pub mod watch;
+
+// todo check missing property in isarobject

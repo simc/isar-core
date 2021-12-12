@@ -1,18 +1,17 @@
-mod collection_migrator;
 pub mod collection_schema;
+pub mod index_schema;
+pub mod link_schema;
+pub mod property_schema;
 pub(crate) mod schema_manager;
 
-use crate::collection::IsarCollection;
 use crate::error::{schema_error, Result};
 use crate::schema::collection_schema::CollectionSchema;
-use hashbrown::HashSet;
 use itertools::Itertools;
-use rand::random;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Schema {
-    collections: Vec<CollectionSchema>,
+    pub(crate) collections: Vec<CollectionSchema>,
 }
 
 impl Schema {
@@ -23,13 +22,7 @@ impl Schema {
     }
 
     pub fn from_json(json: &[u8]) -> Result<Schema> {
-        if let Ok(mut collections) = serde_json::from_slice::<Vec<CollectionSchema>>(json) {
-            for col in &mut collections {
-                col.id = None;
-                for index in &mut col.indexes {
-                    index.id = None;
-                }
-            }
+        if let Ok(collections) = serde_json::from_slice::<Vec<CollectionSchema>>(json) {
             Schema::new(collections)
         } else {
             schema_error("Could not deserialize schema JSON")
@@ -46,57 +39,18 @@ impl Schema {
         Ok(())
     }
 
-    pub(crate) fn build_collections(self) -> Vec<IsarCollection> {
-        self.collections
-            .iter()
-            .map(|c| c.get_isar_collection(&self.collections))
-            .collect()
+    pub(crate) fn get_collection(&self, name: &str) -> Option<&CollectionSchema> {
+        self.collections.iter().find(|c| c.name == name)
     }
 
-    fn collect_ids(&self) -> HashSet<u16> {
-        let mut ids = HashSet::<u16>::new();
-        for collection in &self.collections {
-            if let Some(id) = collection.id {
-                assert!(ids.insert(id), "Schema contains duplicate id.");
-            }
-            for index in &collection.indexes {
-                if let Some(id) = index.id {
-                    assert!(ids.insert(id), "Schema contains duplicate id.");
-                }
-            }
+    pub(crate) fn count_dbs(&self) -> usize {
+        let mut count = 2;
+        for col in &self.collections {
+            count += 1;
+            count += col.indexes.len();
+            count += col.links.len();
         }
-        ids
-    }
-
-    fn update_with_existing_schema_internal(
-        &mut self,
-        existing_schema: Option<&Schema>,
-        mut random: impl FnMut() -> u16,
-    ) -> Result<()> {
-        let mut ids = if let Some(existing_schema) = existing_schema {
-            existing_schema.collect_ids()
-        } else {
-            HashSet::new()
-        };
-
-        let mut get_id = || loop {
-            let id = random();
-            if ids.insert(id) {
-                return id;
-            }
-        };
-
-        let existing_collections: &[CollectionSchema] =
-            existing_schema.map_or(&[], |c| &c.collections);
-        for col in &mut self.collections {
-            let existing_col = existing_collections.iter().find(|c| c.name == col.name);
-            col.update_with_existing_collection(existing_col, &mut get_id)?;
-        }
-        Ok(())
-    }
-
-    pub fn update_with_existing_schema(&mut self, existing_schema: Option<&Schema>) -> Result<()> {
-        self.update_with_existing_schema_internal(existing_schema, random)
+        count
     }
 }
 

@@ -14,10 +14,6 @@ impl Property {
     pub const fn new(data_type: DataType, offset: usize) -> Self {
         Property { data_type, offset }
     }
-
-    pub fn is_id(&self) -> bool {
-        self.offset == 2
-    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -34,10 +30,6 @@ impl<'a> IsarObject<'a> {
     pub const NULL_LONG: i64 = i64::MIN;
     pub const NULL_FLOAT: f32 = f32::NAN;
     pub const NULL_DOUBLE: f64 = f64::NAN;
-    pub const ID_PROPERTY: Property = Property {
-        data_type: DataType::Long,
-        offset: 2,
-    };
 
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
         let static_size = LittleEndian::read_u16(bytes) as usize;
@@ -65,10 +57,6 @@ impl<'a> IsarObject<'a> {
             DataType::Double => self.read_double(property).is_nan(),
             _ => self.get_offset_length(property.offset, false).is_none(),
         }
-    }
-
-    pub fn read_id(&self) -> i64 {
-        self.read_long(Self::ID_PROPERTY)
     }
 
     pub fn read_byte(&self, property: Property) -> u8 {

@@ -1,19 +1,17 @@
 use crate::error::Result;
-use crate::lmdb::error::lmdb_result;
+use crate::mdbx::error::lmdb_result;
 use core::ptr;
 use std::marker::PhantomData;
 
 pub struct Txn<'env> {
     pub(crate) txn: *mut ffi::MDBX_txn,
-    pub(crate) write: bool,
     _marker: PhantomData<&'env ()>,
 }
 
 impl<'env> Txn<'env> {
-    pub(crate) fn new(txn: *mut ffi::MDBX_txn, write: bool) -> Self {
+    pub(crate) fn new(txn: *mut ffi::MDBX_txn) -> Self {
         Txn {
             txn,
-            write,
             _marker: PhantomData::default(),
         }
     }

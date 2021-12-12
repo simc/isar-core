@@ -1,4 +1,4 @@
-use crate::lmdb::error::LmdbError::Other;
+use crate::mdbx::error::LmdbError::Other;
 use libc::c_int;
 use std::ffi::CStr;
 use std::result::Result;

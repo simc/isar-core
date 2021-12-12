@@ -1,4 +1,4 @@
-use crate::lmdb::error::LmdbError;
+use crate::mdbx::error::LmdbError;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, IsarError>;
@@ -35,6 +35,9 @@ pub enum IsarError {
     #[error("IllegalArg: {message:?}.")]
     IllegalArg { message: String },
 
+    #[error("Index could not be found.")]
+    UnknownIndex {},
+
     #[error("Invalid JSON.")]
     InvalidJson {},
 
@@ -44,10 +47,8 @@ pub enum IsarError {
     #[error("SchemaError: {message:?}")]
     SchemaError { message: String },
 
-    #[error(
-        "CryptoError: Error during encryption or decryption. Please check the encryption key."
-    )]
-    CryptoError {},
+    #[error("InstanceMismatch: The transaction is from a different instance.")]
+    InstanceMismatch {},
 
     #[error("LmdbError ({code:?}): {message:?}")]
     LmdbError { code: i32, message: String },

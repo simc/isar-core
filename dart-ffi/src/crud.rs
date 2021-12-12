@@ -1,33 +1,36 @@
 use crate::raw_object_set::{RawObject, RawObjectSet};
 use crate::txn::IsarDartTxn;
-use crate::{BoolSend, UintSend};
-use byteorder::{ByteOrder, LittleEndian};
+use crate::{from_c_str, BoolSend, UintSend};
 use isar_core::collection::IsarCollection;
-use isar_core::error::Result;
-use isar_core::index::index_key::IndexKey;
-use isar_core::object::isar_object::IsarObject;
-use isar_core::txn::IsarTxn;
+use isar_core::key::IndexKey;
 use serde_json::Value;
+use std::os::raw::c_char;
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_get(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     object: &'static mut RawObject,
-    key: *mut IndexKey<'static>,
 ) -> i32 {
-    let key = if !key.is_null() {
-        Some(*Box::from_raw(key))
-    } else {
-        None
-    };
     isar_try_txn!(txn, move |txn| {
-        let result = if let Some(key) = key {
-            collection.get_by_index(txn, &key)?
-        } else {
-            let id = object.get_id();
-            collection.get(txn, id)?
-        };
+        let id = object.get_id();
+        let result = collection.get(txn, id)?;
+        object.set_object(result);
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_get_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    index_index: u32,
+    key: *mut IndexKey,
+    object: &'static mut RawObject,
+) -> i32 {
+    let key = *Box::from_raw(key);
+    isar_try_txn!(txn, move |txn| {
+        let result = collection.get_by_index(txn, index_index as usize, &key)?;
         object.set_object(result);
         Ok(())
     })
@@ -38,45 +41,34 @@ pub unsafe extern "C" fn isar_get_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     objects: &'static mut RawObjectSet,
-    keys: *const *mut IndexKey<'static>,
 ) -> i32 {
-    let keys = if !keys.is_null() {
-        let slice = std::slice::from_raw_parts(keys, objects.get_length());
-        let keys: Vec<IndexKey<'static>> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
-        Some(keys)
-    } else {
-        None
-    };
     isar_try_txn!(txn, move |txn| {
-        if let Some(keys) = keys {
-            for (object, key) in objects.get_objects().iter_mut().zip(keys) {
-                let result = collection.get_by_index(txn, &key)?;
-                object.set_object(result);
-            }
-        } else {
-            for object in objects.get_objects() {
-                let id = object.get_id();
-                let result = collection.get(txn, id)?;
-                object.set_object(result);
-            }
-        };
+        for object in objects.get_objects() {
+            let id = object.get_id();
+            let result = collection.get(txn, id)?;
+            object.set_object(result);
+        }
         Ok(())
     })
 }
 
-fn update_auto_increment(
-    collection: &IsarCollection,
-    txn: &mut IsarTxn,
-    bytes: &mut [u8],
-) -> Result<i64> {
-    let isar_object = IsarObject::from_bytes(bytes);
-    if isar_object.is_null(IsarObject::ID_PROPERTY) {
-        let id = collection.auto_increment(txn)?;
-        LittleEndian::write_i64(&mut bytes[IsarObject::ID_PROPERTY.offset..], id);
-        Ok(id)
-    } else {
-        Ok(isar_object.read_id())
-    }
+#[no_mangle]
+pub unsafe extern "C" fn isar_get_all_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    index_index: u32,
+    keys: *const *mut IndexKey,
+    objects: &'static mut RawObjectSet,
+) -> i32 {
+    let slice = std::slice::from_raw_parts(keys, objects.get_length());
+    let keys: Vec<IndexKey> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
+    isar_try_txn!(txn, move |txn| {
+        for (object, key) in objects.get_objects().iter_mut().zip(keys) {
+            let result = collection.get_by_index(txn, index_index as usize, &key)?;
+            object.set_object(result);
+        }
+        Ok(())
+    })
 }
 
 #[no_mangle]
@@ -86,10 +78,13 @@ pub unsafe extern "C" fn isar_put(
     object: &'static mut RawObject,
 ) -> i32 {
     isar_try_txn!(txn, move |txn| {
-        let bytes = object.get_bytes();
-        let auto_increment = update_auto_increment(collection, txn, bytes)?;
-        collection.put(txn, IsarObject::from_bytes(bytes))?;
-        object.set_id(auto_increment);
+        let id = if object.get_id() == i64::MIN {
+            collection.auto_increment(txn)?
+        } else {
+            object.get_id()
+        };
+        collection.put(txn, id, object.get_object())?;
+        object.set_id(id);
         Ok(())
     })
 }
@@ -102,10 +97,13 @@ pub unsafe extern "C" fn isar_put_all(
 ) -> i32 {
     isar_try_txn!(txn, move |txn| {
         for raw_obj in objects.get_objects() {
-            let bytes = raw_obj.get_bytes();
-            let auto_increment = update_auto_increment(collection, txn, bytes)?;
-            collection.put(txn, IsarObject::from_bytes(bytes))?;
-            raw_obj.set_id(auto_increment)
+            let id = if raw_obj.get_id() == i64::MIN {
+                collection.auto_increment(txn)?
+            } else {
+                raw_obj.get_id()
+            };
+            collection.put(txn, id, raw_obj.get_object())?;
+            raw_obj.set_id(id)
         }
         Ok(())
     })
@@ -116,21 +114,27 @@ pub unsafe extern "C" fn isar_delete(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     id: i64,
-    key: *mut IndexKey<'static>,
     deleted: &'static mut bool,
 ) -> i32 {
     let deleted = BoolSend(deleted);
-    let key = if !key.is_null() {
-        Some(*Box::from_raw(key))
-    } else {
-        None
-    };
     isar_try_txn!(txn, move |txn| {
-        *deleted.0 = if let Some(key) = key {
-            collection.delete_by_index(txn, &key)?
-        } else {
-            collection.delete(txn, id)?
-        };
+        *deleted.0 = collection.delete(txn, id)?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_delete_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    index_index: u32,
+    key: *mut IndexKey,
+    deleted: &'static mut bool,
+) -> i32 {
+    let deleted = BoolSend(deleted);
+    let key = *Box::from_raw(key);
+    isar_try_txn!(txn, move |txn| {
+        *deleted.0 = collection.delete_by_index(txn, index_index as usize, &key)?;
         Ok(())
     })
 }
@@ -140,31 +144,37 @@ pub unsafe extern "C" fn isar_delete_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     ids: *const i64,
-    keys: *const *mut IndexKey<'static>,
     ids_length: u32,
     count: &'static mut u32,
 ) -> i32 {
-    let keys = if !keys.is_null() {
-        let slice = std::slice::from_raw_parts(keys, ids_length as usize);
-        let keys: Vec<IndexKey<'static>> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
-        Some(keys)
-    } else {
-        None
-    };
     let ids = std::slice::from_raw_parts(ids, ids_length as usize);
     let count = UintSend(count);
     isar_try_txn!(txn, move |txn| {
-        if let Some(keys) = keys {
-            for key in keys {
-                if collection.delete_by_index(txn, &key)? {
-                    *count.0 += 1;
-                }
+        for id in ids {
+            if collection.delete(txn, *id)? {
+                *count.0 += 1;
             }
-        } else {
-            for id in ids {
-                if collection.delete(txn, *id)? {
-                    *count.0 += 1;
-                }
+        }
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_delete_all_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    index_index: u32,
+    keys: *const *mut IndexKey,
+    keys_length: u32,
+    count: &'static mut u32,
+) -> i32 {
+    let slice = std::slice::from_raw_parts(keys, keys_length as usize);
+    let keys: Vec<IndexKey> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
+    let count = UintSend(count);
+    isar_try_txn!(txn, move |txn| {
+        for key in keys {
+            if collection.delete_by_index(txn, index_index as usize, &key)? {
+                *count.0 += 1;
             }
         }
         Ok(())
@@ -175,23 +185,26 @@ pub unsafe extern "C" fn isar_delete_all(
 pub unsafe extern "C" fn isar_clear(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    count: &'static mut u32,
 ) -> i32 {
-    let count = UintSend(count);
-    isar_try_txn!(txn, move |txn| {
-        *count.0 = collection.clear(txn)? as u32;
-        Ok(())
-    })
+    isar_try_txn!(txn, move |txn| collection.clear(txn))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_json_import(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
+    id_name: *const c_char,
     json_bytes: *const u8,
     json_length: u32,
 ) -> i32 {
+    let id_name = if !id_name.is_null() {
+        Some(from_c_str(id_name).unwrap())
+    } else {
+        None
+    };
     let bytes = std::slice::from_raw_parts(json_bytes, json_length as usize);
     let json: Value = serde_json::from_slice(bytes).unwrap();
-    isar_try_txn!(txn, move |txn| { collection.import_json(txn, json) })
+    isar_try_txn!(txn, move |txn| {
+        collection.import_json(txn, id_name, json)
+    })
 }

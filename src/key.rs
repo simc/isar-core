@@ -1,19 +1,51 @@
-use crate::index::{IsarIndex, MAX_STRING_INDEX_SIZE};
-use std::hash::Hasher;
-use wyhash::{wyhash, WyHash};
+use crate::index::IsarIndex;
+use crate::mdbx::ByteKey;
+use std::borrow::{Borrow, Cow};
+use std::cmp::Ordering;
+use xxhash_rust::xxh3::xxh3_64;
 
-#[derive(Clone)]
-pub struct IndexKey<'a> {
-    pub(crate) index: &'a IsarIndex,
-    pub(crate) bytes: Vec<u8>,
+pub struct IdKey<'a> {
+    bytes: Cow<'a, [u8]>,
 }
 
-impl<'a> IndexKey<'a> {
-    pub(crate) fn new(index: &'a IsarIndex) -> Self {
-        IndexKey {
-            index: index,
-            bytes: index.get_prefix(),
+impl<'a> IdKey<'a> {
+    pub fn new(id: i64) -> Self {
+        let unsigned: u64 = unsafe { std::mem::transmute(id) };
+        let bytes = (unsigned ^ 1 << 63).to_le_bytes().to_vec();
+        IdKey {
+            bytes: Cow::Owned(bytes),
         }
+    }
+
+    pub fn from_bytes(bytes: &'a [u8]) -> IdKey<'a> {
+        IdKey {
+            bytes: Cow::Borrowed(bytes),
+        }
+    }
+
+    pub fn get_unsigned_id(&self) -> u64 {
+        u64::from_le_bytes(self.as_bytes().try_into().unwrap())
+    }
+
+    pub fn get_id(&self) -> i64 {
+        let unsigned = self.get_unsigned_id();
+        let signed: i64 = unsafe { std::mem::transmute(unsigned) };
+        signed ^ 1 << 63
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.borrow()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct IndexKey {
+    bytes: Vec<u8>,
+}
+
+impl IndexKey {
+    pub fn new() -> Self {
+        IndexKey { bytes: vec![] }
     }
 
     pub fn add_byte(&mut self, value: u8) {
@@ -21,14 +53,14 @@ impl<'a> IndexKey<'a> {
     }
 
     pub fn add_int(&mut self, value: i32) {
-        let unsigned = unsafe { std::mem::transmute::<i32, u32>(value) };
+        let unsigned: u32 = unsafe { std::mem::transmute(value) };
         let bytes: [u8; 4] = (unsigned ^ 1 << 31).to_be_bytes();
         self.bytes.extend_from_slice(&bytes);
     }
 
     pub fn add_long(&mut self, value: i64) {
-        let unsigned = unsafe { std::mem::transmute::<i64, u64>(value) };
-        let bytes: [u8; 8] = (unsigned ^ 1 << 63).to_be_bytes();
+        let unsigned: u64 = unsafe { std::mem::transmute(value) };
+        let bytes = (unsigned ^ 1 << 63).to_be_bytes().to_vec();
         self.bytes.extend_from_slice(&bytes);
     }
 
@@ -62,15 +94,12 @@ impl<'a> IndexKey<'a> {
 
     pub fn add_string_hash(&mut self, value: Option<&str>, case_sensitive: bool) {
         let hash = if let Some(value) = value {
-            let mut hasher = WyHash::default();
-            hasher.write_usize(value.len());
             if case_sensitive {
-                hasher.write(value.as_bytes());
+                xxh3_64(value.as_bytes())
             } else {
                 let lower_case = value.to_lowercase();
-                hasher.write(lower_case.as_bytes());
+                xxh3_64(lower_case.as_bytes())
             }
-            hasher.finish()
         } else {
             0
         };
@@ -87,11 +116,11 @@ impl<'a> IndexKey<'a> {
             };
             let bytes = value.as_bytes();
             self.bytes.push(1);
-            if bytes.len() >= MAX_STRING_INDEX_SIZE {
+            if bytes.len() >= IsarIndex::MAX_STRING_INDEX_SIZE {
                 self.bytes
-                    .extend_from_slice(&bytes[0..MAX_STRING_INDEX_SIZE]);
+                    .extend_from_slice(&bytes[0..IsarIndex::MAX_STRING_INDEX_SIZE]);
                 self.bytes.push(0);
-                let hash = wyhash(bytes, 0);
+                let hash = xxh3_64(bytes);
                 self.bytes.extend_from_slice(&u64::to_le_bytes(hash));
             } else {
                 self.bytes.extend_from_slice(bytes);
@@ -120,6 +149,22 @@ impl<'a> IndexKey<'a> {
         assert!(len >= 2);
         self.bytes.truncate(len);
     }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.borrow()
+    }
+}
+
+impl PartialOrd<Self> for IndexKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for IndexKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        ByteKey::new(&self.bytes).cmp_bytes(&other.bytes)
+    }
 }
 
 #[cfg(test)]
@@ -137,9 +182,8 @@ mod tests {
             (255, vec![255]),
         ];
 
-        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_byte(val);
             assert_eq!(&index_key.bytes[2..], &bytes);
         }
@@ -157,9 +201,8 @@ mod tests {
             (i32::MAX, vec![255, 255, 255, 255]),
         ];
 
-        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_int(val);
             assert_eq!(&index_key.bytes[2..], &bytes);
         }
@@ -177,9 +220,8 @@ mod tests {
             (i64::MAX, vec![255, 255, 255, 255, 255, 255, 255, 255]),
         ];
 
-        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_long(val);
             assert_eq!(&index_key.bytes[2..], &bytes);
         }
@@ -201,9 +243,8 @@ mod tests {
             (f32::INFINITY, vec![255, 128, 0, 0]),
         ];
 
-        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_float(val);
             assert_eq!(&index_key.bytes[2..], &bytes);
         }
@@ -231,9 +272,8 @@ mod tests {
             (f64::INFINITY, vec![255, 240, 0, 0, 0, 0, 0, 0]),
         ];
 
-        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (val, bytes) in pairs {
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_double(val);
             assert_eq!(&index_key.bytes[2..], &bytes);
         }
@@ -271,13 +311,12 @@ mod tests {
             ),
         ];
 
-        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (str, hash, hash_lc) in pairs {
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_string_hash(str, true);
             assert_eq!(index_key.bytes[2..], hash);
 
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_string_hash(str, false);
             assert_eq!(index_key.bytes[2..], hash_lc);
         }
@@ -316,13 +355,12 @@ mod tests {
             //(Some(&long_str), long_str_bytes, long_str_lc_bytes),
         ];
 
-        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (str, bytes, bytes_lc) in pairs {
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_string_value(str, true);
             assert_eq!(index_key.bytes[2..], bytes);
 
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_string_value(str, false);
             assert_eq!(index_key.bytes[2..], bytes_lc);
         }
@@ -336,13 +374,12 @@ mod tests {
             ("tESt", b"tESt".to_vec(), b"test".to_vec()),
         ];
 
-        let index = IsarIndex::new(0, 0, vec![], false, false);
         for (str, bytes, bytes_lc) in pairs {
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_string_word(str, true);
             assert_eq!(index_key.bytes[2..], bytes);
 
-            let mut index_key = IndexKey::new(&index);
+            let mut index_key = IndexKey::new();
             index_key.add_string_word(str, false);
             assert_eq!(index_key.bytes[2..], bytes_lc);
         }
