@@ -1,44 +1,36 @@
 use crate::index::{IndexProperty, IsarIndex};
 use crate::mdbx::db::Db;
 use crate::object::isar_object::Property;
-use enum_ordinalize::Ordinalize;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
 
-#[derive(Copy, Clone, Eq, PartialEq, Serialize_repr, Deserialize_repr, Debug, Ordinalize)]
-#[repr(u8)]
-pub enum IndexType {
-    Value,
-    Hash,
-    Words,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct IndexPropertySchema {
-    #[serde(rename = "name")]
     pub(crate) name: String,
-    #[serde(rename = "type")]
-    pub(crate) index_type: IndexType,
+    pub(crate) hash: bool,
+    #[serde(rename = "hashElements")]
+    pub(crate) hash_elements: bool,
     #[serde(rename = "caseSensitive")]
-    pub(crate) case_sensitive: Option<bool>,
+    pub(crate) case_sensitive: bool,
 }
 
 impl IndexPropertySchema {
     pub fn new(
         name: &str,
-        index_type: IndexType,
-        case_sensitive: Option<bool>,
+        hash: bool,
+        hash_elements: bool,
+        case_sensitive: bool,
     ) -> IndexPropertySchema {
         IndexPropertySchema {
             name: name.to_string(),
-            index_type,
+            hash,
+            hash_elements,
             case_sensitive,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash)]
 pub struct IndexSchema {
     pub(crate) properties: Vec<IndexPropertySchema>,
     pub(crate) unique: bool,
@@ -66,7 +58,7 @@ impl IndexSchema {
             .map(|p| {
                 let property_index = property_names.iter().position(|n| &p.name == n).unwrap();
                 let property = properties.get(property_index).unwrap();
-                IndexProperty::new(*property, p.index_type, p.case_sensitive)
+                IndexProperty::new(*property, p.hash, p.hash_elements, p.case_sensitive)
             })
             .collect_vec();
         IsarIndex::new(db, index_properties, self.unique, self.replace)

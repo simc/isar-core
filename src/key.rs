@@ -92,22 +92,7 @@ impl IndexKey {
         self.bytes.extend_from_slice(&bytes);
     }
 
-    pub fn add_string_hash(&mut self, value: Option<&str>, case_sensitive: bool) {
-        let hash = if let Some(value) = value {
-            if case_sensitive {
-                xxh3_64(value.as_bytes())
-            } else {
-                let lower_case = value.to_lowercase();
-                xxh3_64(lower_case.as_bytes())
-            }
-        } else {
-            0
-        };
-        let bytes: [u8; 8] = hash.to_be_bytes();
-        self.bytes.extend_from_slice(&bytes);
-    }
-
-    pub fn add_string_value(&mut self, value: Option<&str>, case_sensitive: bool) {
+    pub fn add_string(&mut self, value: Option<&str>, case_sensitive: bool) {
         if let Some(value) = value {
             let value = if case_sensitive {
                 value.to_string()
@@ -131,13 +116,9 @@ impl IndexKey {
         }
     }
 
-    pub fn add_string_word(&mut self, value: &str, case_sensitive: bool) {
-        if case_sensitive {
-            self.bytes.extend_from_slice(value.as_bytes());
-        } else {
-            let lower_case = value.to_lowercase();
-            self.bytes.extend_from_slice(lower_case.as_bytes());
-        }
+    pub fn add_hash(&mut self, value: u64) {
+        let bytes: [u8; 8] = value.to_be_bytes();
+        self.bytes.extend_from_slice(&bytes);
     }
 
     #[allow(clippy::len_without_is_empty)]
@@ -146,8 +127,31 @@ impl IndexKey {
     }
 
     pub fn truncate(&mut self, len: usize) {
-        assert!(len >= 2);
         self.bytes.truncate(len);
+    }
+
+    pub(crate) fn increase(&mut self) -> bool {
+        let mut increased = false;
+        for i in (0..self.bytes.len()).rev() {
+            if let Some(added) = self.bytes[i].checked_add(1) {
+                self.bytes[i] = added;
+                increased = true;
+                break;
+            }
+        }
+        increased
+    }
+
+    pub(crate) fn decrease(&mut self) -> bool {
+        let mut decreased = false;
+        for i in (0..self.bytes.len()).rev() {
+            if let Some(subtracted) = self.bytes[i].checked_sub(1) {
+                self.bytes[i] = subtracted;
+                decreased = true;
+                break;
+            }
+        }
+        decreased
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -185,7 +189,7 @@ mod tests {
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new();
             index_key.add_byte(val);
-            assert_eq!(&index_key.bytes[2..], &bytes);
+            assert_eq!(&index_key.bytes, &bytes);
         }
     }
 
@@ -204,7 +208,7 @@ mod tests {
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new();
             index_key.add_int(val);
-            assert_eq!(&index_key.bytes[2..], &bytes);
+            assert_eq!(&index_key.bytes, &bytes);
         }
     }
 
@@ -223,7 +227,7 @@ mod tests {
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new();
             index_key.add_long(val);
-            assert_eq!(&index_key.bytes[2..], &bytes);
+            assert_eq!(&index_key.bytes, &bytes);
         }
     }
 
@@ -246,7 +250,7 @@ mod tests {
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new();
             index_key.add_float(val);
-            assert_eq!(&index_key.bytes[2..], &bytes);
+            assert_eq!(&index_key.bytes, &bytes);
         }
     }
 
@@ -275,55 +279,12 @@ mod tests {
         for (val, bytes) in pairs {
             let mut index_key = IndexKey::new();
             index_key.add_double(val);
-            assert_eq!(&index_key.bytes[2..], &bytes);
+            assert_eq!(&index_key.bytes, &bytes);
         }
     }
 
     #[test]
-    fn test_add_string_hash() {
-        let long_str = (0..850).map(|_| "aB").collect::<String>();
-
-        let pairs: Vec<(Option<&str>, Vec<u8>, Vec<u8>)> = vec![
-            (
-                None,
-                vec![0, 0, 0, 0, 0, 0, 0, 0],
-                vec![0, 0, 0, 0, 0, 0, 0, 0],
-            ),
-            (
-                Some(""),
-                vec![183, 56, 242, 170, 183, 88, 42, 211],
-                vec![183, 56, 242, 170, 183, 88, 42, 211],
-            ),
-            (
-                Some("hELLo"),
-                vec![195, 215, 64, 163, 175, 255, 28, 49],
-                vec![255, 175, 47, 252, 56, 169, 22, 4],
-            ),
-            (
-                Some("this is just a test"),
-                vec![156, 13, 228, 133, 209, 47, 168, 125],
-                vec![156, 13, 228, 133, 209, 47, 168, 125],
-            ),
-            (
-                Some(&long_str[..]),
-                vec![232, 213, 235, 242, 9, 163, 151, 208],
-                vec![245, 5, 235, 221, 71, 240, 88, 127],
-            ),
-        ];
-
-        for (str, hash, hash_lc) in pairs {
-            let mut index_key = IndexKey::new();
-            index_key.add_string_hash(str, true);
-            assert_eq!(index_key.bytes[2..], hash);
-
-            let mut index_key = IndexKey::new();
-            index_key.add_string_hash(str, false);
-            assert_eq!(index_key.bytes[2..], hash_lc);
-        }
-    }
-
-    #[test]
-    fn test_get_string_value_key() {
+    fn test_add_string() {
         let long_str = (0..850).map(|_| "aB").collect::<String>();
         let long_str_lc = long_str.to_lowercase();
 
@@ -357,31 +318,12 @@ mod tests {
 
         for (str, bytes, bytes_lc) in pairs {
             let mut index_key = IndexKey::new();
-            index_key.add_string_value(str, true);
-            assert_eq!(index_key.bytes[2..], bytes);
+            index_key.add_string(str, true);
+            assert_eq!(index_key.bytes, bytes);
 
             let mut index_key = IndexKey::new();
-            index_key.add_string_value(str, false);
-            assert_eq!(index_key.bytes[2..], bytes_lc);
-        }
-    }
-
-    #[test]
-    fn test_get_string_word_keys() {
-        let pairs: Vec<(&str, Vec<u8>, Vec<u8>)> = vec![
-            ("", b"".to_vec(), b"".to_vec()),
-            ("hello", b"hello".to_vec(), b"hello".to_vec()),
-            ("tESt", b"tESt".to_vec(), b"test".to_vec()),
-        ];
-
-        for (str, bytes, bytes_lc) in pairs {
-            let mut index_key = IndexKey::new();
-            index_key.add_string_word(str, true);
-            assert_eq!(index_key.bytes[2..], bytes);
-
-            let mut index_key = IndexKey::new();
-            index_key.add_string_word(str, false);
-            assert_eq!(index_key.bytes[2..], bytes_lc);
+            index_key.add_string(str, false);
+            assert_eq!(index_key.bytes, bytes_lc);
         }
     }
 }

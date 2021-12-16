@@ -41,20 +41,48 @@ macro_rules! txn (
 );
 
 #[macro_export]
-macro_rules! put_objects (
-    ($col:expr, $txn:ident, $prop:ident, $($name:ident, $value:expr),+) => {
-        put_objects!(internal $col, $txn, 0, $prop, $($name, $value),+);
+macro_rules! put (
+    ($col:expr, $txn:ident, $prop:ident, $($name:ident => $value:expr),+) => {
+        $(
+            let id = $col.auto_increment(&mut $txn).unwrap();
+            let mut $name = $crate::common::test_obj::TestObj::default(id);
+            $name.$prop = $value;
+            $name.save(&mut $txn, $col);
+        )+;
     };
 
-    (internal $col:expr, $txn:ident, $index:expr, $prop:ident, $name:ident, $value:expr, $($other_name:ident, $other_value:expr),+) => {
-        put_objects!(internal $col, $txn, $index, $prop, $name, $value);
-        put_objects!(internal $col, $txn, $index + 1, $prop, $($other_name, $other_value),*);
+    (id $col:expr, $txn:ident, $($name:ident => $value:expr),+) => {
+        $(
+            let mut $name = $crate::common::test_obj::TestObj::default($value);
+            $name.save(&mut $txn, $col);
+        )+;
+    };
+);
+
+#[macro_export]
+macro_rules! verify (
+    ($col:expr, $txn:ident) => {
+        verify!($col, $txn,)
     };
 
-    (internal $col:expr, $txn:ident, $index:expr, $prop:ident, $name:ident, $value:expr) => {
-        let mut $name = $crate::common::test_obj::TestObj::default($index);
-        $name.$prop = $value;
-        $name.save($col, &mut $txn);
+    ($col:expr, $txn:ident, $($obj:ident),*) => {
+        verify!($col, $txn, $($obj),*;)
+    };
+
+    ($col:expr, $txn:ident, $($obj:ident),*; $($link:expr, $($source:expr => $target:expr),+);*) => {
+        let mut objects = vec![];
+        $(
+            objects.push(isar_core::verify::ObjectEntry::new($obj.id, $obj.to_bytes()));
+        )*
+
+        let mut links = vec![];
+        $(
+            $(
+                links.push(isar_core::verify::LinkEntry::new($link, $source, $target));
+            )+
+        )*
+
+        isar_core::verify::verify_isar(&mut $txn, vec![(&$col, objects, links)]);
     };
 );
 

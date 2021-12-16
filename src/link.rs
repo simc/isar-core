@@ -9,7 +9,7 @@ use crate::txn::IsarTxn;
 
 #[derive(Copy, Clone)]
 pub(crate) struct IsarLink {
-    db: Db,
+    pub(crate) db: Db,
     source_db: Db,
     target_db: Db,
 }

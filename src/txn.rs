@@ -63,18 +63,22 @@ impl<'env> IsarTxn<'env> {
 
     pub(crate) fn write<'txn, T, F>(&'txn mut self, instance_id: u64, job: F) -> Result<T>
     where
-        F: FnOnce(&IsarCursors<'txn, 'env>, Option<&mut ChangeSet<'txn>>) -> Result<T>,
+        F: FnOnce(&IsarCursors<'txn, 'env>, Option<&mut ChangeSet<'_>>) -> Result<T>,
     {
         self.verify_instance_id(instance_id)?;
         if !self.write {
             return Err(IsarError::WriteTxnRequired {});
         }
         if let Some(unbound_cursors) = self.unbound_cursors.take() {
+            let mut change_set = self.change_set.take();
             let cursors = IsarCursors::new(self, unbound_cursors);
-            let result = job(&cursors, None); //self.change_set.as_mut());
+            let result = job(&cursors, change_set.as_mut());
             let unbounded_cursors = cursors.close();
             if result.is_ok() {
                 self.unbound_cursors.borrow_mut().replace(unbounded_cursors);
+                if let Some(change_set) = change_set {
+                    self.change_set.borrow_mut().replace(change_set);
+                }
             }
             result
         } else {

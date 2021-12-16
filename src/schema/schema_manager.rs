@@ -96,7 +96,7 @@ impl<'a> SchemaManger<'a> {
 
     fn open_link_db(&mut self, col: &CollectionSchema, link: &LinkSchema) -> Result<Db> {
         let db_name = self.get_db_name(col, None, Some(link));
-        Db::open(self.txn, &db_name, true, false, true)
+        Db::open(self.txn, &db_name, true, true, true)
     }
 
     fn delete_collection(&mut self, col: &CollectionSchema) -> Result<()> {

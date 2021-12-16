@@ -1,8 +1,9 @@
 use crate::object::data_type::DataType;
+use crate::object::object_builder::ObjectBuilder;
 use byteorder::{ByteOrder, LittleEndian};
 use num_traits::Float;
 use std::cmp::Ordering;
-use std::hash::Hasher;
+use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Property {
@@ -40,10 +41,12 @@ impl<'a> IsarObject<'a> {
         self.bytes
     }
 
+    #[inline]
     pub(crate) fn contains_offset(&self, offset: usize) -> bool {
         self.static_size > offset
     }
 
+    #[inline]
     pub fn contains_property(&self, property: Property) -> bool {
         self.contains_offset(property.offset)
     }
@@ -191,30 +194,74 @@ impl<'a> IsarObject<'a> {
         Some(list)
     }
 
-    pub fn hash_property<H: Hasher>(
-        &self,
-        property: Property,
-        case_sensitive: bool,
-        hasher: &mut H,
-    ) {
+    pub fn hash_property(&self, property: Property, case_sensitive: bool, seed: u64) -> u64 {
         match property.data_type {
-            DataType::Byte => hasher.write_u8(self.read_byte(property)),
-            DataType::Int => hasher.write_i32(self.read_int(property)),
-            DataType::Float => hasher.write(&self.read_float(property).to_le_bytes()),
-            DataType::Long => hasher.write_i64(self.read_long(property)),
-            DataType::Double => hasher.write(&self.read_double(property).to_le_bytes()),
-            DataType::String => {
-                let str = self.read_string(property);
-                if let Some(str) = str {
-                    hasher.write_usize(str.len());
-                    if case_sensitive {
-                        hasher.write(str.as_bytes());
-                    } else {
-                        hasher.write(str.to_lowercase().as_bytes());
+            DataType::Byte => xxh3_64_with_seed(&[self.read_byte(property)], seed),
+            DataType::Int => xxh3_64_with_seed(&self.read_int(property).to_le_bytes(), seed),
+            DataType::Float => xxh3_64_with_seed(&self.read_float(property).to_le_bytes(), seed),
+            DataType::Long => xxh3_64_with_seed(&self.read_long(property).to_le_bytes(), seed),
+            DataType::Double => xxh3_64_with_seed(&self.read_double(property).to_le_bytes(), seed),
+            DataType::String => Self::hash_string(self.read_string(property), case_sensitive, seed),
+            _ => {
+                if let Some((offset, length)) = self.get_offset_length(property.offset, false) {
+                    match property.data_type {
+                        DataType::ByteList => {
+                            xxh3_64_with_seed(&self.bytes[offset..offset + length], seed)
+                        }
+                        DataType::IntList | DataType::FloatList => {
+                            xxh3_64_with_seed(&self.bytes[offset..offset + length * 4], seed)
+                        }
+                        DataType::LongList | DataType::DoubleList => {
+                            xxh3_64_with_seed(&self.bytes[offset..offset + length * 8], seed)
+                        }
+                        DataType::StringList => Self::hash_string_list(
+                            self.read_string_list(property),
+                            case_sensitive,
+                            seed,
+                        ),
+                        _ => panic!(),
                     }
+                } else {
+                    seed
                 }
             }
-            _ => unimplemented!(),
+        }
+    }
+
+    pub fn hash_string(value: Option<&str>, case_sensitive: bool, seed: u64) -> u64 {
+        if let Some(str) = value {
+            if case_sensitive {
+                xxh3_64_with_seed(str.as_bytes(), seed)
+            } else {
+                xxh3_64_with_seed(str.to_lowercase().as_bytes(), seed)
+            }
+        } else {
+            seed
+        }
+    }
+
+    pub fn hash_list<T>(value: Option<&[T]>, seed: u64) -> u64 {
+        if let Some(list) = value {
+            let bytes = ObjectBuilder::get_list_bytes(list);
+            xxh3_64_with_seed(bytes, seed)
+        } else {
+            seed
+        }
+    }
+
+    pub fn hash_string_list(
+        value: Option<Vec<Option<&str>>>,
+        case_sensitive: bool,
+        seed: u64,
+    ) -> u64 {
+        if let Some(str) = value {
+            let mut hash = seed;
+            for value in str {
+                hash = Self::hash_string(value, case_sensitive, hash);
+            }
+            hash
+        } else {
+            seed
         }
     }
 
@@ -265,7 +312,7 @@ impl<'a> IsarObject<'a> {
                     Ordering::Equal
                 }
             }
-            _ => unimplemented!(),
+            _ => Ordering::Equal,
         }
     }
 }
@@ -279,7 +326,7 @@ mod tests {
 
     macro_rules! builder {
         ($builder:ident, $prop:ident, $type:ident) => {
-            let $prop = Property::new($type, 0);
+            let $prop = Property::new($type, 2);
             let props = vec![$prop];
             let mut $builder = ObjectBuilder::new(&props, None);
         };

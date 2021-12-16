@@ -1,8 +1,6 @@
 use intmap::IntMap;
 use serde_json::{json, Value};
 use std::cmp::Ordering;
-use std::hash::Hasher;
-use xxhash_rust::xxh3::Xxh3;
 
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
@@ -130,6 +128,14 @@ impl<'txn> Query {
         }
     }
 
+    fn hash_properties(object: IsarObject, properties: &[(Property, bool)]) -> u64 {
+        let mut hash = 0;
+        for (property, case_sensitive) in properties {
+            hash = object.hash_property(*property, *case_sensitive, hash);
+        }
+        hash
+    }
+
     fn add_distinct_unsorted<F>(
         &self,
         mut callback: F,
@@ -140,11 +146,7 @@ impl<'txn> Query {
         let properties = self.distinct.clone();
         let mut hashes = IntMap::new();
         move |id_key, object| {
-            let mut hasher = Xxh3::default();
-            for (property, case_sensitive) in &properties {
-                object.hash_property(*property, *case_sensitive, &mut hasher);
-            }
-            let hash = hasher.finish();
+            let hash = Self::hash_properties(object, &properties);
             if hashes.insert(hash, ()) {
                 callback(id_key, object)
             } else {
@@ -213,11 +215,7 @@ impl<'txn> Query {
         results
             .into_iter()
             .filter(|(_, object)| {
-                let mut hasher = Xxh3::default();
-                for (property, case_sensitive) in &properties {
-                    object.hash_property(*property, *case_sensitive, &mut hasher);
-                }
-                let hash = hasher.finish();
+                let hash = Self::hash_properties(*object, &properties);
                 hashes.insert(hash, ())
             })
             .collect()

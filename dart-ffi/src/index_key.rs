@@ -35,7 +35,7 @@ pub extern "C" fn isar_key_add_double(key: &mut IndexKey, value: f64) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_key_add_string_value(
+pub unsafe extern "C" fn isar_key_add_string(
     key: &mut IndexKey,
     value: *const c_char,
     case_sensitive: bool,
@@ -45,7 +45,7 @@ pub unsafe extern "C" fn isar_key_add_string_value(
     } else {
         None
     };
-    key.add_string_value(value, case_sensitive)
+    key.add_string(value, case_sensitive)
 }
 
 #[no_mangle]
@@ -59,15 +59,50 @@ pub unsafe extern "C" fn isar_key_add_string_hash(
     } else {
         None
     };
-    key.add_string_hash(value, case_sensitive)
+    let hash = IsarObject::hash_string(value, case_sensitive, 0);
+    key.add_hash(hash);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_key_add_string_word(
+pub unsafe extern "C" fn isar_key_add_string_list_hash(
     key: &mut IndexKey,
-    value: *const c_char,
+    value: *const *const c_char,
+    length: u32,
     case_sensitive: bool,
 ) {
-    let value = from_c_str(value).unwrap();
-    key.add_string_word(value, case_sensitive)
+    let value = if !value.is_null() {
+        Some(from_c_str(value).unwrap())
+    } else {
+        None
+    };
+    let hash = IsarObject::hash_string(value, case_sensitive, 0);
+    key.add_hash(hash);
 }
+
+#[macro_export]
+macro_rules! hash_list {
+    ($name:ident, $type:ty) => {
+        paste! {
+            #[no_mangle]
+            pub unsafe extern "C" fn [<isar_key_add_ $name _list_hash>](
+                key: &mut IndexKey,
+                value: *const $type,
+                length: u32,
+            ) {
+                let value = if !value.is_null() {
+                    Some(unsafe { std::slice::from_raw_parts(value, length as usize) })
+                } else {
+                    None
+                };
+                let hash = IsarObject::hash_list(value, 0);
+                key.add_hash(hash);
+            }
+        }
+    };
+}
+
+hash_list!(byte, u8);
+hash_list!(int, i32);
+hash_list!(float, f32);
+hash_list!(long, i64);
+hash_list!(double, f64);

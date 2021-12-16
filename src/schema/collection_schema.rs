@@ -1,7 +1,7 @@
 use crate::error::{schema_error, IsarError, Result};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::Property;
-use crate::schema::index_schema::{IndexSchema, IndexType};
+use crate::schema::index_schema::IndexSchema;
 use crate::schema::link_schema::LinkSchema;
 use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
@@ -42,7 +42,9 @@ impl CollectionSchema {
 
     fn verify_name(name: &str) -> Result<()> {
         if name.is_empty() {
-            schema_error("Empty names are not allowed")
+            schema_error("Empty names are not allowed.")
+        } else if name.starts_with('_') {
+            schema_error("Names must not begin with an underscore.")
         } else {
             Ok(())
         }
@@ -55,6 +57,10 @@ impl CollectionSchema {
             Self::verify_name(&property.name)?;
         }
 
+        for link in &self.links {
+            Self::verify_name(&link.name)?;
+        }
+
         let properties_link_names = self
             .properties
             .iter()
@@ -62,6 +68,11 @@ impl CollectionSchema {
             .chain(self.links.iter().map(|l| l.name.as_str()));
         if properties_link_names.unique().count() < self.properties.len() + self.links.len() {
             schema_error("Duplicate property or link name")?;
+        }
+
+        let unique_index_count = self.indexes.iter().unique().count();
+        if unique_index_count != self.indexes.len() {
+            schema_error("Duplicate index")?;
         }
 
         for index in &self.indexes {
@@ -75,37 +86,40 @@ impl CollectionSchema {
                 let property = self
                     .properties
                     .iter()
-                    .find(|p| p.name == index_property.name)
-                    .cloned();
+                    .find(|p| p.name == index_property.name);
                 if property.is_none() {
                     schema_error("IsarIndex property does not exist")?;
                 }
                 let property = property.unwrap();
 
-                if property.data_type.is_dynamic() && property.data_type != DataType::String {
-                    schema_error("Illegal index data type")?;
+                if property.data_type.get_element_type().is_some() {
+                    if index.properties.len() > 1 && !index_property.hash {
+                        schema_error("Composite list indexes are not supported.")?;
+                    }
+                } else {
+                    if index_property.hash_elements {
+                        schema_error("Only list indexes may hash elements")?;
+                    }
+
+                    if property.data_type == DataType::String
+                        && i != index.properties.len() - 1
+                        && !index_property.hash
+                    {
+                        schema_error("Non-hashed string indexes must only be at the end of a composite index.")?;
+                    }
                 }
 
                 if property.data_type != DataType::String
-                    && index_property.index_type != IndexType::Value
+                    && property.data_type.get_element_type().is_none()
+                    && index_property.hash
                 {
-                    schema_error("Non string indexes must use IndexType::Value")?;
+                    schema_error("Only string and list indexes may be hashed")?;
                 }
-                if (property.data_type == DataType::String)
-                    != index_property.case_sensitive.is_some()
+                if property.data_type != DataType::String
+                    && property.data_type != DataType::StringList
+                    && index_property.case_sensitive
                 {
-                    schema_error("Only String indexes must have case sensitivity.")?;
-                }
-
-                match index_property.index_type {
-                    IndexType::Value | IndexType::Words => {
-                        if i != index.properties.len() - 1 {
-                            schema_error(
-                                &format!(" {:?} Value and word string indexes must only be at the end of a composite index.", &self.name.as_str())
-                            )?;
-                        }
-                    }
-                    _ => {}
+                    schema_error("Only String and StringList indexes may be case sensitive.")?;
                 }
             }
         }

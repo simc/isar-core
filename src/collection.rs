@@ -24,7 +24,6 @@ pub struct IsarCollection {
     pub(crate) links: Vec<(String, IsarLink)>, // links from this collection
     pub(crate) backlinks: Vec<IsarLink>,       // links to this collection
 
-    static_size: usize,
     next_auto_increment: Cell<i64>,
 }
 
@@ -32,6 +31,7 @@ unsafe impl Send for IsarCollection {}
 unsafe impl Sync for IsarCollection {}
 
 impl IsarCollection {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         db: Db,
         instance_id: u64,
@@ -42,14 +42,12 @@ impl IsarCollection {
         links: Vec<(String, IsarLink)>,
         backlinks: Vec<IsarLink>,
     ) -> Self {
-        let static_size = ObjectBuilder::calculate_static_size(&properties);
         IsarCollection {
             instance_id,
             db,
             name,
             properties,
             property_names,
-            static_size,
             indexes,
             links,
             backlinks,
@@ -71,7 +69,7 @@ impl IsarCollection {
     }
 
     pub fn new_object_builder(&self, buffer: Option<Vec<u8>>) -> ObjectBuilder {
-        ObjectBuilder::new_with_size(&self.properties, self.static_size, buffer)
+        ObjectBuilder::new(&self.properties, buffer)
     }
 
     pub fn new_query_builder(&self) -> QueryBuilder {
@@ -160,8 +158,8 @@ impl IsarCollection {
 
         for index in &self.indexes {
             index.create_for_object(cursors, &id_key, object, |id_key| {
-                self.delete_internal(cursors, true, change_set.as_deref_mut(), &id_key)?;
-                Ok(())
+                self.delete_internal(cursors, true, change_set.as_deref_mut(), id_key)?;
+                Ok(true)
             })?;
         }
 
@@ -212,7 +210,7 @@ impl IsarCollection {
             }
             if delete_links {
                 for link in self.get_links_and_backlinks() {
-                    link.delete_all_for_object(&cursors, id_key)?;
+                    link.delete_all_for_object(cursors, id_key)?;
                 }
             }
             if let Some(change_set) = change_set {

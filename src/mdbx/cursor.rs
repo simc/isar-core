@@ -72,6 +72,7 @@ impl<'txn> Cursor<'txn> {
                 Ok(Some((key, data)))
             }
             Err(LmdbError::NotFound { .. }) => Ok(None),
+            Err(LmdbError::NoData { .. }) => Ok(None),
             Err(e) => Err(e)?,
         }
     }
@@ -94,10 +95,6 @@ impl<'txn> Cursor<'txn> {
 
     pub fn move_to_prev(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDBX_PREV, None, None)
-    }
-
-    pub fn move_to_prev_key(&mut self) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDBX_PREV_NODUP, None, None)
     }
 
     pub fn move_to_last(&mut self) -> Result<Option<KeyVal<'txn>>> {

@@ -11,11 +11,10 @@ pub struct ObjectBuilder<'a> {
 }
 
 impl<'a> ObjectBuilder<'a> {
-    pub(crate) fn new_with_size(
-        properties: &[Property],
-        static_size: usize,
-        buffer: Option<Vec<u8>>,
-    ) -> ObjectBuilder {
+    pub fn new(properties: &[Property], buffer: Option<Vec<u8>>) -> ObjectBuilder {
+        assert_eq!(properties.first().unwrap().offset, 2);
+        let last_property = properties.last().unwrap();
+        let static_size = last_property.offset + last_property.data_type.get_static_size();
         let buffer = buffer.unwrap_or_else(|| Vec::with_capacity(static_size * 2));
 
         let mut ob = ObjectBuilder {
@@ -26,16 +25,6 @@ impl<'a> ObjectBuilder<'a> {
         };
         ob.write_at(0, &(static_size as u16).to_le_bytes());
         ob
-    }
-
-    pub fn new(properties: &[Property], buffer: Option<Vec<u8>>) -> ObjectBuilder {
-        let static_size = Self::calculate_static_size(properties);
-        Self::new_with_size(properties, static_size, buffer)
-    }
-
-    pub(crate) fn calculate_static_size(properties: &[Property]) -> usize {
-        let last_property = properties.last().unwrap();
-        last_property.offset + last_property.data_type.get_static_size()
     }
 
     fn next_property(&mut self, peek: bool) -> Property {
@@ -170,14 +159,19 @@ impl<'a> ObjectBuilder<'a> {
         if let Some(list) = list {
             self.write_at(offset, &(self.dynamic_offset as u32).to_le_bytes());
             self.write_at(offset + 4, &(list.len() as u32).to_le_bytes());
-            let type_size = std::mem::size_of::<T>();
-            let ptr = list.as_ptr() as *const T;
-            let bytes = unsafe { from_raw_parts::<u8>(ptr as *const u8, list.len() * type_size) };
+            let bytes = Self::get_list_bytes(list);
             self.write_at(self.dynamic_offset, bytes);
             self.dynamic_offset += bytes.len();
         } else {
             self.write_at(offset, &0u64.to_le_bytes());
         }
+    }
+
+    #[inline]
+    pub(crate) fn get_list_bytes<T>(list: &[T]) -> &[u8] {
+        let type_size = std::mem::size_of::<T>();
+        let ptr = list.as_ptr() as *const T;
+        unsafe { from_raw_parts::<u8>(ptr as *const u8, list.len() * type_size) }
     }
 
     pub fn finish(&self) -> IsarObject {

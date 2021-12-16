@@ -37,4 +37,20 @@ impl DataType {
             _ => 8,
         }
     }
+
+    pub fn is_scalar(&self) -> bool {
+        self.get_element_type().is_none()
+    }
+
+    pub fn get_element_type(&self) -> Option<DataType> {
+        match self {
+            DataType::ByteList => Some(DataType::Byte),
+            DataType::IntList => Some(DataType::Int),
+            DataType::FloatList => Some(DataType::Float),
+            DataType::LongList => Some(DataType::Long),
+            DataType::DoubleList => Some(DataType::Double),
+            DataType::StringList => Some(DataType::String),
+            _ => None,
+        }
+    }
 }

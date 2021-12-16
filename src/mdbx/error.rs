@@ -7,6 +7,7 @@ use std::result::Result;
 pub enum LmdbError {
     KeyExist {},
     NotFound {},
+    NoData {},
     MapFull {},
     Other { code: i32, message: String },
 }
@@ -16,6 +17,7 @@ impl LmdbError {
         match err_code {
             ffi::MDBX_KEYEXIST => LmdbError::KeyExist {},
             ffi::MDBX_NOTFOUND => LmdbError::NotFound {},
+            ffi::MDBX_ENODATA => LmdbError::NoData {},
             ffi::MDBX_MAP_FULL => LmdbError::MapFull {},
             other => unsafe {
                 let err_raw = ffi::mdbx_strerror(other);
@@ -32,6 +34,7 @@ impl LmdbError {
         match self {
             LmdbError::KeyExist {} => ffi::MDBX_KEYEXIST,
             LmdbError::NotFound {} => ffi::MDBX_NOTFOUND,
+            LmdbError::NoData {} => ffi::MDBX_ENODATA,
             LmdbError::MapFull {} => ffi::MDBX_MAP_FULL,
             LmdbError::Other {
                 code: other,

@@ -28,14 +28,9 @@ pub unsafe fn from_mdb_val<'a>(val: &ffi::MDBX_val) -> &'a [u8] {
 }
 
 #[inline]
-pub unsafe fn from_mdb_val_mut<'a>(val: &mut ffi::MDBX_val) -> &'a mut [u8] {
-    slice::from_raw_parts_mut(val.iov_base as *mut u8, val.iov_len as usize)
-}
-
-#[inline]
 pub unsafe fn to_mdb_val(value: &[u8]) -> ffi::MDBX_val {
     ffi::MDBX_val {
-        iov_len: std::mem::transmute(value.len()), // fixes weird error on Android
+        iov_len: value.len() as u64,
         iov_base: value.as_ptr() as *mut libc::c_void,
     }
 }

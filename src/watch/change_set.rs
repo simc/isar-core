@@ -34,7 +34,7 @@ impl<'a> ChangeSet<'a> {
         if let Some(oid) = oid {
             let oid_u = unsafe { std::mem::transmute(oid) };
             if let Some(object_watchers) = cw.object_watchers.get(oid_u) {
-                Self::register_watchers(&mut self.changed_watchers, &object_watchers);
+                Self::register_watchers(&mut self.changed_watchers, object_watchers);
             }
 
             if let Some(object) = object {

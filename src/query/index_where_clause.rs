@@ -92,36 +92,6 @@ impl IndexWhereClause {
         })
     }
 
-    pub(crate) fn try_exclude(&mut self, exclude_lower: bool, exclude_upper: bool) -> bool {
-        /*if exclude_lower {
-            let mut increased = false;
-            for i in (Self::PREFIX_LEN..self.lower_key.len()).rev() {
-                if let Some(added) = self.lower_key[i].checked_add(1) {
-                    self.lower_key[i] = added;
-                    increased = true;
-                    break;
-                }
-            }
-            if !increased {
-                return false;
-            }
-        }
-        if exclude_upper {
-            let mut decreased = false;
-            for i in (Self::PREFIX_LEN..self.upper_key.len()).rev() {
-                if let Some(subtracted) = self.upper_key[i].checked_sub(1) {
-                    self.upper_key[i] = subtracted;
-                    decreased = true;
-                    break;
-                }
-            }
-            if !decreased {
-                return false;
-            }
-        }*/
-        true
-    }
-
     pub(crate) fn is_overlapping(&self, other: &Self) -> bool {
         self.index == other.index
             && ((self.lower_key <= other.lower_key && self.upper_key >= other.upper_key)
