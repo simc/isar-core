@@ -8,30 +8,24 @@ edition = "2021"
 rand = "0.8.4"
 itertools = "0.10.1"
 enum_dispatch = "0.3.7"
-lmdb-sys = { path = "./lmdb-sys" }
+ffi = { package = "mdbx-sys", path = "mdbx-sys" }
 libc = "0.2"
-wyhash = "0.5.0"
+xxhash-rust = { version = "0.8.2", features = ["xxh3"] }
 serde =  { version = "1.0.127", features = ["derive"] }
 serde_json = "1.0.66"
 serde_repr = "0.1.7"
 thiserror = "1.0.26"
 enum-ordinalize = "3.1.10"
-hashbrown = "0.11"
 once_cell = "1.8.0"
 crossbeam-channel = "0.5.1"
-unicode-segmentation = "1.8.0"
 byteorder = "1"
 paste = "1.0"
-boring = { git = "https://github.com/isar/boring" }
 num-traits = "0.2"
+intmap = "0.7.1"
 
 [dev-dependencies]
 cfg-if = "1"
-tempfile = "3"
 float_next_after = "0.1"
-
-[features]
-test-encryption = []
 
 [profile.release]
 lto = true

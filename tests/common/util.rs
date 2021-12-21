@@ -1,18 +1,48 @@
+#![allow(dead_code)]
+
+use crate::TestObj;
 use isar_core::query::Query;
 use isar_core::txn::IsarTxn;
 use itertools::Itertools;
 
-use crate::common::test_obj::TestObj;
-
 #[macro_export]
 macro_rules! isar (
-    ($isar:ident, $col:ident, $schema:expr) => {
+    ($isar:ident) => {
+        isar!($isar,)
+    };
+
+    ($path:expr, $isar:ident) => {
+        isar!($path, $isar,)
+    };
+
+    ($isar:ident, $($col:ident => $schema:expr),*) => {
         let mut dir = std::env::temp_dir();
         let r: u64 = rand::random();
         dir.push(&r.to_string());
-        let schema =isar_core::schema:: Schema::new(vec![$schema]).unwrap();
-        let $isar = isar_core::instance::IsarInstance::open(&r.to_string(), dir, 100000000, schema, None).unwrap();
-        let $col = $isar.get_collection(0).unwrap();
+        isar!(dir.to_str().unwrap(), $isar, $($col => $schema),*)
+    };
+
+    ($path:expr, $isar:ident,) => {
+        let schema = isar_core::schema::Schema::new(vec![]).unwrap();
+        let path = $path.to_string();
+        let $isar = isar_core::instance::IsarInstance::open(&path, false, schema).unwrap();
+    };
+
+    ($path:expr, $isar:ident, $($col:ident => $schema:expr),+) => {
+        let col_schemas = vec![$($schema.clone()),*];
+        let schema = isar_core::schema::Schema::new(col_schemas).unwrap();
+        let path = $path.to_string();
+        let $isar = isar_core::instance::IsarInstance::open(&path, false, schema).unwrap();
+        isar!(col $isar, 0, $($col),+)
+    };
+
+    (col $isar:expr, $index:expr, $col:ident, $($cols:ident),+) => {
+        let $col = $isar.collections.get($index).unwrap();
+        isar!(col $isar, $index + 1, $($cols),+)
+    };
+
+    (col $isar:expr, $index:expr, $col:ident) => {
+        let $col = $isar.collections.get($index).unwrap();
     };
 );
 
@@ -24,20 +54,88 @@ macro_rules! txn (
 );
 
 #[macro_export]
-macro_rules! put_objects (
-    ($col:expr, $txn:ident, $prop:ident, $($name:ident, $value:expr),+) => {
-        put_objects!(internal $col, $txn, 0, $prop, $($name, $value),+);
+macro_rules! put (
+    ($col:expr, $txn:ident, $prop:ident, $($name:ident => $value:expr),+) => {
+        $(
+            let id = $col.auto_increment(&mut $txn).unwrap();
+            let mut $name = $crate::common::test_obj::TestObj::default(id);
+            $name.$prop = $value;
+            $name.save(&mut $txn, $col);
+        )+
     };
 
-    (internal $col:expr, $txn:ident, $index:expr, $prop:ident, $name:ident, $value:expr, $($other_name:ident, $other_value:expr),+) => {
-        put_objects!(internal $col, $txn, $index, $prop, $name, $value);
-        put_objects!(internal $col, $txn, $index + 1, $prop, $($other_name, $other_value),*);
+    (id: $col:expr, $txn:ident, $($name:ident => $value:expr),+) => {
+        $(
+            let $name = $crate::common::test_obj::TestObj::default($value);
+            $name.save(&mut $txn, $col);
+        )+
+    };
+);
+
+#[macro_export]
+macro_rules! verify (
+    ($txn:ident) => {
+        verify!($txn,)
     };
 
-    (internal $col:expr, $txn:ident, $index:expr, $prop:ident, $name:ident, $value:expr) => {
-        let mut $name = $crate::common::test_obj::TestObj::default($index);
-        $name.$prop = $value;
-        $name.save($col, &mut $txn);
+    ($txn:ident, $col:expr) => {
+        verify!($txn, $col,)
+    };
+
+    ($txn:ident, $col:expr, $($obj:ident),*) => {
+        verify!($txn, $col, $($obj),*;)
+    };
+
+    ($txn:ident, $col:expr, $($obj:ident),*; $($link:expr, $($source:expr => $target:expr),+);*) => {
+        verify!(col $txn, col!($col, $($obj),*; $($link, $($source => $target),+);*))
+    };
+
+    ($txn:ident, $($col:expr);*) => {
+        verify!(col $txn, $($col);*)
+    };
+
+    (col $txn:ident, $($col:expr);*) => {
+        #[allow(unused_mut, clippy::vec_init_then_push)]
+        let mut cols = vec![
+            $($col,)*
+        ];
+
+        isar_core::verify::verify_isar(&mut $txn, cols);
+    };
+);
+
+#[macro_export]
+macro_rules! col (
+    ($col:expr) => {
+        col!($col,)
+    };
+
+    ($col:expr, $($obj:ident),*) => {
+        col!($col, $($obj),*;)
+    };
+
+    ($col:expr, $($obj:ident),*; $($link:expr, $($source:expr => $target:expr),+);*) => {
+        {
+            #[allow(unused_mut)]
+            let mut objects = vec![
+                $(
+                    isar_core::verify::ObjectEntry::new($obj.id, $obj.to_bytes()),
+                )*
+            ];
+
+
+            #[allow(unused_mut)]
+            let mut links = vec![
+                $(
+                    $(
+                        isar_core::verify::LinkEntry::new($link, $source, $target),
+                    )+
+                )*
+            ];
+
+
+            ($col, objects, links)
+        }
     };
 );
 
@@ -46,7 +144,7 @@ pub fn assert_find<'a>(txn: &'a mut IsarTxn, query: Query, objects: &[&TestObj])
         .find_all_vec(txn)
         .unwrap()
         .iter()
-        .map(|o| TestObj::from(*o))
+        .map(|(_, o)| TestObj::from(*o))
         .collect_vec();
     let borrowed = result.iter().collect_vec();
     assert_eq!(&borrowed, objects);

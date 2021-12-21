@@ -1,12 +1,13 @@
 use super::raw_object_set::RawObjectSet;
 use crate::txn::IsarDartTxn;
-use crate::UintSend;
+use crate::{from_c_str, UintSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
-use isar_core::index::index_key::IndexKey;
+use isar_core::key::IndexKey;
 use isar_core::query::filter::Filter;
 use isar_core::query::query_builder::QueryBuilder;
 use isar_core::query::{Query, Sort};
+use std::os::raw::c_char;
 
 #[no_mangle]
 pub extern "C" fn isar_qb_create(collection: &IsarCollection) -> *mut QueryBuilder {
@@ -26,11 +27,12 @@ pub unsafe extern "C" fn isar_qb_add_id_where_clause(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_qb_add_index_where_clause<'a>(
-    builder: &'a mut QueryBuilder,
-    start_key: *mut IndexKey<'a>,
+pub unsafe extern "C" fn isar_qb_add_index_where_clause(
+    builder: &mut QueryBuilder,
+    index_index: u32,
+    start_key: *mut IndexKey,
     include_start: bool,
-    end_key: *mut IndexKey<'a>,
+    end_key: *mut IndexKey,
     include_end: bool,
     skip_duplicates: bool,
 ) -> i32 {
@@ -38,6 +40,7 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause<'a>(
     let end_key = *Box::from_raw(end_key);
     isar_try! {
         builder.add_index_where_clause(
+            index_index as usize,
             start_key,
             include_start,
             end_key,
@@ -138,8 +141,7 @@ pub unsafe extern "C" fn isar_q_delete(
     let count = UintSend(count);
     isar_try_txn!(txn, move |txn| {
         let mut ids_to_delete = vec![];
-        query.find_while(txn, |object| {
-            let id = object.read_id();
+        query.find_while(txn, |id, _| {
             ids_to_delete.push(id);
             ids_to_delete.len() <= limit
         })?;
@@ -162,16 +164,22 @@ pub unsafe extern "C" fn isar_q_export_json(
     query: &'static Query,
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
+    id_name: *const c_char,
     primitive_null: bool,
     json_bytes: *mut *mut u8,
     json_length: *mut u32,
 ) -> i32 {
+    let id_name = if !id_name.is_null() {
+        Some(from_c_str(id_name).unwrap())
+    } else {
+        None
+    };
     let json = JsonBytes(json_bytes);
     let json_length = JsonLen(json_length);
     isar_try_txn!(txn, move |txn| {
         let json = json;
         let json_length = json_length;
-        let exported_json = query.export_json(txn, collection, primitive_null, true)?;
+        let exported_json = query.export_json(txn, collection, id_name, primitive_null, true)?;
         let bytes = serde_json::to_vec(&exported_json).unwrap();
         let mut bytes = bytes.into_boxed_slice();
         json_length.0.write(bytes.len() as u32);

@@ -1,22 +1,23 @@
-use crate::lmdb::cursor::Cursor;
-use crate::lmdb::IntKey;
+use crate::cursor::IsarCursors;
+use crate::error::Result;
+use crate::key::IdKey;
+use crate::mdbx::db::Db;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
-use crate::{collection::IsarCollection, error::Result};
-use hashbrown::HashSet;
+use intmap::IntMap;
 
 #[derive(Clone)]
 pub(crate) struct IdWhereClause {
-    prefix: u16,
+    db: Db,
     lower: i64,
     upper: i64,
     sort: Sort,
 }
 
 impl IdWhereClause {
-    pub(crate) fn new(col: &IsarCollection, lower: i64, upper: i64, sort: Sort) -> Self {
+    pub(crate) fn new(db: Db, lower: i64, upper: i64, sort: Sort) -> Self {
         IdWhereClause {
-            prefix: col.id,
+            db,
             lower,
             upper,
             sort,
@@ -31,36 +32,38 @@ impl IdWhereClause {
         self.lower <= oid && self.upper >= oid
     }
 
-    pub(crate) fn iter<'txn, F>(
+    pub(crate) fn iter<'txn, 'env, F>(
         &self,
-        data: &mut Cursor<'txn>,
-        mut result_ids: Option<&mut HashSet<i64>>,
+        cursors: &IsarCursors<'txn, 'env>,
+        mut result_ids: Option<&mut IntMap<()>>,
         mut callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(&mut Cursor<'txn>, IntKey, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
-        data.iter_between(
-            IntKey::new(self.prefix, self.lower),
-            IntKey::new(self.prefix, self.upper),
+        let lower_key = IdKey::new(self.lower);
+        let upper_key = IdKey::new(self.upper);
+        let mut cursor = cursors.get_cursor(self.db)?;
+        cursor.iter_between(
+            lower_key.as_bytes(),
+            upper_key.as_bytes(),
             false,
             self.sort == Sort::Ascending,
-            |cursor, id, object| {
-                let id = IntKey::from_bytes(id);
+            |id_key, object| {
+                let id_key = IdKey::from_bytes(id_key);
                 if let Some(result_ids) = result_ids.as_deref_mut() {
-                    if !result_ids.insert(id.get_id()) {
+                    if !result_ids.insert(id_key.get_unsigned_id(), ()) {
                         return Ok(true);
                     }
                 }
                 let object = IsarObject::from_bytes(object);
-                callback(cursor, id, object)
+                callback(id_key, object)
             },
         )
     }
 
     pub(crate) fn is_overlapping(&self, other: &Self) -> bool {
-        self.prefix == other.prefix
-            && ((self.lower <= other.lower && self.upper >= other.upper)
-                || (other.lower <= self.lower && other.upper >= self.upper))
+        (self.lower <= other.lower && self.upper >= other.upper)
+            || (other.lower <= self.lower && other.upper >= self.upper)
     }
 }

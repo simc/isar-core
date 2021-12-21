@@ -1,38 +1,36 @@
-use crate::error::{illegal_arg, IsarError, Result};
-use crate::index::index_key::IndexKey;
-use crate::index::Index;
-use crate::lmdb::cursor::Cursor;
-use crate::lmdb::{ByteKey, IntKey};
+use crate::cursor::IsarCursors;
+use crate::error::{IsarError, Result};
+use crate::index::IsarIndex;
+use crate::key::{IdKey, IndexKey};
+use crate::mdbx::db::Db;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
-use hashbrown::HashSet;
+use intmap::IntMap;
 
 #[derive(Clone)]
 pub(crate) struct IndexWhereClause {
-    lower_key: Vec<u8>,
-    upper_key: Vec<u8>,
-    index: Index,
+    db: Db,
+    index: IsarIndex,
+    lower_key: IndexKey,
+    upper_key: IndexKey,
     skip_duplicates: bool,
     sort: Sort,
 }
 
 impl IndexWhereClause {
-    const PREFIX_LEN: usize = 2;
-
     pub(crate) fn new(
-        lower: IndexKey,
-        upper: IndexKey,
+        db: Db,
+        index: IsarIndex,
+        lower_key: IndexKey,
+        upper_key: IndexKey,
         skip_duplicates: bool,
         sort: Sort,
     ) -> Result<Self> {
-        if lower.index != upper.index {
-            return illegal_arg("Lower key index does not match upper key index");
-        }
-        let index = lower.index.clone();
         Ok(IndexWhereClause {
-            lower_key: lower.bytes,
-            upper_key: upper.bytes,
+            db,
             index,
+            lower_key,
+            upper_key,
             skip_duplicates,
             sort,
         })
@@ -42,99 +40,62 @@ impl IndexWhereClause {
         let mut key_matches = false;
         self.index
             .create_keys(object, |key| {
-                let key = ByteKey::new(key);
-                key_matches =
-                    key >= ByteKey::new(&self.lower_key) && key <= ByteKey::new(&self.upper_key);
+                key_matches = key >= &self.lower_key && key <= &self.upper_key;
                 Ok(!key_matches)
             })
             .unwrap();
         key_matches
     }
 
-    pub(crate) fn iter_ids<'txn, F>(
+    pub(crate) fn iter_ids<'txn, 'env, F>(
         &self,
-        index: &mut Cursor<'txn>,
-        mut callback: F,
+        cursors: &IsarCursors<'txn, 'env>,
+        callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(&mut Cursor<'txn>, IntKey) -> Result<bool>,
+        F: FnMut(IdKey<'txn>) -> Result<bool>,
     {
-        index.iter_between(
-            ByteKey::new(&self.lower_key),
-            ByteKey::new(&self.upper_key),
+        self.index.iter_between(
+            cursors,
+            &self.lower_key,
+            &self.upper_key,
             self.skip_duplicates,
             self.sort == Sort::Ascending,
-            |cursor, _, id| {
-                let id = IntKey::from_bytes(id);
-                callback(cursor, id)
-            },
+            callback,
         )
     }
 
-    pub(crate) fn iter<'txn, F>(
+    pub(crate) fn iter<'txn, 'env, F>(
         &self,
-        data: &mut Cursor<'txn>,
-        index: &mut Cursor<'txn>,
-        mut result_ids: Option<&mut HashSet<i64>>,
+        cursors: &IsarCursors<'txn, 'env>,
+        mut result_ids: Option<&mut IntMap<()>>,
         mut callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(&mut Cursor<'txn>, &mut Cursor<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
-        self.iter_ids(index, |index, id| {
+        let mut data_cursor = cursors.get_cursor(self.db)?;
+        self.iter_ids(cursors, |id_key| {
             if let Some(result_ids) = result_ids.as_deref_mut() {
-                if !result_ids.insert(id.get_id()) {
+                if !result_ids.insert(id_key.get_unsigned_id(), ()) {
                     return Ok(true);
                 }
             }
 
-            let entry = data.move_to(id)?;
+            let entry = data_cursor.move_to(id_key.as_bytes())?;
             let (_, object) = entry.ok_or(IsarError::DbCorrupted {
                 message: "Could not find object specified in index.".to_string(),
             })?;
             let object = IsarObject::from_bytes(object);
 
-            callback(data, index, object)
+            callback(id_key, object)
         })
     }
 
-    pub(crate) fn try_exclude(&mut self, exclude_lower: bool, exclude_upper: bool) -> bool {
-        if exclude_lower {
-            let mut increased = false;
-            for i in (Self::PREFIX_LEN..self.lower_key.len()).rev() {
-                if let Some(added) = self.lower_key[i].checked_add(1) {
-                    self.lower_key[i] = added;
-                    increased = true;
-                    break;
-                }
-            }
-            if !increased {
-                return false;
-            }
-        }
-        if exclude_upper {
-            let mut decreased = false;
-            for i in (Self::PREFIX_LEN..self.upper_key.len()).rev() {
-                if let Some(subtracted) = self.upper_key[i].checked_sub(1) {
-                    self.upper_key[i] = subtracted;
-                    decreased = true;
-                    break;
-                }
-            }
-            if !decreased {
-                return false;
-            }
-        }
-        true
-    }
-
     pub(crate) fn is_overlapping(&self, other: &Self) -> bool {
-        let lower1 = ByteKey::new(&self.lower_key);
-        let lower2 = ByteKey::new(&other.lower_key);
-        let upper1 = ByteKey::new(&self.upper_key);
-        let upper2 = ByteKey::new(&other.upper_key);
         self.index == other.index
-            && ((lower1 <= lower2 && upper1 >= upper2) || (lower2 <= lower1 && upper2 >= upper1))
+            && ((self.lower_key <= other.lower_key && self.upper_key >= other.upper_key)
+                || (other.lower_key <= self.lower_key && other.upper_key >= self.upper_key))
     }
 }
 

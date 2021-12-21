@@ -1,16 +1,16 @@
 pub type WatcherCallback = Box<dyn Fn() + Send + Sync + 'static>;
 
 pub(super) struct Watcher {
-    id: usize,
+    id: u64,
     callback: WatcherCallback,
 }
 
 impl Watcher {
-    pub fn new(id: usize, callback: WatcherCallback) -> Self {
+    pub fn new(id: u64, callback: WatcherCallback) -> Self {
         Watcher { id, callback }
     }
 
-    pub fn get_id(&self) -> usize {
+    pub fn get_id(&self) -> u64 {
         self.id
     }
 

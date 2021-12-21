@@ -1,22 +1,21 @@
-use std::cmp::Ordering;
-use std::hash::Hasher;
-
-use hashbrown::HashSet;
+use intmap::IntMap;
 use serde_json::{json, Value};
-use wyhash::WyHash;
+use std::cmp::Ordering;
 
 use crate::collection::IsarCollection;
+use crate::cursor::IsarCursors;
 use crate::error::Result;
+use crate::key::IdKey;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::query::filter::Filter;
 use crate::query::where_clause::WhereClause;
-use crate::txn::{Cursors, IsarTxn};
+use crate::txn::IsarTxn;
 
 mod fast_wild_match;
 pub mod filter;
-pub mod id_where_clause;
-pub mod index_where_clause;
+mod id_where_clause;
+mod index_where_clause;
 pub mod query_builder;
 mod where_clause;
 
@@ -33,6 +32,7 @@ pub enum Case {
 
 #[derive(Clone)]
 pub struct Query {
+    instance_id: u64,
     where_clauses: Vec<WhereClause>,
     where_clauses_overlapping: bool,
     filter: Option<Filter>,
@@ -45,6 +45,7 @@ pub struct Query {
 impl<'txn> Query {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
+        instance_id: u64,
         where_clauses: Vec<WhereClause>,
         filter: Option<Filter>,
         sort: Vec<(Property, Sort)>,
@@ -54,6 +55,7 @@ impl<'txn> Query {
     ) -> Self {
         let where_clauses_overlapping = Self::check_where_clauses_overlapping(&where_clauses);
         Query {
+            instance_id,
             where_clauses,
             where_clauses_overlapping,
             filter,
@@ -75,12 +77,16 @@ impl<'txn> Query {
         false
     }
 
-    pub(crate) fn execute_raw<F>(&self, cursors: &mut Cursors<'txn>, mut callback: F) -> Result<()>
+    pub(crate) fn execute_raw<'env, F>(
+        &self,
+        cursors: &IsarCursors<'txn, 'env>,
+        mut callback: F,
+    ) -> Result<()>
     where
-        F: FnMut(IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         let mut result_ids = if self.where_clauses_overlapping {
-            Some(HashSet::<i64>::new())
+            Some(IntMap::new())
         } else {
             None
         };
@@ -89,14 +95,13 @@ impl<'txn> Query {
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
 
         for where_clause in &self.where_clauses {
-            let result =
-                where_clause.iter(cursors, result_ids.as_mut(), |filter_cursors, object| {
-                    if filter.evaluate(object, Some(filter_cursors))? {
-                        callback(object)
-                    } else {
-                        Ok(true)
-                    }
-                })?;
+            let result = where_clause.iter(cursors, result_ids.as_mut(), |id_key, object| {
+                if filter.evaluate(&id_key, object, Some(cursors))? {
+                    callback(id_key, object)
+                } else {
+                    Ok(true)
+                }
+            })?;
             if !result {
                 return Ok(());
             }
@@ -105,9 +110,13 @@ impl<'txn> Query {
         Ok(())
     }
 
-    fn execute_unsorted<F>(&self, cursors: &mut Cursors<'txn>, callback: F) -> Result<()>
+    fn execute_unsorted<'env, F>(
+        &self,
+        cursors: &IsarCursors<'txn, 'env>,
+        callback: F,
+    ) -> Result<()>
     where
-        F: FnMut(IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         if !self.distinct.is_empty() {
             let callback = self.add_distinct_unsorted(callback);
@@ -119,23 +128,27 @@ impl<'txn> Query {
         }
     }
 
+    fn hash_properties(object: IsarObject, properties: &[(Property, bool)]) -> u64 {
+        let mut hash = 0;
+        for (property, case_sensitive) in properties {
+            hash = object.hash_property(*property, *case_sensitive, hash);
+        }
+        hash
+    }
+
     fn add_distinct_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(IsarObject<'txn>) -> Result<bool>
+    ) -> impl FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>
     where
-        F: FnMut(IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         let properties = self.distinct.clone();
-        let mut hashes = HashSet::new();
-        move |object| {
-            let mut hasher = WyHash::default();
-            for (property, case_sensitive) in &properties {
-                object.hash_property(*property, *case_sensitive, &mut hasher);
-            }
-            let hash = hasher.finish();
-            if hashes.insert(hash) {
-                callback(object)
+        let mut hashes = IntMap::new();
+        move |id_key, object| {
+            let hash = Self::hash_properties(object, &properties);
+            if hashes.insert(hash, ()) {
+                callback(id_key, object)
             } else {
                 Ok(true)
             }
@@ -145,16 +158,16 @@ impl<'txn> Query {
     fn add_offset_limit_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(IsarObject<'txn>) -> Result<bool>
+    ) -> impl FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>
     where
-        F: FnMut(IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         let offset = self.offset;
         let max_count = self.limit.saturating_add(offset);
         let mut count = 0;
-        move |value| {
+        move |id_key, value| {
             count += 1;
-            if count > max_count || (count > offset && !callback(value)?) {
+            if count > max_count || (count > offset && !callback(id_key, value)?) {
                 Ok(false)
             } else {
                 Ok(true)
@@ -162,14 +175,17 @@ impl<'txn> Query {
         }
     }
 
-    fn execute_sorted(&self, cursors: &mut Cursors<'txn>) -> Result<Vec<IsarObject<'txn>>> {
+    fn execute_sorted<'env>(
+        &self,
+        cursors: &IsarCursors<'txn, 'env>,
+    ) -> Result<Vec<(IdKey<'txn>, IsarObject<'txn>)>> {
         let mut results = vec![];
-        self.execute_raw(cursors, |object| {
-            results.push(object);
+        self.execute_raw(cursors, |id_key, object| {
+            results.push((id_key, object));
             Ok(true)
         })?;
 
-        results.sort_unstable_by(|o1, o2| {
+        results.sort_unstable_by(|(_, o1), (_, o2)| {
             for (p, sort) in &self.sort {
                 let ord = o1.compare_property(o2, *p);
                 if ord != Ordering::Equal {
@@ -190,26 +206,25 @@ impl<'txn> Query {
         }
     }
 
-    fn add_distinct_sorted(&self, results: Vec<IsarObject<'txn>>) -> Vec<IsarObject<'txn>> {
+    fn add_distinct_sorted(
+        &self,
+        results: Vec<(IdKey<'txn>, IsarObject<'txn>)>,
+    ) -> Vec<(IdKey<'txn>, IsarObject<'txn>)> {
         let properties = self.distinct.clone();
-        let mut hashes = HashSet::new();
+        let mut hashes = IntMap::new();
         results
             .into_iter()
-            .filter(|object| {
-                let mut hasher = WyHash::default();
-                for (property, case_sensitive) in &properties {
-                    object.hash_property(*property, *case_sensitive, &mut hasher);
-                }
-                let hash = hasher.finish();
-                hashes.insert(hash)
+            .filter(|(_, object)| {
+                let hash = Self::hash_properties(*object, &properties);
+                hashes.insert(hash, ())
             })
             .collect()
     }
 
     fn add_offset_limit_sorted(
         &self,
-        results: Vec<IsarObject<'txn>>,
-    ) -> impl IntoIterator<Item = IsarObject<'txn>> {
+        results: Vec<(IdKey<'txn>, IsarObject<'txn>)>,
+    ) -> impl IntoIterator<Item = (IdKey<'txn>, IsarObject<'txn>)> {
         results.into_iter().skip(self.offset).take(self.limit)
     }
 
@@ -220,28 +235,29 @@ impl<'txn> Query {
         }
 
         if let Some(filter) = &self.filter {
-            filter.evaluate(object, None).unwrap_or(true)
+            let id_key = IdKey::new(id);
+            filter.evaluate(&id_key, object, None).unwrap_or(true)
         } else {
             true
         }
     }
 
-    pub(crate) fn find_while_internal<F>(
+    pub(crate) fn find_while_internal<'env, F>(
         &self,
-        cursors: &mut Cursors<'txn>,
+        cursors: &IsarCursors<'txn, 'env>,
         skip_sorting: bool,
         mut callback: F,
     ) -> Result<()>
     where
-        F: FnMut(IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         if self.sort.is_empty() || skip_sorting {
             self.execute_unsorted(cursors, callback)?;
         } else {
             let results = self.execute_sorted(cursors)?;
             let results_iter = self.add_offset_limit_sorted(results);
-            for object in results_iter {
-                if !callback(object)? {
+            for (id, object) in results_iter {
+                if !callback(id, object)? {
                     break;
                 }
             }
@@ -249,17 +265,21 @@ impl<'txn> Query {
         Ok(())
     }
 
-    pub fn find_while<F>(&self, txn: &mut IsarTxn<'txn>, mut callback: F) -> Result<()>
+    pub fn find_while<F>(&self, txn: &'txn mut IsarTxn, mut callback: F) -> Result<()>
     where
-        F: FnMut(IsarObject<'txn>) -> bool,
+        F: FnMut(i64, IsarObject<'txn>) -> bool,
     {
-        txn.read(|cursors| self.find_while_internal(cursors, false, |object| Ok(callback(object))))
+        txn.read(self.instance_id, |cursors| {
+            self.find_while_internal(cursors, false, |id_key, object| {
+                Ok(callback(id_key.get_id(), object))
+            })
+        })
     }
 
-    pub fn find_all_vec(&self, txn: &mut IsarTxn<'txn>) -> Result<Vec<IsarObject<'txn>>> {
+    pub fn find_all_vec(&self, txn: &'txn mut IsarTxn) -> Result<Vec<(i64, IsarObject<'txn>)>> {
         let mut results = vec![];
-        self.find_while(txn, |object| {
-            results.push(object);
+        self.find_while(txn, |id, object| {
+            results.push((id, object));
             true
         })?;
         Ok(results)
@@ -267,7 +287,7 @@ impl<'txn> Query {
 
     pub fn count(&self, txn: &mut IsarTxn) -> Result<u32> {
         let mut counter = 0;
-        self.find_while(txn, |_| {
+        self.find_while(txn, |_, _| {
             counter += 1;
             true
         })?;
@@ -278,12 +298,17 @@ impl<'txn> Query {
         &self,
         txn: &mut IsarTxn,
         collection: &IsarCollection,
+        id_name: Option<&str>,
         primitive_null: bool,
         byte_as_bool: bool,
     ) -> Result<Value> {
         let mut items = vec![];
-        self.find_while(txn, |object| {
-            let json = JsonEncodeDecode::encode(collection, object, primitive_null, byte_as_bool);
+        self.find_while(txn, |id, object| {
+            let mut json =
+                JsonEncodeDecode::encode(collection, object, primitive_null, byte_as_bool);
+            if let Some(id_name) = id_name {
+                json.insert(id_name.to_string(), Value::from(id));
+            }
             items.push(json);
             true
         })?;

@@ -1,4 +1,4 @@
-use crate::lmdb::error::LmdbError;
+use crate::mdbx::error::MdbxError;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, IsarError>;
@@ -35,6 +35,9 @@ pub enum IsarError {
     #[error("IllegalArg: {message:?}.")]
     IllegalArg { message: String },
 
+    #[error("Index could not be found.")]
+    UnknownIndex {},
+
     #[error("Invalid JSON.")]
     InvalidJson {},
 
@@ -44,10 +47,8 @@ pub enum IsarError {
     #[error("SchemaError: {message:?}")]
     SchemaError { message: String },
 
-    #[error(
-        "CryptoError: Error during encryption or decryption. Please check the encryption key."
-    )]
-    CryptoError {},
+    #[error("InstanceMismatch: The transaction is from a different instance.")]
+    InstanceMismatch {},
 
     #[error("LmdbError ({code:?}): {message:?}")]
     LmdbError { code: i32, message: String },
@@ -55,12 +56,11 @@ pub enum IsarError {
 
 impl IsarError {}
 
-impl From<LmdbError> for IsarError {
-    fn from(e: LmdbError) -> Self {
+impl From<MdbxError> for IsarError {
+    fn from(e: MdbxError) -> Self {
         match e {
-            LmdbError::MapFull {} => IsarError::DbFull {},
-            LmdbError::CryptoFail {} => IsarError::CryptoError {},
-            LmdbError::Other { code, message } => IsarError::LmdbError { code, message },
+            MdbxError::MapFull {} => IsarError::DbFull {},
+            MdbxError::Other { code, message } => IsarError::LmdbError { code, message },
             _ => IsarError::LmdbError {
                 code: e.to_err_code(),
                 message: "Error that should have been catched.".to_string(),

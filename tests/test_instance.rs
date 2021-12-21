@@ -1,73 +1,73 @@
-/*use crate::object::isar_object::IsarObject;
-use crate::{col, isar};
-use tempfile::tempdir;
+use crate::common::test_obj::TestObj;
+use isar_core::schema::link_schema::LinkSchema;
+use isar_core::verify::verify_isar;
 
-#[test]
-fn test_open_new_instance() {
-    isar!(isar, col => col!());
-
-    let mut ob = col.new_object_builder(None);
-    ob.write_long(123);
-    let o = ob.finish();
-
-    let mut txn = isar.begin_txn(true, false).unwrap();
-    col.put(&mut txn, o).unwrap();
-    txn.commit().unwrap();
-    let mut txn = isar.begin_txn(false, false).unwrap();
-    assert_eq!(col.get(&mut txn, 123).unwrap().unwrap(), o);
-    txn.abort();
-    isar.close();
-}
+mod common;
 
 #[test]
 fn test_open_instance_added_collection() {
-    let dir = tempdir().unwrap();
-    let path = dir.path().to_str().unwrap();
+    let indexes = TestObj::default_indexes();
+    let link = LinkSchema::new("testlink", "obj1");
+    let schema1 = TestObj::schema("obj1", &indexes, &[link]);
+    let schema2 = TestObj::schema("obj2", &indexes, &[]);
 
-    isar!(path: path, isar, col1 => col!("col1",));
-
-    let mut ob = col1.new_object_builder(None);
-    ob.write_long(123);
-    let object = ob.finish();
-    let object_bytes = object.as_bytes().to_vec();
-
-    let mut txn = isar.begin_txn(true, false).unwrap();
-    col1.put(&mut txn, object).unwrap();
-    txn.commit().unwrap();
-
-    assert!(isar.close());
-
-    isar!(path: path, isar2, col1 => col!("col1"), col2 => col!("col2"));
-    let mut txn = isar2.begin_txn(false, false).unwrap();
-    let object = IsarObject::from_bytes(&object_bytes);
-    assert_eq!(col1.get(&mut txn, 123).unwrap(), Some(object));
-    assert_eq!(col2.new_query_builder().build().count(&mut txn).unwrap(), 0);
+    // empty database
+    isar!(isar);
+    let path = isar.path.clone();
+    txn!(isar, txn);
+    verify_isar(&mut txn, vec![]);
     txn.abort();
-    isar2.close();
+    isar.close();
+
+    // database with one collection
+    isar!(path, isar, col1 => schema1);
+    txn!(isar, txn);
+    put!(id: col1, txn, obj1 => 1, obj2 => 2);
+    col1.link(&mut txn, 0, false, 1, 2).unwrap();
+    verify!(txn, col1, obj1, obj2; "testlink", 1 => 2);
+    txn.commit().unwrap();
+    isar.close();
+
+    // database with two collections
+    isar!(path, isar, col1 => schema1, col2 => schema2);
+    txn!(isar, txn);
+    put!(id: col2, txn, obj3 => 3);
+    verify!(txn, col!(col1, obj1, obj2; "testlink", 1 => 2); col!(col2, obj3));
+    txn.commit().unwrap();
+    isar.close();
 }
 
 #[test]
 fn test_open_instance_removed_collection() {
-    let dir = tempdir().unwrap();
-    let path = dir.path().to_str().unwrap();
+    let indexes = TestObj::default_indexes();
+    let link1 = LinkSchema::new("testlink1", "obj1");
+    let link2 = LinkSchema::new("testlink2", "obj2");
+    let schema1 = TestObj::schema("obj1", &indexes, &[link1]);
+    let schema2 = TestObj::schema("obj2", &indexes, &[link2]);
 
-    isar!(path: path, isar, col1 => col!("col1"), _col2 => col!("col2"));
-    let mut ob = col1.new_object_builder(None);
-    ob.write_long(123);
-    let o = ob.finish();
-    let mut txn = isar.begin_txn(true, false).unwrap();
-    //col1.put(&txn, None, o.as_ref()).unwrap();
-    col1.put(&mut txn, o).unwrap();
+    // database with two collections
+    isar!(isar, col1 => schema1, col2 => schema2);
+    let path = isar.path.clone();
+    txn!(isar, txn);
+    put!(id: col1, txn, obj1 => 1, obj2 => 2);
+    put!(id: col2, txn, obj3 => 3, obj4 => 4);
+    col1.link(&mut txn, 0, false, 1, 2).unwrap();
+    col2.link(&mut txn, 0, false, 3, 4).unwrap();
+    verify!(txn, col!(col1, obj1, obj2; "testlink1", 1 => 2); col!(col2, obj3, obj4; "testlink2", 3 => 4));
     txn.commit().unwrap();
     isar.close();
 
-    isar!(path: path, isar, _col2 => col!("col2"));
+    // database with one collection
+    isar!(path, isar, col2 => schema2);
+    txn!(isar, txn);
+    verify!(txn, col2, obj3, obj4; "testlink2", 3 => 4);
+    txn.commit().unwrap();
     isar.close();
 
-    isar!(path: path, isar, col1 => col!("col1"), _col2 => col!("col2"));
-    let mut txn = isar.begin_txn(false, false).unwrap();
-    assert_eq!(col1.new_query_builder().build().count(&mut txn).unwrap(), 0);
+    // empty database
+    isar!(path, isar);
+    txn!(isar, txn);
+    verify!(txn);
     txn.abort();
     isar.close();
 }
-*/

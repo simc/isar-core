@@ -1,68 +1,80 @@
+use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
-use crate::instance::IsarInstance;
-use crate::lmdb::cursor::Cursor;
-use crate::lmdb::txn::Txn;
+use crate::mdbx::cursor::UnboundCursor;
+use crate::mdbx::db::Db;
+use crate::mdbx::txn::Txn;
 use crate::watch::change_set::ChangeSet;
+use std::cell::RefCell;
 
-pub struct IsarTxn<'a> {
-    txn: Option<Txn<'a>>,
-    active: bool,
+pub struct IsarTxn<'env> {
+    instance_id: u64,
+    txn: Txn<'env>,
     write: bool,
-    change_set: Option<ChangeSet<'a>>,
-    cursors: Option<Cursors<'a>>,
+    change_set: RefCell<Option<ChangeSet<'env>>>,
+    unbound_cursors: RefCell<Option<Vec<UnboundCursor>>>,
 }
 
-#[derive(Clone)]
-pub(crate) struct Cursors<'a> {
-    pub(crate) data: Cursor<'a>,
-    pub(crate) data2: Cursor<'a>,
-    pub(crate) index: Cursor<'a>,
-    pub(crate) links: Cursor<'a>,
-}
-
-impl<'a> IsarTxn<'a> {
+impl<'env> IsarTxn<'env> {
     pub(crate) fn new(
-        isar: &'a IsarInstance,
-        txn: Txn<'a>,
+        instance_id: u64,
+        txn: Txn<'env>,
         write: bool,
-
-        change_set: Option<ChangeSet<'a>>,
+        change_set: Option<ChangeSet<'env>>,
     ) -> Result<Self> {
-        let cursors = isar.open_cursors(&txn)?;
-        let cursors: Cursors<'static> = unsafe { std::mem::transmute(cursors) };
-
         Ok(IsarTxn {
-            txn: Some(txn),
-            active: true,
+            instance_id,
+            txn,
             write,
-            change_set,
-            cursors: Some(cursors),
+            change_set: RefCell::new(change_set),
+            unbound_cursors: RefCell::new(Some(vec![])),
         })
     }
 
-    pub(crate) fn read<T, F>(&mut self, job: F) -> Result<T>
-    where
-        F: FnOnce(&mut Cursors<'a>) -> Result<T>,
-    {
-        if self.write && self.change_set.is_none() {
-            Err(IsarError::TransactionClosed {})
+    pub fn is_active(&self) -> bool {
+        self.unbound_cursors.borrow().is_some()
+    }
+
+    fn verify_instance_id(&self, instance_id: u64) -> Result<()> {
+        if self.instance_id != instance_id {
+            Err(IsarError::InstanceMismatch {})
         } else {
-            job(self.cursors.as_mut().unwrap())
+            Ok(())
         }
     }
 
-    pub(crate) fn write<T, F>(&mut self, job: F) -> Result<T>
+    pub(crate) fn read<'txn, T, F>(&'txn mut self, instance_id: u64, job: F) -> Result<T>
     where
-        F: FnOnce(&mut Cursors<'a>, Option<&mut ChangeSet<'a>>) -> Result<T>,
+        F: FnOnce(&IsarCursors<'txn, 'env>) -> Result<T>,
     {
+        self.verify_instance_id(instance_id)?;
+        if let Some(unbound_cursors) = self.unbound_cursors.take() {
+            let cursors = IsarCursors::new(&self.txn, unbound_cursors);
+            let result = job(&cursors);
+            self.unbound_cursors.borrow_mut().replace(cursors.close());
+            result
+        } else {
+            Err(IsarError::TransactionClosed {})
+        }
+    }
+
+    pub(crate) fn write<'txn, T, F>(&'txn mut self, instance_id: u64, job: F) -> Result<T>
+    where
+        F: FnOnce(&IsarCursors<'txn, 'env>, Option<&mut ChangeSet<'_>>) -> Result<T>,
+    {
+        self.verify_instance_id(instance_id)?;
         if !self.write {
             return Err(IsarError::WriteTxnRequired {});
         }
-        if self.active {
-            self.active = false;
-            let result = job(self.cursors.as_mut().unwrap(), self.change_set.as_mut());
+        if let Some(unbound_cursors) = self.unbound_cursors.take() {
+            let mut change_set = self.change_set.take();
+            let cursors = IsarCursors::new(&self.txn, unbound_cursors);
+            let result = job(&cursors, change_set.as_mut());
+            let unbounded_cursors = cursors.close();
             if result.is_ok() {
-                self.active = true;
+                self.unbound_cursors.borrow_mut().replace(unbounded_cursors);
+                if let Some(change_set) = change_set {
+                    self.change_set.borrow_mut().replace(change_set);
+                }
             }
             result
         } else {
@@ -70,14 +82,30 @@ impl<'a> IsarTxn<'a> {
         }
     }
 
-    pub fn commit(mut self) -> Result<()> {
-        if !self.active {
+    pub(crate) fn clear_db(&mut self, db: Db) -> Result<()> {
+        if !self.write {
+            return Err(IsarError::WriteTxnRequired {});
+        }
+        db.clear(&self.txn)
+    }
+
+    pub(crate) fn register_all_changed(&mut self, col_id: u64) -> Result<()> {
+        if !self.write {
+            return Err(IsarError::WriteTxnRequired {});
+        }
+        if let Some(change_set) = self.change_set.borrow_mut().as_mut() {
+            change_set.register_all(col_id)
+        }
+        Ok(())
+    }
+
+    pub fn commit(self) -> Result<()> {
+        if !self.is_active() {
             return Err(IsarError::TransactionClosed {});
         }
 
         if self.write {
-            self.cursors.take(); // drop before txn
-            self.txn.take().unwrap().commit()?;
+            self.txn.commit()?;
             if let Some(change_set) = self.change_set.take() {
                 change_set.notify_watchers();
             }
@@ -85,14 +113,20 @@ impl<'a> IsarTxn<'a> {
         Ok(())
     }
 
-    pub fn abort(self) {}
-}
+    pub fn abort(self) {
+        self.txn.abort()
+    }
 
-impl<'a> Drop for IsarTxn<'a> {
-    fn drop(&mut self) {
-        if self.cursors.is_some() {
-            self.cursors.take(); // drop before txn
-            self.txn.take().unwrap().abort();
-        }
+    pub(crate) fn debug_db_names(&mut self) -> Result<Vec<String>> {
+        let unnamed_db = Db::open(&self.txn, None, false, false, false)?;
+        let cursor = UnboundCursor::new();
+        let mut cursor = cursor.bind(&self.txn, unnamed_db)?;
+
+        let mut names = vec![];
+        cursor.iter_between(&[], &[255], false, true, |name, _| {
+            names.push(String::from_utf8(name.to_vec()).unwrap());
+            Ok(true)
+        })?;
+        Ok(names)
     }
 }

@@ -24,8 +24,9 @@ impl RawObject {
     }
 
     #[allow(clippy::mut_from_ref)]
-    pub fn get_bytes(&self) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut(self.buffer, self.buffer_length as usize) }
+    pub fn get_object(&self) -> IsarObject {
+        let bytes = unsafe { slice::from_raw_parts(self.buffer, self.buffer_length as usize) };
+        IsarObject::from_bytes(bytes)
     }
 
     pub fn get_id(&mut self) -> i64 {
@@ -67,8 +68,9 @@ impl RawObjectSet {
     ) -> Result<()> {
         let mut objects = vec![];
         let mut count = 0;
-        query.find_while(txn, |object| {
+        query.find_while(txn, |id, object| {
             let mut raw_obj = RawObject::new();
+            raw_obj.set_id(id);
             raw_obj.set_object(Some(object));
             objects.push(raw_obj);
             count += 1;
@@ -88,8 +90,9 @@ impl RawObjectSet {
         id: i64,
     ) -> Result<()> {
         let mut objects = vec![];
-        collection.get_linked_objects(txn, link_index, backlink, id, |object| {
+        collection.get_linked_objects(txn, link_index, backlink, id, |id, object| {
             let mut raw_obj = RawObject::new();
+            raw_obj.set_id(id);
             raw_obj.set_object(Some(object));
             objects.push(raw_obj);
             true

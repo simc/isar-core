@@ -2,6 +2,7 @@ mod common;
 
 use std::vec;
 
+use isar_core::key::IndexKey;
 use itertools::Itertools;
 
 use crate::common::test_obj::TestObj;
@@ -9,10 +10,10 @@ use crate::common::util::assert_find;
 
 #[test]
 fn test_no_where_clauses() {
-    isar!(isar, col, TestObj::default_schema());
+    isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    put_objects!(col, txn, byte, obj1, 1, obj2, 2, obj3, 3, obj4, 4);
+    put!(col, txn, byte, obj1 => 1, obj2 => 2, obj3 => 3, obj4 => 4);
 
     let q = col.new_query_builder().build();
     assert_find(&mut txn, q, &[&obj1, &obj2, &obj3, &obj4]);
@@ -23,10 +24,10 @@ fn test_no_where_clauses() {
 
 #[test]
 fn test_single_id_where_clause() {
-    isar!(isar, col, TestObj::default_schema());
+    isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    put_objects!(col, txn, byte, obj0, 0, obj1, 1, obj2, 2, obj3, 3, obj4, 5);
+    put!(id: col, txn, obj0 => 0, obj1 => 1, obj2 => 2, obj3 => 3, obj4 => 5);
 
     let mut qb = col.new_query_builder();
     qb.add_id_where_clause(1, 3).unwrap();
@@ -42,15 +43,15 @@ fn test_single_id_where_clause() {
 
 #[test]
 fn test_single_index_where_clause() {
-    isar!(isar, col, TestObj::default_schema());
+    isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let mut lower = TestObj::default_index_key(col, TestObj::BYTE_PROP);
+    let mut lower = IndexKey::new();
     lower.add_byte(1);
-    let mut upper = TestObj::default_index_key(col, TestObj::BYTE_PROP);
+    let mut upper = IndexKey::new();
     upper.add_byte(3);
 
-    put_objects!(col, txn, byte, obj0, 0, obj1, 1, obj2, 2, obj3, 3, obj4, 4);
+    put!(col, txn, byte, obj0 => 0, obj1 => 1, obj2 => 2, obj3 => 3, obj4 => 4);
 
     let results = vec![
         (&lower, true, &upper, true, vec![&obj1, &obj2, &obj3]),
@@ -61,14 +62,28 @@ fn test_single_index_where_clause() {
     for (lower, incl_lower, upper, incl_upper, objects) in results {
         // verify that the query returns the expected objects
         let mut qb = col.new_query_builder();
-        qb.add_index_where_clause(lower.clone(), incl_lower, upper.clone(), incl_upper, false)
-            .unwrap();
+        qb.add_index_where_clause(
+            0,
+            lower.clone(),
+            incl_lower,
+            upper.clone(),
+            incl_upper,
+            false,
+        )
+        .unwrap();
         assert_find(&mut txn, qb.build(), &objects);
 
         // verify that the reversed query returns the expected objects in reverse order
         let mut qb = col.new_query_builder();
-        qb.add_index_where_clause(upper.clone(), incl_upper, lower.clone(), incl_lower, false)
-            .unwrap();
+        qb.add_index_where_clause(
+            0,
+            upper.clone(),
+            incl_upper,
+            lower.clone(),
+            incl_lower,
+            false,
+        )
+        .unwrap();
         assert_find(
             &mut txn,
             qb.build(),
