@@ -123,7 +123,7 @@ impl<'env> IsarTxn<'env> {
         let mut cursor = cursor.bind(&self.txn, unnamed_db)?;
 
         let mut names = vec![];
-        cursor.iter_between(&[], &[255], false, true, |name, _| {
+        cursor.iter_between(&[], &[255], false, true, |_, name, _| {
             names.push(String::from_utf8(name.to_vec()).unwrap());
             Ok(true)
         })?;

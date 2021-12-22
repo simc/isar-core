@@ -1,5 +1,7 @@
 use crate::from_c_str;
 use isar_core::key::IndexKey;
+use isar_core::object::isar_object::IsarObject;
+use paste::paste;
 use std::os::raw::c_char;
 
 #[no_mangle]
@@ -71,11 +73,21 @@ pub unsafe extern "C" fn isar_key_add_string_list_hash(
     case_sensitive: bool,
 ) {
     let value = if !value.is_null() {
-        Some(from_c_str(value).unwrap())
+        let raw_strings = std::slice::from_raw_parts(value, length as usize);
+        let mut strings = vec![];
+        for raw_str in raw_strings {
+            let str = if !raw_str.is_null() {
+                Some(from_c_str(*raw_str).unwrap())
+            } else {
+                None
+            };
+            strings.push(str);
+        }
+        Some(strings)
     } else {
         None
     };
-    let hash = IsarObject::hash_string(value, case_sensitive, 0);
+    let hash = IsarObject::hash_string_list(value, case_sensitive, 0);
     key.add_hash(hash);
 }
 
@@ -90,7 +102,7 @@ macro_rules! hash_list {
                 length: u32,
             ) {
                 let value = if !value.is_null() {
-                    Some(unsafe { std::slice::from_raw_parts(value, length as usize) })
+                    Some(std::slice::from_raw_parts(value, length as usize))
                 } else {
                     None
                 };

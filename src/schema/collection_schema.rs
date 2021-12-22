@@ -83,6 +83,10 @@ impl CollectionSchema {
                 schema_error("No more than three properties may be used as a composite index")?;
             }
 
+            if !index.unique && index.replace {
+                schema_error("Only unique indexes can replace")?;
+            }
+
             for (i, index_property) in index.properties.iter().enumerate() {
                 let property = self
                     .properties

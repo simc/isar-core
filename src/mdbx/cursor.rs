@@ -97,6 +97,10 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_PREV, None, None)
     }
 
+    pub fn move_to_next(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDBX_cursor_op::MDBX_NEXT, None, None)
+    }
+
     pub fn move_to_last(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_LAST, None, None)
     }
@@ -104,16 +108,6 @@ impl<'txn> Cursor<'txn> {
     pub fn put(&mut self, key: &[u8], data: &[u8]) -> Result<()> {
         self.put_internal(key, data, 0)?;
         Ok(())
-    }
-
-    #[allow(clippy::try_err)]
-    pub fn put_no_override(&mut self, key: &[u8], data: &[u8]) -> Result<bool> {
-        let result = self.put_internal(key, data, ffi::MDBX_NOOVERWRITE);
-        match result {
-            Ok(()) => Ok(true),
-            Err(MdbxError::KeyExist {}) => Ok(false),
-            Err(e) => Err(e)?,
-        }
     }
 
     fn put_internal(
@@ -191,7 +185,7 @@ impl<'txn> Cursor<'txn> {
         upper_key: &[u8],
         skip_duplicates: bool,
         ascending: bool,
-        mut callback: impl FnMut(&'txn [u8], &'txn [u8]) -> Result<bool>,
+        mut callback: impl FnMut(&mut Self, &'txn [u8], &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
         let lower_key = ByteKey::new(lower_key);
         let upper_key = ByteKey::new(upper_key);
@@ -203,7 +197,7 @@ impl<'txn> Cursor<'txn> {
         if let Some((key, val)) =
             self.iter_between_first(lower_key.bytes, upper_key.bytes, ascending)?
         {
-            if !callback(key, val)? {
+            if !callback(self, key, val)? {
                 return Ok(false);
             }
         } else {
@@ -222,7 +216,7 @@ impl<'txn> Cursor<'txn> {
                     || (!ascending && lower_key.cmp_bytes(key) == Ordering::Greater)
                 {
                     return Ok(true);
-                } else if !callback(key, val)? {
+                } else if !callback(self, key, val)? {
                     return Ok(false);
                 }
             } else {

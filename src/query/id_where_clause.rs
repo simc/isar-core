@@ -49,7 +49,7 @@ impl IdWhereClause {
             upper_key.as_bytes(),
             false,
             self.sort == Sort::Ascending,
-            |id_key, object| {
+            |_, id_key, object| {
                 let id_key = IdKey::from_bytes(id_key);
                 if let Some(result_ids) = result_ids.as_deref_mut() {
                     if !result_ids.insert(id_key.get_unsigned_id(), ()) {

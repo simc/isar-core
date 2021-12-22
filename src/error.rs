@@ -3,7 +3,7 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, IsarError>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Eq, PartialEq)]
 pub enum IsarError {
     #[error("Isar version of the file is too new or too old to be used.")]
     VersionError {},

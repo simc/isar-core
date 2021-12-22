@@ -8,8 +8,6 @@ use isar_core::error::{illegal_arg, Result};
 use isar_core::instance::IsarInstance;
 use isar_core::schema::Schema;
 use std::os::raw::c_char;
-use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 
 struct IsarInstanceSend(*mut *const IsarInstance);
@@ -19,31 +17,24 @@ unsafe impl Send for IsarInstanceSend {}
 #[no_mangle]
 pub unsafe extern "C" fn isar_create_instance(
     isar: *mut *const IsarInstance,
-    name: *const c_char,
-    dir: *const c_char,
+    path: *const c_char,
     relaxed_durability: bool,
     schema_json: *const c_char,
     port: DartPort,
 ) {
     let isar = IsarInstanceSend(isar);
-    let name = from_c_str(name).unwrap();
-    let dir = PathBuf::from_str(from_c_str(dir).unwrap()).unwrap();
+    let path = from_c_str(path).unwrap();
     let schema_json = from_c_str(schema_json).unwrap();
 
-    fn open(
-        name: &str,
-        dir: PathBuf,
-        relaxed_durability: bool,
-        schema_json: &str,
-    ) -> Result<Arc<IsarInstance>> {
+    fn open(path: &str, relaxed_durability: bool, schema_json: &str) -> Result<Arc<IsarInstance>> {
         let schema = Schema::from_json(schema_json.as_bytes())?;
-        let instance = IsarInstance::open(name, dir, relaxed_durability, schema)?;
+        let instance = IsarInstance::open(path, relaxed_durability, schema)?;
         Ok(instance)
     }
 
     run_async(move || {
         let isar = isar;
-        match open(name, dir, relaxed_durability, schema_json) {
+        match open(path, relaxed_durability, schema_json) {
             Ok(instance) => {
                 isar.0.write(instance.as_ref());
                 dart_post_int(port, 0);

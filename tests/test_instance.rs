@@ -1,8 +1,30 @@
 use crate::common::test_obj::TestObj;
+use isar_core::error::IsarError;
+use isar_core::instance::IsarInstance;
+use isar_core::schema::index_schema::IndexSchema;
 use isar_core::schema::link_schema::LinkSchema;
+use isar_core::schema::Schema;
 use isar_core::verify::verify_isar;
 
 mod common;
+
+#[test]
+fn test_open_instance_multiple_times() {
+    isar!(isar1, col => TestObj::default_schema());
+    let path = isar1.path.clone();
+    txn!(isar1, txn);
+    put!(id: col, txn, obj1 => 1, obj2 => 2);
+
+    isar!(path, isar2, col => TestObj::default_schema());
+    txn.commit().unwrap();
+
+    txn!(isar1, txn);
+    verify!(txn, col, obj1, obj2);
+    txn.commit().unwrap();
+
+    assert!(!isar1.close());
+    assert!(isar2.close());
+}
 
 #[test]
 fn test_open_instance_added_collection() {
@@ -71,3 +93,31 @@ fn test_open_instance_removed_collection() {
     txn.abort();
     isar.close();
 }
+
+#[test]
+fn test_open_instance_added_index() {
+    let schema = TestObj::schema("obj", &[], &[]);
+    isar!(isar, col => schema);
+    let path = isar.path.clone();
+    txn!(isar, txn);
+    put!(col, txn, byte, obj1 => 1, obj2 => 2, obj3 => 2, obj4 => 3, obj5 => 1);
+    verify!(txn, col, obj1, obj2, obj3, obj4, obj5);
+    txn.commit().unwrap();
+    isar.close();
+
+    let byte_index = IndexSchema::new("byte", vec![TestObj::byte_index()], true, false);
+    let schema = TestObj::schema("obj", &[byte_index], &[]);
+    let result = IsarInstance::open(&path, false, Schema::new(vec![schema]).unwrap());
+    assert_eq!(result.err().unwrap(), IsarError::UniqueViolated {});
+
+    let byte_index = IndexSchema::new("byte", vec![TestObj::byte_index()], true, true);
+    let schema = TestObj::schema("obj", &[byte_index], &[]);
+    isar!(path, isar, col => schema);
+    txn!(isar, txn);
+    verify!(txn, col, obj3, obj4, obj5);
+    txn.commit().unwrap();
+    isar.close();
+}
+
+#[test]
+fn test_open_instance_removed_index() {}

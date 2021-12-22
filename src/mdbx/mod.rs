@@ -81,7 +81,7 @@ pub fn debug_dump_db(cursor: &mut Cursor, int_key: bool) -> HashSet<(Vec<u8>, Ve
     };
     let upper = u64::MAX.to_le_bytes();
     cursor
-        .iter_between(&lower, &upper, false, true, |key, val| {
+        .iter_between(&lower, &upper, false, true, |_, key, val| {
             entries.insert((key.to_vec(), val.to_vec()));
             Ok(true)
         })

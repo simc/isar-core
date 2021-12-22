@@ -226,13 +226,16 @@ impl<'a> SchemaManger<'a> {
             &u64::MAX.to_le_bytes(),
             false,
             true,
-            |key, object| {
+            |cursor, key, object| {
                 let id_key = IdKey::from_bytes(key);
                 let object = IsarObject::from_bytes(object);
                 for index_index in indexes {
                     let (_, index) = col.indexes.get(*index_index).unwrap();
                     index.create_for_object(cursors, &id_key, object, |id_key| {
-                        col.delete_internal(cursors, true, None, id_key)?;
+                        let deleted = col.delete_internal(cursors, true, None, id_key)?;
+                        if deleted {
+                            cursor.move_to_next()?; // todo find out why this is necessary
+                        }
                         Ok(true)
                     })?;
                 }

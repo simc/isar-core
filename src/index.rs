@@ -82,18 +82,17 @@ impl IsarIndex {
         let mut cursor = cursors.get_cursor(self.db)?;
         self.create_keys(object, |key| {
             if self.unique {
-                let success = cursor.put_no_override(key.as_bytes(), id_key.as_bytes())?;
-                if !success {
-                    if self.replace {
-                        delete_existing(id_key)?;
-                        cursor.put(key.as_bytes(), id_key.as_bytes())?;
+                let existing = cursor.move_to(key.as_bytes())?;
+                if let Some((_, existing_key)) = existing {
+                    if self.replace && id_key.as_bytes() != existing_key {
+                        // todo: write test
+                        delete_existing(&IdKey::from_bytes(existing_key))?;
                     } else {
                         return Err(IsarError::UniqueViolated {});
                     }
                 }
-            } else {
-                cursor.put(key.as_bytes(), id_key.as_bytes())?;
             }
+            cursor.put(key.as_bytes(), id_key.as_bytes())?;
             Ok(true)
         })?;
         Ok(())
@@ -107,7 +106,11 @@ impl IsarIndex {
     ) -> Result<()> {
         let mut cursor = cursors.get_cursor(self.db)?;
         self.create_keys(object, |key| {
-            let entry = cursor.move_to_key_val(key.as_bytes(), id_key.as_bytes())?;
+            let entry = if self.unique {
+                cursor.move_to(key.as_bytes())?
+            } else {
+                cursor.move_to_key_val(key.as_bytes(), id_key.as_bytes())?
+            };
             if entry.is_some() {
                 cursor.delete_current()?;
             }
@@ -131,7 +134,7 @@ impl IsarIndex {
             upper_key.as_bytes(),
             skip_duplicates,
             ascending,
-            |_, id_key| callback(IdKey::from_bytes(id_key)),
+            |_, _, id_key| callback(IdKey::from_bytes(id_key)),
         )
     }
 

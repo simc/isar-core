@@ -2,7 +2,6 @@ use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::object::data_type::DataType;
-use isar_core::object::isar_object::IsarObject;
 use isar_core::query::filter::*;
 use std::os::raw::c_char;
 use std::slice;

@@ -71,7 +71,7 @@ pub unsafe extern "C" fn isar_qb_add_sort_by(
     };
     isar_try! {
         if let Some(property) = property {
-            builder.add_sort(*property, sort);
+            builder.add_sort(*property, sort)?;
         } else {
             illegal_arg("Property does not exist.")?;
         }
