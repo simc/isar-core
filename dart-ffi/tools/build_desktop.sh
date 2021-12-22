@@ -13,7 +13,7 @@ case $(uname | tr '[:upper:]' '[:lower:]') in
     else
       rustup target add aarch64-apple-darwin
       cargo build --release --target aarch64-apple-darwin
-      mv "target/aarch64-apple-darwin/release/libisar_core_dart_ffi.dylib" "libisar_macos.dylib"
+      mv "target/aarch64-apple-darwin/release/libisar_core_dart_ffi.dylib" "libisar_macos_arm64.dylib"
     fi
     ;;
   *)

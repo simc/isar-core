@@ -32,7 +32,7 @@ pub unsafe fn from_mdb_val<'a>(val: &ffi::MDBX_val) -> &'a [u8] {
 #[inline]
 pub unsafe fn to_mdb_val(value: &[u8]) -> ffi::MDBX_val {
     ffi::MDBX_val {
-        iov_len: value.len() as u64,
+        iov_len: value.len() as ffi::size_t,
         iov_base: value.as_ptr() as *mut libc::c_void,
     }
 }
