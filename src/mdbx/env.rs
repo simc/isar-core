@@ -29,7 +29,7 @@ impl Env {
                 env,
                 MB,
                 -1,
-                4000 * MB,
+                2000 * MB,
                 10 * MB,
                 20 * MB,
                 -1,
