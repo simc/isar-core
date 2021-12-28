@@ -114,6 +114,10 @@ impl CollectionSchema {
                     }
                 }
 
+                if index_property.hash && index_property.hash_elements {
+                    schema_error("Indexes can either hash or hash elements")?;
+                }
+
                 if property.data_type != DataType::String
                     && property.data_type.get_element_type().is_none()
                     && index_property.hash

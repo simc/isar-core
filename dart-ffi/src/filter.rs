@@ -7,6 +7,14 @@ use std::os::raw::c_char;
 use std::slice;
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_filter_static(filter: *mut *const Filter, value: bool) -> u8 {
+    let query_filter = Filter::stat(value);
+    let ptr = Box::into_raw(Box::new(query_filter));
+    filter.write(ptr);
+    0
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_filter_and_or(
     filter: *mut *const Filter,
     and: bool,

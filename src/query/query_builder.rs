@@ -66,8 +66,12 @@ impl<'a> QueryBuilder<'a> {
             (start, include_start, end, include_end, Sort::Ascending)
         };
 
+        if self.where_clauses.is_none() {
+            self.where_clauses = Some(vec![]);
+        }
+
         if (!include_lower && !lower.increase()) || (!include_upper && !upper.decrease()) {
-            illegal_arg("Cannot adjust where clause")?;
+            return Ok(());
         }
         let wc = IndexWhereClause::new(
             self.collection.db,
@@ -77,9 +81,6 @@ impl<'a> QueryBuilder<'a> {
             skip_duplicates,
             sort,
         )?;
-        if self.where_clauses.is_none() {
-            self.where_clauses = Some(vec![]);
-        }
         self.where_clauses
             .as_mut()
             .unwrap()
