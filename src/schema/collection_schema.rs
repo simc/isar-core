@@ -1,7 +1,7 @@
 use crate::error::{schema_error, IsarError, Result};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::Property;
-use crate::schema::index_schema::IndexSchema;
+use crate::schema::index_schema::{IndexSchema, IndexType};
 use crate::schema::link_schema::LinkSchema;
 use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
@@ -98,31 +98,28 @@ impl CollectionSchema {
                 let property = property.unwrap();
 
                 if property.data_type.get_element_type().is_some() {
-                    if index.properties.len() > 1 && !index_property.hash {
+                    if index.properties.len() > 1 && index_property.index_type != IndexType::Hash {
                         schema_error("Composite list indexes are not supported.")?;
                     }
-                } else {
-                    if index_property.hash_elements {
-                        schema_error("Only list indexes may hash elements")?;
-                    }
-
-                    if property.data_type == DataType::String
-                        && i != index.properties.len() - 1
-                        && !index_property.hash
-                    {
-                        schema_error("Non-hashed string indexes must only be at the end of a composite index.")?;
-                    }
-                }
-
-                if index_property.hash && index_property.hash_elements {
-                    schema_error("Indexes can either hash or hash elements")?;
+                } else if property.data_type == DataType::String
+                    && i != index.properties.len() - 1
+                    && index_property.index_type != IndexType::Hash
+                {
+                    schema_error(
+                        "Non-hashed string indexes must only be at the end of a composite index.",
+                    )?;
                 }
 
                 if property.data_type != DataType::String
                     && property.data_type.get_element_type().is_none()
-                    && index_property.hash
+                    && index_property.index_type == IndexType::Hash
                 {
                     schema_error("Only string and list indexes may be hashed")?;
+                }
+                if property.data_type != DataType::StringList
+                    && index_property.index_type == IndexType::HashElements
+                {
+                    schema_error("Only string list indexes may be use hash elements")?;
                 }
                 if property.data_type != DataType::String
                     && property.data_type != DataType::StringList

@@ -7,7 +7,7 @@ use isar_core::object::data_type::DataType;
 use isar_core::object::isar_object::{IsarObject, Property};
 use isar_core::object::object_builder::ObjectBuilder;
 use isar_core::schema::collection_schema::CollectionSchema;
-use isar_core::schema::index_schema::{IndexPropertySchema, IndexSchema};
+use isar_core::schema::index_schema::{IndexPropertySchema, IndexSchema, IndexType};
 use isar_core::schema::link_schema::LinkSchema;
 use isar_core::schema::property_schema::PropertySchema;
 use isar_core::txn::IsarTxn;
@@ -93,47 +93,77 @@ impl TestObj {
     }
 
     pub fn byte_index() -> IndexPropertySchema {
-        IndexPropertySchema::new("byte", false, false, false)
+        IndexPropertySchema::new("byte", IndexType::Value, false)
     }
 
     pub fn int_index() -> IndexPropertySchema {
-        IndexPropertySchema::new("int", false, false, false)
+        IndexPropertySchema::new("int", IndexType::Value, false)
     }
 
     pub fn long_index() -> IndexPropertySchema {
-        IndexPropertySchema::new("long", false, false, false)
+        IndexPropertySchema::new("long", IndexType::Value, false)
     }
 
     pub fn float_index() -> IndexPropertySchema {
-        IndexPropertySchema::new("float", false, false, false)
+        IndexPropertySchema::new("float", IndexType::Value, false)
     }
 
     pub fn double_index() -> IndexPropertySchema {
-        IndexPropertySchema::new("double", false, false, false)
+        IndexPropertySchema::new("double", IndexType::Value, false)
     }
 
     pub fn string_index(hash: bool, case_sensitive: bool) -> IndexPropertySchema {
-        IndexPropertySchema::new("string", hash, false, case_sensitive)
+        let index_type = if hash {
+            IndexType::Hash
+        } else {
+            IndexType::Value
+        };
+        IndexPropertySchema::new("string", index_type, case_sensitive)
     }
 
     pub fn byte_list_index(hash: bool) -> IndexPropertySchema {
-        IndexPropertySchema::new("byteList", hash, false, false)
+        let index_type = if hash {
+            IndexType::Hash
+        } else {
+            IndexType::Value
+        };
+        IndexPropertySchema::new("byteList", index_type, false)
     }
 
     pub fn int_list_index(hash: bool) -> IndexPropertySchema {
-        IndexPropertySchema::new("intList", hash, false, false)
+        let index_type = if hash {
+            IndexType::Hash
+        } else {
+            IndexType::Value
+        };
+        IndexPropertySchema::new("intList", index_type, false)
     }
 
     pub fn long_list_index(hash: bool) -> IndexPropertySchema {
-        IndexPropertySchema::new("longList", hash, false, false)
+        let index_type = if hash {
+            IndexType::Hash
+        } else {
+            IndexType::Value
+        };
+        IndexPropertySchema::new("longList", index_type, false)
     }
 
     pub fn float_list_index(hash: bool) -> IndexPropertySchema {
-        IndexPropertySchema::new("floatList", hash, false, false)
+        let index_type = if hash {
+            IndexType::Hash
+        } else {
+            IndexType::Value
+        };
+        IndexPropertySchema::new("floatList", index_type, false)
     }
 
     pub fn double_list_index(hash: bool) -> IndexPropertySchema {
-        IndexPropertySchema::new("doubleList", hash, false, false)
+        let index_type = if hash {
+            IndexType::Hash
+        } else {
+            IndexType::Value
+        };
+        IndexPropertySchema::new("doubleList", index_type, false)
     }
 
     pub fn string_list_index(
@@ -141,7 +171,14 @@ impl TestObj {
         hash_elements: bool,
         case_sensitive: bool,
     ) -> IndexPropertySchema {
-        IndexPropertySchema::new("stringList", hash, hash_elements, case_sensitive)
+        let index_type = if hash {
+            IndexType::Hash
+        } else if hash_elements {
+            IndexType::HashElements
+        } else {
+            IndexType::Value
+        };
+        IndexPropertySchema::new("stringList", index_type, case_sensitive)
     }
 
     pub fn schema(name: &str, indexes: &[IndexSchema], links: &[LinkSchema]) -> CollectionSchema {

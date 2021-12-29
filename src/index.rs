@@ -5,28 +5,22 @@ use crate::mdbx::db::Db;
 use crate::mdbx::debug_dump_db;
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
+use crate::schema::index_schema::IndexType;
 use crate::txn::IsarTxn;
 use std::collections::HashSet;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct IndexProperty {
     pub property: Property,
-    pub hash: bool,
-    pub hash_elements: bool,
+    pub index_type: IndexType,
     pub case_sensitive: bool,
 }
 
 impl IndexProperty {
-    pub(crate) fn new(
-        property: Property,
-        hash: bool,
-        hash_elements: bool,
-        case_sensitive: bool,
-    ) -> Self {
+    pub(crate) fn new(property: Property, index_type: IndexType, case_sensitive: bool) -> Self {
         IndexProperty {
             property,
-            hash,
-            hash_elements,
+            index_type,
             case_sensitive,
         }
     }
@@ -42,7 +36,7 @@ impl IndexProperty {
     }
 
     fn is_multi_entry(&self) -> bool {
-        self.property.data_type.get_element_type().is_some() && !self.hash
+        self.property.data_type.get_element_type().is_some() && self.index_type != IndexType::Hash
     }
 }
 
@@ -161,7 +155,9 @@ impl IsarIndex {
         mut callback: impl FnMut(&IndexKey) -> Result<bool>,
     ) -> Result<bool> {
         let first = self.properties.first().unwrap();
-        if first.property.data_type.get_element_type().is_none() || first.hash {
+        if first.property.data_type.get_element_type().is_none()
+            || first.index_type == IndexType::Hash
+        {
             let key = Self::create_primitive_key(&self.properties, object);
             callback(&key)?;
             Ok(true)
@@ -175,7 +171,7 @@ impl IsarIndex {
         for index_property in properties {
             let property = index_property.property;
 
-            if index_property.hash {
+            if index_property.index_type == IndexType::Hash {
                 let hash = object.hash_property(property, index_property.case_sensitive, 0);
                 key.add_hash(hash);
             } else {
@@ -252,7 +248,7 @@ impl IsarIndex {
                 }
             }
             DataType::StringList => {
-                if index_property.hash_elements {
+                if index_property.index_type == IndexType::HashElements {
                     for value in object.read_string_list(property).unwrap() {
                         key.truncate(0);
                         let hash = IsarObject::hash_string(value, index_property.case_sensitive, 0);

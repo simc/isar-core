@@ -4,27 +4,30 @@ use crate::object::isar_object::Property;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug)]
+pub enum IndexType {
+    #[serde(rename = "value")]
+    Value,
+    #[serde(rename = "hash")]
+    Hash,
+    #[serde(rename = "hashElements")]
+    HashElements,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct IndexPropertySchema {
     pub(crate) name: String,
-    pub(crate) hash: bool,
-    #[serde(rename = "hashElements")]
-    pub(crate) hash_elements: bool,
+    #[serde(rename = "type")]
+    pub(crate) index_type: IndexType,
     #[serde(rename = "caseSensitive")]
     pub(crate) case_sensitive: bool,
 }
 
 impl IndexPropertySchema {
-    pub fn new(
-        name: &str,
-        hash: bool,
-        hash_elements: bool,
-        case_sensitive: bool,
-    ) -> IndexPropertySchema {
+    pub fn new(name: &str, index_type: IndexType, case_sensitive: bool) -> IndexPropertySchema {
         IndexPropertySchema {
             name: name.to_string(),
-            hash,
-            hash_elements,
+            index_type,
             case_sensitive,
         }
     }
@@ -59,7 +62,7 @@ impl IndexSchema {
             .iter()
             .map(|p| {
                 let (_, property) = properties.iter().find(|(n, _)| &p.name == n).unwrap();
-                IndexProperty::new(*property, p.hash, p.hash_elements, p.case_sensitive)
+                IndexProperty::new(*property, p.index_type, p.case_sensitive)
             })
             .collect_vec();
         IsarIndex::new(db, index_properties, self.unique, self.replace)
