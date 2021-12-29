@@ -83,7 +83,7 @@ pub unsafe extern "C" fn isar_get_collection<'a>(
 pub unsafe extern "C" fn isar_get_property_offsets(collection: &IsarCollection, offsets: *mut u32) {
     let properties = &collection.properties;
     let offsets = std::slice::from_raw_parts_mut(offsets, properties.len());
-    for (i, p) in properties.iter().enumerate() {
+    for (i, (_, p)) in properties.iter().enumerate() {
         offsets[i] = p.offset as u32;
     }
 }

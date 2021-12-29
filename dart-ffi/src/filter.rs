@@ -2,6 +2,7 @@ use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::object::data_type::DataType;
+use isar_core::object::isar_object::IsarObject;
 use isar_core::query::filter::*;
 use std::os::raw::c_char;
 use std::slice;
@@ -65,11 +66,34 @@ pub unsafe extern "C" fn isar_filter_null(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     property_index: u32,
+    any_null: bool,
 ) -> i32 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some(property) = property {
-            let query_filter = Filter::null(*property);
+        if let Some((_, property)) = property {
+            let query_filter = if !property.data_type.is_scalar() && any_null {
+                match property.data_type {
+                    DataType::ByteList => {
+                        Filter::byte(*property, IsarObject::NULL_BYTE, IsarObject::NULL_BYTE)?
+                    },
+                    DataType::IntList => {
+                        Filter::int(*property, IsarObject::NULL_INT, IsarObject::NULL_INT)?
+                    },
+                    DataType::FloatList => {
+                        Filter::float(*property, IsarObject::NULL_FLOAT, IsarObject::NULL_FLOAT)?
+                    },
+                    DataType::LongList => {
+                        Filter::long(*property, IsarObject::NULL_LONG, IsarObject::NULL_LONG)?
+                    },
+                    DataType::DoubleList => {
+                        Filter::double(*property, IsarObject::NULL_DOUBLE, IsarObject::NULL_DOUBLE)?
+                    },
+                    DataType::StringList => Filter::string(*property, None, None, false)?,
+                    _ => unreachable!()
+                }
+            } else {
+                 Filter::null(*property)
+            };
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
         } else {
@@ -88,7 +112,7 @@ pub unsafe extern "C" fn isar_filter_byte(
 ) -> i32 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some(property) = property {
+        if let Some((_, property)) = property {
             let query_filter = Filter::byte(*property, lower, upper)?;
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
@@ -108,7 +132,7 @@ pub unsafe extern "C" fn isar_filter_long(
 ) -> i32 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some(property) = property {
+        if let Some((_, property)) = property {
             let query_filter = if property.data_type == DataType::Int || property.data_type == DataType::IntList {
                 let lower = lower.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 let upper = upper.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
@@ -134,7 +158,7 @@ pub unsafe extern "C" fn isar_filter_double(
 ) -> i32 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some(property) = property {
+        if let Some((_, property)) = property {
             let query_filter = if property.data_type == DataType::Float || property.data_type == DataType::FloatList {
                 Filter::float(*property, lower as f32, upper as f32)?
             } else {
@@ -159,7 +183,7 @@ pub unsafe extern "C" fn isar_filter_string(
 ) -> i32 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some(property) = property {
+        if let Some((_, property)) = property {
             let lower = if !lower.is_null() {
                 Some(from_c_str(lower)?)
             } else {
@@ -192,7 +216,7 @@ macro_rules! filter_string_ffi {
         ) -> i32 {
             let property = collection.properties.get(property_index as usize);
             isar_try! {
-                if let Some(property) = property {
+                if let Some((_, property)) = property {
                     let str = from_c_str(value)?;
                     let query_filter = isar_core::query::filter::Filter::$filter_name(*property, str, case_sensitive)?;
                     let ptr = Box::into_raw(Box::new(query_filter));

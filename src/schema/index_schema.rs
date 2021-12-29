@@ -53,18 +53,12 @@ impl IndexSchema {
         }
     }
 
-    pub(crate) fn as_index(
-        &self,
-        db: Db,
-        properties: &[Property],
-        property_names: &[String],
-    ) -> IsarIndex {
+    pub(crate) fn as_index(&self, db: Db, properties: &[(String, Property)]) -> IsarIndex {
         let index_properties = self
             .properties
             .iter()
             .map(|p| {
-                let property_index = property_names.iter().position(|n| &p.name == n).unwrap();
-                let property = properties.get(property_index).unwrap();
+                let (_, property) = properties.iter().find(|(n, _)| &p.name == n).unwrap();
                 IndexProperty::new(*property, p.hash, p.hash_elements, p.case_sensitive)
             })
             .collect_vec();

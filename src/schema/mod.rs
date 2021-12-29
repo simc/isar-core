@@ -47,8 +47,8 @@ impl Schema {
         let mut count = 0;
         for col in &self.collections {
             count += 1;
-            count += col.indexes.len() * 2;
-            count += col.links.len();
+            count += col.indexes.len();
+            count += col.links.len() * 2;
         }
         count
     }

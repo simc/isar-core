@@ -1,6 +1,7 @@
 use crate::txn::IsarDartTxn;
 use enum_ordinalize::Ordinalize;
 use isar_core::collection::IsarCollection;
+use isar_core::error::illegal_arg;
 use isar_core::error::Result;
 use isar_core::object::data_type::DataType;
 use isar_core::object::isar_object::{IsarObject, Property};
@@ -142,16 +143,16 @@ pub unsafe extern "C" fn isar_q_aggregate(
     result: *mut *const AggregationResult,
 ) -> i32 {
     let op = AggregationOp::from_ordinal(operation).unwrap();
-    let property = if op != AggregationOp::Count {
-        let p = collection.properties.get(property_index as usize).unwrap();
-        Some(*p)
-    } else {
-        None
-    };
-
+    let property = collection
+        .properties
+        .get(property_index as usize)
+        .map(|(_, p)| *p);
     let result = AggregationResultSend(result);
     isar_try_txn!(txn, move |txn| {
         let result = result;
+        if op != AggregationOp::Count && property.is_none() {
+            return illegal_arg("Property does not exist.");
+        }
         let aggregate_result = aggregate(query, txn, op, property)?;
         result.0.write(Box::into_raw(Box::new(aggregate_result)));
         Ok(())

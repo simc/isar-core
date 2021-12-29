@@ -70,7 +70,7 @@ pub unsafe extern "C" fn isar_qb_add_sort_by(
         Sort::Descending
     };
     isar_try! {
-        if let Some(property) = property {
+        if let Some((_, property)) = property {
             builder.add_sort(*property, sort)?;
         } else {
             illegal_arg("Property does not exist.")?;
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn isar_qb_add_distinct_by(
 ) -> i32 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
-        if let Some(property) = property {
+        if let Some((_, property)) = property {
             builder.add_distinct(*property, case_sensitive);
         } else {
             illegal_arg("Property does not exist.")?;

@@ -17,8 +17,8 @@ use std::collections::HashSet;
 
 pub struct IsarCollection {
     pub name: String,
-    pub properties: Vec<Property>,
-    pub property_names: Vec<String>,
+    pub properties: Vec<(String, Property)>,
+    props: Vec<Property>,
 
     pub(crate) instance_id: u64,
     pub(crate) db: Db,
@@ -38,18 +38,18 @@ impl IsarCollection {
         db: Db,
         instance_id: u64,
         name: String,
-        properties: Vec<Property>,
-        property_names: Vec<String>,
+        properties: Vec<(String, Property)>,
         indexes: Vec<(String, IsarIndex)>,
         links: Vec<(String, IsarLink)>,
         backlinks: Vec<IsarLink>,
     ) -> Self {
+        let props = properties.iter().map(|(_, p)| *p).collect();
         IsarCollection {
             instance_id,
             db,
             name,
             properties,
-            property_names,
+            props,
             indexes,
             links,
             backlinks,
@@ -71,7 +71,7 @@ impl IsarCollection {
     }
 
     pub fn new_object_builder(&self, buffer: Option<Vec<u8>>) -> ObjectBuilder {
-        ObjectBuilder::new(&self.properties, buffer)
+        ObjectBuilder::new(&self.props, buffer)
     }
 
     pub fn new_query_builder(&self) -> QueryBuilder {

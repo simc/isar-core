@@ -167,19 +167,17 @@ impl CollectionSchema {
         Ok(())
     }
 
-    pub(crate) fn get_properties(&self) -> (Vec<Property>, Vec<String>) {
+    pub(crate) fn get_properties(&self) -> Vec<(String, Property)> {
         let mut properties = vec![];
-        let mut property_names = vec![];
         let mut offset = 2;
         for property_schema in &self.properties {
             if !self.hidden_properties.contains(&property_schema.name) {
                 let property = Property::new(property_schema.data_type, offset);
-                properties.push(property);
-                property_names.push(property_schema.name.clone());
+                properties.push((property_schema.name.clone(), property));
             }
             offset += property_schema.data_type.get_static_size();
         }
-        (properties, property_names)
+        properties
     }
 }
 

@@ -12,6 +12,7 @@ use crate::schema::index_schema::IndexSchema;
 use crate::schema::link_schema::LinkSchema;
 use crate::schema::Schema;
 use itertools::Itertools;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryInto;
 
@@ -167,12 +168,12 @@ impl<'a> SchemaManger<'a> {
         col_schema: &CollectionSchema,
     ) -> Result<IsarCollection> {
         let db = self.open_collection_db(col_schema)?;
-        let (properties, property_names) = col_schema.get_properties();
+        let properties = col_schema.get_properties();
 
         let mut indexes = vec![];
         for index_schema in &col_schema.indexes {
             let db = self.open_index_db(col_schema, index_schema)?;
-            let index = index_schema.as_index(db, &properties, &property_names);
+            let index = index_schema.as_index(db, &properties);
             indexes.push((index_schema.name.clone(), index));
         }
 
@@ -190,19 +191,27 @@ impl<'a> SchemaManger<'a> {
             for link_schema in &other_col_schema.links {
                 if link_schema.target_col == col_schema.name {
                     let other_col_db = self.open_collection_db(other_col_schema)?;
-                    let (link_db, bl_db) = self.open_link_dbs(col_schema, link_schema)?;
+                    let (link_db, bl_db) = self.open_link_dbs(other_col_schema, link_schema)?;
                     let link = IsarLink::new(bl_db, link_db, other_col_db, db);
-                    backlinks.push(link);
+                    backlinks.push((&other_col_schema.name, &link_schema.name, link));
                 }
             }
         }
+        backlinks.sort_by(|(col1, l1, _), (col2, l2, _)| {
+            let col_cmp = col1.cmp(col2);
+            if col_cmp == Ordering::Equal {
+                l1.cmp(l2)
+            } else {
+                col_cmp
+            }
+        });
+        let backlinks = backlinks.into_iter().map(|(_, _, link)| link).collect_vec();
 
         Ok(IsarCollection::new(
             db,
             self.instance_id,
             col_schema.name.clone(),
             properties,
-            property_names,
             indexes,
             links,
             backlinks,
