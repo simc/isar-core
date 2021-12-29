@@ -149,6 +149,14 @@ impl Filter {
         string_filter_create!(EndsWith, property, value, case_sensitive)
     }
 
+    pub fn string_contains(
+        property: Property,
+        value: &str,
+        case_sensitive: bool,
+    ) -> Result<Filter> {
+        string_filter_create!(Contains, property, value, case_sensitive)
+    }
+
     pub fn string_matches(property: Property, value: &str, case_sensitive: bool) -> Result<Filter> {
         string_filter_create!(Matches, property, value, case_sensitive)
     }
@@ -216,6 +224,7 @@ enum FilterCond {
     StringBetween(StringBetweenCond),
     StringStartsWith(StringStartsWithCond),
     StringEndsWith(StringEndsWithCond),
+    StringContains(StringContainsCond),
     StringMatches(StringMatchesCond),
 
     AnyByteBetween(AnyByteBetweenCond),
@@ -227,6 +236,7 @@ enum FilterCond {
     AnyStringBetween(AnyStringBetweenCond),
     AnyStringStartsWith(AnyStringStartsWithCond),
     AnyStringEndsWith(AnyStringEndsWithCond),
+    AnyStringContains(AnyStringContainsCond),
     AnyStringMatches(AnyStringMatchesCond),
 
     Null(NullCond),
@@ -541,6 +551,10 @@ macro_rules! string_filter {
         $other_str.ends_with($filter_str)
     };
 
+    (StringContains $filter_str:expr, $other_str:ident) => {
+        $other_str.contains($filter_str)
+    };
+
     (StringMatches $filter_str:expr, $other_str:ident) => {
         fast_wild_match($other_str, $filter_str)
     };
@@ -548,6 +562,7 @@ macro_rules! string_filter {
 
 string_filter!(StringStartsWith);
 string_filter!(StringEndsWith);
+string_filter!(StringContains);
 string_filter!(StringMatches);
 
 #[derive(Clone)]

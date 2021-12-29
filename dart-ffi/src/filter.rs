@@ -231,4 +231,5 @@ macro_rules! filter_string_ffi {
 
 filter_string_ffi!(string_starts_with, isar_filter_string_starts_with);
 filter_string_ffi!(string_ends_with, isar_filter_string_ends_with);
+filter_string_ffi!(string_contains, isar_filter_string_contains);
 filter_string_ffi!(string_matches, isar_filter_string_matches);
