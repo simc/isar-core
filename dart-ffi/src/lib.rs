@@ -5,6 +5,7 @@ use isar_core::error::{illegal_arg, Result};
 use std::ffi::CStr;
 use std::mem;
 use std::os::raw::c_char;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[macro_use]
 mod error;
@@ -38,17 +39,19 @@ unsafe impl Send for BoolSend {}
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_find_word_boundaries(
-    input: *const c_char,
-    length: *mut u32,
+    input_bytes: *const u8,
+    length: u32,
+    number_words: *mut u32,
 ) -> *mut u32 {
-    let str = from_c_str(input).unwrap();
+    let bytes = std::slice::from_raw_parts(input_bytes, length as usize);
+    let str = std::str::from_utf8_unchecked(bytes);
     let mut result = vec![];
     for (offset, word) in str.unicode_word_indices() {
         result.push(offset as u32);
         result.push((offset + word.encode_utf16().count()) as u32);
     }
     result.shrink_to_fit();
-    length.write(result.len() as u32);
+    number_words.write((result.len() / 2) as u32);
     let result_ptr = result.as_mut_ptr();
     mem::forget(result);
     result_ptr
