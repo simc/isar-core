@@ -6,11 +6,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug)]
 pub enum IndexType {
-    #[serde(rename = "value")]
     Value,
-    #[serde(rename = "hash")]
     Hash,
-    #[serde(rename = "hashElements")]
     HashElements,
 }
 

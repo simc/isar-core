@@ -75,9 +75,9 @@ impl IsarLink {
     ) -> Result<bool> {
         let mut source_cursor = cursors.get_cursor(self.source_db)?;
         let mut target_cursor = cursors.get_cursor(self.target_db)?;
-        if source_cursor.move_to(source_key.as_bytes())?.is_none()
-            || target_cursor.move_to(target_key.as_bytes())?.is_none()
-        {
+        let exists_source = source_cursor.move_to(source_key.as_bytes())?.is_some();
+        let exists_target = target_cursor.move_to(target_key.as_bytes())?.is_some();
+        if !exists_source || !exists_target {
             return Ok(false);
         }
 

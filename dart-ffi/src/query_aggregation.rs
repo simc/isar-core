@@ -1,5 +1,4 @@
 use crate::txn::IsarDartTxn;
-use enum_ordinalize::Ordinalize;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::error::Result;
@@ -16,7 +15,7 @@ pub enum AggregationResult {
     Null,
 }
 
-#[derive(Ordinalize, PartialEq)]
+#[derive(PartialEq)]
 #[repr(u8)]
 pub enum AggregationOp {
     Min,
@@ -24,6 +23,19 @@ pub enum AggregationOp {
     Sum,
     Average,
     Count,
+}
+
+impl AggregationOp {
+    fn from_u8(index: u8) -> AggregationOp {
+        match index {
+            0 => AggregationOp::Min,
+            1 => AggregationOp::Max,
+            2 => AggregationOp::Sum,
+            3 => AggregationOp::Average,
+            4 => AggregationOp::Count,
+            _ => unreachable!(),
+        }
+    }
 }
 
 fn aggregate(
@@ -142,7 +154,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
     property_index: u32,
     result: *mut *const AggregationResult,
 ) -> i32 {
-    let op = AggregationOp::from_ordinal(operation).unwrap();
+    let op = AggregationOp::from_u8(operation);
     let property = collection
         .properties
         .get(property_index as usize)

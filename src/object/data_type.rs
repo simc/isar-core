@@ -1,7 +1,6 @@
-use enum_ordinalize::Ordinalize;
-use serde_repr::{Deserialize_repr, Serialize_repr};
+use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Eq, Clone, Copy, Serialize_repr, Deserialize_repr, Debug, Ordinalize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum DataType {
     Byte = 0,
