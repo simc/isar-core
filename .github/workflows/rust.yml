@@ -38,8 +38,3 @@ jobs:
       with:
         command: test
         args: --verbose
-    - uses: actions-rs/cargo@v1
-      name: test encryption
-      with:
-        command: test
-        args: --verbose --features test-encryption
