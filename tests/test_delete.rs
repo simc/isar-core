@@ -1,7 +1,5 @@
 use crossbeam_channel::unbounded;
-use isar_core::object::isar_object::IsarObject;
 use isar_core::schema::link_schema::LinkSchema;
-use isar_core::verify::LinkEntry;
 
 use crate::common::test_obj::TestObj;
 

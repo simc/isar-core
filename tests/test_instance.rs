@@ -1,9 +1,6 @@
 use crate::common::test_obj::TestObj;
-use isar_core::error::IsarError;
-use isar_core::instance::IsarInstance;
 use isar_core::schema::index_schema::IndexSchema;
 use isar_core::schema::link_schema::LinkSchema;
-use isar_core::schema::Schema;
 use isar_core::verify::verify_isar;
 
 mod common;
@@ -105,12 +102,7 @@ fn test_open_instance_added_index() {
     txn.commit().unwrap();
     isar.close();
 
-    let byte_index = IndexSchema::new("byte", vec![TestObj::byte_index()], true, false);
-    let schema = TestObj::schema("obj", &[byte_index], &[]);
-    let result = IsarInstance::open(&path, false, Schema::new(vec![schema]).unwrap());
-    assert_eq!(result.err().unwrap(), IsarError::UniqueViolated {});
-
-    let byte_index = IndexSchema::new("byte", vec![TestObj::byte_index()], true, true);
+    let byte_index = IndexSchema::new("byte", vec![TestObj::byte_index()], true);
     let schema = TestObj::schema("obj", &[byte_index], &[]);
     isar!(path, isar, col => schema);
     txn!(isar, txn);

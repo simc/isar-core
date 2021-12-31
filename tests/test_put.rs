@@ -1,5 +1,3 @@
-use isar_core::instance::IsarInstance;
-
 use crate::common::test_obj::TestObj;
 
 mod common;
