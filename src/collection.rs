@@ -137,9 +137,15 @@ impl IsarCollection {
         })
     }
 
-    pub fn put(&self, txn: &mut IsarTxn, id: i64, object: IsarObject) -> Result<()> {
+    pub fn put(
+        &self,
+        txn: &mut IsarTxn,
+        id: i64,
+        object: IsarObject,
+        replace_on_conflict: bool,
+    ) -> Result<()> {
         txn.write(self.instance_id, |cursors, change_set| {
-            self.put_internal(cursors, change_set, id, object)
+            self.put_internal(cursors, change_set, id, object, replace_on_conflict)
         })
     }
 
@@ -149,6 +155,7 @@ impl IsarCollection {
         mut change_set: Option<&mut ChangeSet>,
         id: i64,
         object: IsarObject,
+        replace_on_conflict: bool,
     ) -> Result<()> {
         let id_key = IdKey::new(id);
 
@@ -161,8 +168,12 @@ impl IsarCollection {
 
         for (_, index) in &self.indexes {
             index.create_for_object(cursors, &id_key, object, |id_key| {
-                self.delete_internal(cursors, true, change_set.as_deref_mut(), id_key)?;
-                Ok(true)
+                if replace_on_conflict {
+                    self.delete_internal(cursors, true, change_set.as_deref_mut(), id_key)?;
+                    Ok(true)
+                } else {
+                    Err(IsarError::UniqueViolated {})
+                }
             })?;
         }
 
@@ -319,7 +330,13 @@ impl IsarCollection {
         Ok(())
     }
 
-    pub fn import_json(&self, txn: &mut IsarTxn, id_name: Option<&str>, json: Value) -> Result<()> {
+    pub fn import_json(
+        &self,
+        txn: &mut IsarTxn,
+        id_name: Option<&str>,
+        json: Value,
+        replace_on_conflict: bool,
+    ) -> Result<()> {
         txn.write(self.instance_id, |cursors, mut change_set| {
             let array = json.as_array().ok_or(IsarError::InvalidJson {})?;
             let mut ob_result_cache = None;
@@ -335,7 +352,13 @@ impl IsarCollection {
                 };
                 let ob = JsonEncodeDecode::decode(self, value, ob_result_cache)?;
                 let object = ob.finish();
-                self.put_internal(cursors, change_set.as_deref_mut(), id, object)?;
+                self.put_internal(
+                    cursors,
+                    change_set.as_deref_mut(),
+                    id,
+                    object,
+                    replace_on_conflict,
+                )?;
                 ob_result_cache = Some(ob.recycle());
             }
             Ok(())

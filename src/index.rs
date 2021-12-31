@@ -1,5 +1,5 @@
 use crate::cursor::IsarCursors;
-use crate::error::{IsarError, Result};
+use crate::error::Result;
 use crate::key::{IdKey, IndexKey};
 use crate::mdbx::db::Db;
 use crate::mdbx::debug_dump_db;
@@ -44,7 +44,6 @@ impl IndexProperty {
 pub(crate) struct IsarIndex {
     pub properties: Vec<IndexProperty>,
     pub unique: bool,
-    pub replace: bool,
     pub multi_entry: bool,
     db: Db,
 }
@@ -52,12 +51,11 @@ pub(crate) struct IsarIndex {
 impl IsarIndex {
     pub const MAX_STRING_INDEX_SIZE: usize = 1024;
 
-    pub fn new(db: Db, properties: Vec<IndexProperty>, unique: bool, replace: bool) -> Self {
+    pub fn new(db: Db, properties: Vec<IndexProperty>, unique: bool) -> Self {
         let multi_entry = properties.first().unwrap().is_multi_entry();
         IsarIndex {
             properties,
             unique,
-            replace,
             multi_entry,
             db,
         }
@@ -68,7 +66,7 @@ impl IsarIndex {
         cursors: &IsarCursors,
         id_key: &IdKey,
         object: IsarObject,
-        mut delete_existing: F,
+        mut on_conflict: F,
     ) -> Result<()>
     where
         F: FnMut(&IdKey) -> Result<bool>,
@@ -78,12 +76,7 @@ impl IsarIndex {
             if self.unique {
                 let existing = cursor.move_to(key.as_bytes())?;
                 if let Some((_, existing_key)) = existing {
-                    if self.replace && id_key.as_bytes() != existing_key {
-                        // todo: write test
-                        delete_existing(&IdKey::from_bytes(existing_key))?;
-                    } else {
-                        return Err(IsarError::UniqueViolated {});
-                    }
+                    on_conflict(&IdKey::from_bytes(existing_key))?;
                 }
             }
             cursor.put(key.as_bytes(), id_key.as_bytes())?;
