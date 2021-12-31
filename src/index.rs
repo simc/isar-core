@@ -126,6 +126,7 @@ impl IsarIndex {
         cursor.iter_between(
             lower_key.as_bytes(),
             upper_key.as_bytes(),
+            !self.unique,
             skip_duplicates,
             ascending,
             |_, _, id_key| callback(IdKey::from_bytes(id_key)),

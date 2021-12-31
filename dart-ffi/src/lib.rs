@@ -48,7 +48,7 @@ pub unsafe extern "C" fn isar_find_word_boundaries(
     let mut result = vec![];
     for (offset, word) in str.unicode_word_indices() {
         result.push(offset as u32);
-        result.push((offset + word.encode_utf16().count()) as u32);
+        result.push((offset + word.len()) as u32);
     }
     result.shrink_to_fit();
     number_words.write((result.len() / 2) as u32);
@@ -58,6 +58,7 @@ pub unsafe extern "C" fn isar_find_word_boundaries(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_free_word_boundaries(boundaries: *mut u32, length: u32) {
-    Vec::from_raw_parts(boundaries, length as usize, length as usize);
+pub unsafe extern "C" fn isar_free_word_boundaries(boundaries: *mut u32, word_count: u32) {
+    let len = (word_count * 2) as usize;
+    Vec::from_raw_parts(boundaries, len, len);
 }

@@ -48,6 +48,7 @@ impl IdWhereClause {
             lower_key.as_bytes(),
             upper_key.as_bytes(),
             false,
+            false,
             self.sort == Sort::Ascending,
             |_, id_key, object| {
                 let id_key = IdKey::from_bytes(id_key);

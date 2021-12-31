@@ -234,6 +234,7 @@ impl<'a> SchemaManger<'a> {
             &u64::MIN.to_le_bytes(),
             &u64::MAX.to_le_bytes(),
             false,
+            false,
             true,
             |cursor, key, object| {
                 let id_key = IdKey::from_bytes(key);

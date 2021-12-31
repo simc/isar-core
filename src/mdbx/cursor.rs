@@ -89,12 +89,16 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_SET_RANGE, Some(key), None)
     }
 
-    pub fn move_to_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
+    pub fn move_to_next_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_NEXT_DUP, None, None)
     }
 
-    pub fn move_to_prev(&mut self) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDBX_cursor_op::MDBX_PREV, None, None)
+    pub fn move_to_last_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDBX_cursor_op::MDBX_LAST_DUP, None, None)
+    }
+
+    pub fn move_to_prev_no_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDBX_cursor_op::MDBX_PREV_NODUP, None, None)
     }
 
     pub fn move_to_next(&mut self) -> Result<Option<KeyVal<'txn>>> {
@@ -139,40 +143,48 @@ impl<'txn> Cursor<'txn> {
     #[inline(never)]
     fn iter_between_first(
         &mut self,
-        lower_key: &[u8],
-        upper_key: &[u8],
+        lower_key: ByteKey,
+        upper_key: ByteKey,
         ascending: bool,
+        duplicates: bool,
     ) -> Result<Option<KeyVal<'txn>>> {
-        let lower_key = ByteKey::new(lower_key);
-        let upper_key = ByteKey::new(upper_key);
-
         if upper_key < lower_key {
             return Ok(None);
         }
 
         let first_entry = if !ascending {
             if let Some(first_entry) = self.move_to_gte(upper_key.bytes)? {
-                Some(first_entry)
-            } else {
+                if duplicates {
+                    self.move_to_last_dup()?.or(Some(first_entry))
+                } else {
+                    Some(first_entry)
+                }
+            } else if let Some(last) = self.move_to_last()? {
                 // If some key between upper_key and lower_key happens to be the last key in the db
-                self.move_to_last()?
+                if ByteKey::new(last.0) >= lower_key {
+                    Some(last)
+                } else {
+                    None
+                }
+            } else {
+                None
             }
         } else {
             self.move_to_gte(lower_key.bytes)?
         };
 
-        if let Some((key, _)) = first_entry {
-            if upper_key.cmp_bytes(key) == Ordering::Less {
+        if let Some(first_entry) = first_entry {
+            if upper_key < ByteKey::new(first_entry.0) {
                 if !ascending {
-                    if let Some((prev_key, prev_val)) = self.move_to_prev()? {
-                        if lower_key.cmp_bytes(prev_key) == Ordering::Less {
-                            return Ok(Some((prev_key, prev_val)));
+                    if let Some(prev) = self.move_to_prev_no_dup()? {
+                        if lower_key <= ByteKey::new(prev.0) {
+                            return Ok(Some(prev));
                         }
                     }
                 }
                 Ok(None)
             } else {
-                Ok(first_entry)
+                Ok(Some(first_entry))
             }
         } else {
             Ok(None)
@@ -183,6 +195,7 @@ impl<'txn> Cursor<'txn> {
         &mut self,
         lower_key: &[u8],
         upper_key: &[u8],
+        duplicates: bool,
         skip_duplicates: bool,
         ascending: bool,
         mut callback: impl FnMut(&mut Self, &'txn [u8], &'txn [u8]) -> Result<bool>,
@@ -195,7 +208,7 @@ impl<'txn> Cursor<'txn> {
         }
 
         if let Some((key, val)) =
-            self.iter_between_first(lower_key.bytes, upper_key.bytes, ascending)?
+            self.iter_between_first(lower_key, upper_key, ascending, duplicates)?
         {
             if !callback(self, key, val)? {
                 return Ok(false);
@@ -238,7 +251,7 @@ impl<'txn> Cursor<'txn> {
             return Ok(true);
         }
         loop {
-            if let Some((_, val)) = self.move_to_dup()? {
+            if let Some((_, val)) = self.move_to_next_dup()? {
                 if !callback(self, val)? {
                     return Ok(false);
                 }
