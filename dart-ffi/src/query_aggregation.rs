@@ -153,7 +153,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
     operation: u8,
     property_index: u32,
     result: *mut *const AggregationResult,
-) -> i32 {
+) -> i64 {
     let op = AggregationOp::from_u8(operation);
     let property = collection
         .properties

@@ -1,4 +1,3 @@
-use crate::dart::{dart_post_int, DartPort};
 use crate::error::DartErrCode;
 use isar_core::error::{IsarError, Result};
 use isar_core::instance::IsarInstance;
@@ -10,6 +9,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use threadpool::{Builder, ThreadPool};
+use crate::dart::{Dart_PostInteger_DL, DartPort};
 
 static THREAD_POOL: Lazy<Mutex<ThreadPool>> = Lazy::new(|| Mutex::new(Builder::new().build()));
 
@@ -27,7 +27,7 @@ pub unsafe extern "C" fn isar_txn_begin(
     write: bool,
     silent: bool,
     port: DartPort,
-) -> i32 {
+) -> i64 {
     isar_try! {
         let new_txn = if sync {
             IsarDartTxn::begin_sync(isar, write, silent)?
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn isar_txn_begin(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_txn_finish(txn: *mut IsarDartTxn, commit: bool) -> i32 {
+pub unsafe extern "C" fn isar_txn_finish(txn: *mut IsarDartTxn, commit: bool) -> i64 {
     let txn = Box::from_raw(txn);
     isar_try! {
         txn.finish(commit)?;
@@ -82,9 +82,9 @@ impl IsarDartTxn {
         run_async(move || {
             let new_txn = isar.begin_txn(write, silent);
             match new_txn {
-                Ok(new_txn) => {
+                Ok(new_txn) => unsafe {
                     txn_clone.lock().unwrap().replace(IsarTxnSend(new_txn));
-                    dart_post_int(port, 0);
+                    Dart_PostInteger_DL(port, 0);
                     loop {
                         let (job, stop) = rx.recv().unwrap();
                         job();
@@ -93,8 +93,8 @@ impl IsarDartTxn {
                         }
                     }
                 }
-                Err(e) => {
-                    dart_post_int(port, e.into_dart_err_code());
+                Err(e) => unsafe {
+                    Dart_PostInteger_DL(port, e.into_dart_err_code());
                 }
             }
         });
@@ -108,12 +108,12 @@ impl IsarDartTxn {
         tx: Sender<AsyncJob>,
         stop: bool,
     ) {
-        let handle_response_job = move || {
+        let handle_response_job = move || unsafe {
             let result = match job() {
                 Ok(()) => 0,
                 Err(e) => e.into_dart_err_code(),
             };
-            dart_post_int(port, result);
+            Dart_PostInteger_DL(port, result as i64);
         };
         tx.send((Box::new(handle_response_job), stop)).unwrap();
     }

@@ -1,41 +1,37 @@
-use once_cell::sync::OnceCell;
-
-static DART_POST_C_OBJECT: OnceCell<DartPostCObjectFnType> = OnceCell::new();
-
-pub fn dart_post_int(port: DartPort, value: i32) {
-    let dart_post = DART_POST_C_OBJECT.get().unwrap();
-    dart_post(port, &mut Dart_CObject::from_int_i32(value));
-}
+use std::ffi::c_void;
 
 pub type DartPort = i64;
 
-pub type DartPostCObjectFnType = extern "C" fn(port_id: DartPort, message: *mut Dart_CObject) -> i8;
+pub type DartFinalizerCallback = unsafe extern "C" fn(
+    isolate_callback_data: *mut c_void,
+    peer: *mut c_void
+);
+pub type DartHandleFinalizer = Option<DartFinalizerCallback>;
 
-#[repr(C)]
-pub struct Dart_CObject {
-    ty: i32,
-    value: DartCObjectValue,
-}
+pub type DartHandle = *mut c_void;
 
-impl Dart_CObject {
-    fn from_int_i32(value: i32) -> Self {
-        Dart_CObject {
-            ty: 2,
-            value: DartCObjectValue { as_int32: value },
-        }
-    }
-}
+pub type DartFinalizableHandle = *mut c_void;
 
-#[repr(C)]
-union DartCObjectValue {
-    pub as_bool: bool,
-    pub as_int32: i32,
-    pub as_int64: i64,
-    pub as_double: f64,
-    _union_align: [u64; 5usize],
+#[link(name = "dart")]
+extern "C" {
+    pub fn Dart_InitializeApiDL(data: *mut c_void) -> usize;
+    pub fn Dart_NewFinalizableHandle_DL(
+        handle: DartHandle,
+        peer: *mut c_void,
+        external_allocation_size: usize,
+        callback: DartHandleFinalizer,
+    ) -> DartFinalizableHandle;
+    pub fn Dart_DeleteFinalizableHandle(
+         object: DartFinalizableHandle,
+         strong_ref_to_object: DartHandle
+    );
+    pub fn Dart_PostInteger_DL(
+         port_id: DartPort,
+         message: i64
+    ) -> bool;
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_connect_dart_api(ptr: DartPostCObjectFnType) {
-    let _ = DART_POST_C_OBJECT.set(ptr);
+pub unsafe extern "C" fn isar_connect_dart_api(data: *mut c_void) {
+    Dart_InitializeApiDL(data);
 }

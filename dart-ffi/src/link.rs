@@ -11,7 +11,7 @@ pub unsafe extern "C" fn isar_link(
     backlink: bool,
     id: i64,
     target_id: i64,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
         collection.link(txn, link_index, backlink, id, target_id)?;
         Ok(())
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn isar_link_unlink(
     backlink: bool,
     id: i64,
     target_id: i64,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
         collection.unlink(txn, link_index, backlink, id, target_id)?;
         Ok(())
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn isar_link_update_all(
     ids: *const i64,
     link_count: u32,
     unlink_count: u32,
-) -> i32 {
+) -> i64 {
     let ids = std::slice::from_raw_parts(ids, (link_count + unlink_count) as usize);
     isar_try_txn!(txn, move |txn| {
         for target_id in ids.iter().take(link_count as usize) {
@@ -68,7 +68,7 @@ pub unsafe extern "C" fn isar_link_replace(
     backlink: bool,
     id: i64,
     target_id: i64,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
         collection.unlink_all(txn, link_index, backlink, id)?;
         if target_id != i64::MIN {
@@ -86,7 +86,7 @@ pub unsafe extern "C" fn isar_link_get_first(
     backlink: bool,
     id: i64,
     object: &'static mut RawObject,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| {
         collection.get_linked_objects(txn, link_index, backlink, id, |id, o| {
             object.set_id(id);
@@ -105,7 +105,7 @@ pub unsafe extern "C" fn isar_link_get_all(
     backlink: bool,
     id: i64,
     result: &'static mut RawObjectSet,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| {
         result.fill_from_link(collection, txn, link_index, backlink, id)?;
         Ok(())

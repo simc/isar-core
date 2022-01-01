@@ -20,7 +20,7 @@ pub unsafe extern "C" fn isar_qb_add_id_where_clause(
     builder: &mut QueryBuilder,
     start_id: i64,
     end_id: i64,
-) -> i32 {
+) -> i64 {
     isar_try! {
         builder.add_id_where_clause(start_id, end_id)?;
     }
@@ -35,7 +35,7 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
     end_key: *mut IndexKey,
     include_end: bool,
     skip_duplicates: bool,
-) -> i32 {
+) -> i64 {
     let start_key = *Box::from_raw(start_key);
     let end_key = *Box::from_raw(end_key);
     isar_try! {
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn isar_qb_add_sort_by(
     builder: &mut QueryBuilder,
     property_index: u32,
     asc: bool,
-) -> i32 {
+) -> i64 {
     let property = collection.properties.get(property_index as usize);
     let sort = if asc {
         Sort::Ascending
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn isar_qb_add_distinct_by(
     builder: &mut QueryBuilder,
     property_index: u32,
     case_sensitive: bool,
-) -> i32 {
+) -> i64 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
         if let Some((_, property)) = property {
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn isar_q_find(
     txn: &mut IsarDartTxn,
     result: &'static mut RawObjectSet,
     limit: u32,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| {
         result.fill_from_query(query, txn, limit as usize)?;
         Ok(())
@@ -136,7 +136,7 @@ pub unsafe extern "C" fn isar_q_delete(
     txn: &mut IsarDartTxn,
     limit: u32,
     count: &'static mut u32,
-) -> i32 {
+) -> i64 {
     let limit = limit as usize;
     let count = UintSend(count);
     isar_try_txn!(txn, move |txn| {
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn isar_q_export_json(
     primitive_null: bool,
     json_bytes: *mut *mut u8,
     json_length: *mut u32,
-) -> i32 {
+) -> i64 {
     let id_name = if !id_name.is_null() {
         Some(from_c_str(id_name).unwrap())
     } else {

@@ -4,15 +4,15 @@ use std::ffi::CString;
 use std::os::raw::c_char;
 use std::sync::Mutex;
 
-type ErrCounter = (Vec<(i32, String)>, i32);
+type ErrCounter = (Vec<(i64, String)>, i64);
 static ERRORS: Lazy<Mutex<ErrCounter>> = Lazy::new(|| Mutex::new((vec![], 1)));
 
 pub trait DartErrCode {
-    fn into_dart_err_code(self) -> i32;
+    fn into_dart_err_code(self) -> i64;
 }
 
 impl DartErrCode for IsarError {
-    fn into_dart_err_code(self) -> i32 {
+    fn into_dart_err_code(self) -> i64 {
         let mut lock = ERRORS.lock().unwrap();
         let (errors, counter) = &mut (*lock);
         if errors.len() > 10 {
@@ -58,7 +58,7 @@ macro_rules! isar_try_txn {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_get_error(err_code: i32) -> *mut c_char {
+pub unsafe extern "C" fn isar_get_error(err_code: i64) -> *mut c_char {
     let lock = ERRORS.lock().unwrap();
     let error = lock.0.iter().find(|(code, _)| *code == err_code);
     if let Some((_, err_msg)) = error {

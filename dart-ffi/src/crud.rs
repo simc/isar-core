@@ -11,7 +11,7 @@ pub unsafe extern "C" fn isar_get(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     object: &'static mut RawObject,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| {
         let id = object.get_id();
         let result = collection.get(txn, id)?;
@@ -27,7 +27,7 @@ pub unsafe extern "C" fn isar_get_by_index(
     index_index: u32,
     key: *mut IndexKey,
     object: &'static mut RawObject,
-) -> i32 {
+) -> i64 {
     let key = *Box::from_raw(key);
     isar_try_txn!(txn, move |txn| {
         let result = collection.get_by_index(txn, index_index as usize, &key)?;
@@ -41,7 +41,7 @@ pub unsafe extern "C" fn isar_get_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     objects: &'static mut RawObjectSet,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| {
         for object in objects.get_objects() {
             let id = object.get_id();
@@ -59,7 +59,7 @@ pub unsafe extern "C" fn isar_get_all_by_index(
     index_index: u32,
     keys: *const *mut IndexKey,
     objects: &'static mut RawObjectSet,
-) -> i32 {
+) -> i64 {
     let slice = std::slice::from_raw_parts(keys, objects.get_length());
     let keys: Vec<IndexKey> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
     isar_try_txn!(txn, move |txn| {
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn isar_put(
     txn: &mut IsarDartTxn,
     object: &'static mut RawObject,
     replace_on_conflict: bool,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| {
         let id = if object.get_id() == i64::MIN {
             collection.auto_increment(txn)?
@@ -96,7 +96,7 @@ pub unsafe extern "C" fn isar_put_all(
     txn: &mut IsarDartTxn,
     objects: &'static mut RawObjectSet,
     replace_on_conflict: bool,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| {
         for raw_obj in objects.get_objects() {
             let id = if raw_obj.get_id() == i64::MIN {
@@ -117,7 +117,7 @@ pub unsafe extern "C" fn isar_delete(
     txn: &mut IsarDartTxn,
     id: i64,
     deleted: &'static mut bool,
-) -> i32 {
+) -> i64 {
     let deleted = BoolSend(deleted);
     isar_try_txn!(txn, move |txn| {
         *deleted.0 = collection.delete(txn, id)?;
@@ -132,7 +132,7 @@ pub unsafe extern "C" fn isar_delete_by_index(
     index_index: u32,
     key: *mut IndexKey,
     deleted: &'static mut bool,
-) -> i32 {
+) -> i64 {
     let deleted = BoolSend(deleted);
     let key = *Box::from_raw(key);
     isar_try_txn!(txn, move |txn| {
@@ -148,7 +148,7 @@ pub unsafe extern "C" fn isar_delete_all(
     ids: *const i64,
     ids_length: u32,
     count: &'static mut u32,
-) -> i32 {
+) -> i64 {
     let ids = std::slice::from_raw_parts(ids, ids_length as usize);
     let count = UintSend(count);
     isar_try_txn!(txn, move |txn| {
@@ -169,7 +169,7 @@ pub unsafe extern "C" fn isar_delete_all_by_index(
     keys: *const *mut IndexKey,
     keys_length: u32,
     count: &'static mut u32,
-) -> i32 {
+) -> i64 {
     let slice = std::slice::from_raw_parts(keys, keys_length as usize);
     let keys: Vec<IndexKey> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
     let count = UintSend(count);
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn isar_delete_all_by_index(
 pub unsafe extern "C" fn isar_clear(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-) -> i32 {
+) -> i64 {
     isar_try_txn!(txn, move |txn| collection.clear(txn))
 }
 
@@ -199,7 +199,7 @@ pub unsafe extern "C" fn isar_json_import(
     json_bytes: *const u8,
     json_length: u32,
     replace_on_conflict: bool,
-) -> i32 {
+) -> i64 {
     let id_name = if !id_name.is_null() {
         Some(from_c_str(id_name).unwrap())
     } else {

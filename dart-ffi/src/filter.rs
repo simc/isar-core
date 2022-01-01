@@ -8,11 +8,10 @@ use std::os::raw::c_char;
 use std::slice;
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_static(filter: *mut *const Filter, value: bool) -> u8 {
+pub unsafe extern "C" fn isar_filter_static(filter: *mut *const Filter, value: bool) {
     let query_filter = Filter::stat(value);
     let ptr = Box::into_raw(Box::new(query_filter));
     filter.write(ptr);
-    0
 }
 
 #[no_mangle]
@@ -21,7 +20,7 @@ pub unsafe extern "C" fn isar_filter_and_or(
     and: bool,
     conditions: *mut *mut Filter,
     length: u32,
-) -> u8 {
+) {
     let filters = slice::from_raw_parts(conditions, length as usize)
         .iter()
         .map(|f| *Box::from_raw(*f))
@@ -33,16 +32,14 @@ pub unsafe extern "C" fn isar_filter_and_or(
     };
     let ptr = Box::into_raw(Box::new(and_or));
     filter.write(ptr);
-    0
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_not(filter: *mut *const Filter, condition: *mut Filter) -> u8 {
+pub unsafe extern "C" fn isar_filter_not(filter: *mut *const Filter, condition: *mut Filter) {
     let condition = *Box::from_raw(condition);
     let not = Filter::not(condition);
     let ptr = Box::into_raw(Box::new(not));
     filter.write(ptr);
-    0
 }
 
 #[no_mangle]
@@ -52,7 +49,7 @@ pub unsafe extern "C" fn isar_filter_link(
     condition: *mut Filter,
     link_index: u32,
     backlink: bool,
-) -> i32 {
+) -> i64 {
     isar_try! {
         let condition = *Box::from_raw(condition);
         let query_filter = Filter::link(collection, link_index as usize, backlink, condition)?;
@@ -67,7 +64,7 @@ pub unsafe extern "C" fn isar_filter_null(
     filter: *mut *const Filter,
     property_index: u32,
     any_null: bool,
-) -> i32 {
+) -> i64 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
         if let Some((_, property)) = property {
@@ -109,7 +106,7 @@ pub unsafe extern "C" fn isar_filter_byte(
     lower: u8,
     upper: u8,
     property_index: u32,
-) -> i32 {
+) -> i64 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
         if let Some((_, property)) = property {
@@ -129,7 +126,7 @@ pub unsafe extern "C" fn isar_filter_long(
     lower: i64,
     upper: i64,
     property_index: u32,
-) -> i32 {
+) -> i64 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
         if let Some((_, property)) = property {
@@ -155,7 +152,7 @@ pub unsafe extern "C" fn isar_filter_double(
     lower: f64,
     upper: f64,
     property_index: u32,
-) -> i32 {
+) -> i64 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
         if let Some((_, property)) = property {
@@ -180,7 +177,7 @@ pub unsafe extern "C" fn isar_filter_string(
     upper: *const c_char,
     case_sensitive: bool,
     property_index: u32,
-) -> i32 {
+) -> i64 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
         if let Some((_, property)) = property {
@@ -213,7 +210,7 @@ macro_rules! filter_string_ffi {
             value: *const c_char,
             case_sensitive: bool,
             property_index: u32,
-        ) -> i32 {
+        ) -> i64 {
             let property = collection.properties.get(property_index as usize);
             isar_try! {
                 if let Some((_, property)) = property {
