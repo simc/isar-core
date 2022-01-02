@@ -9,7 +9,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use threadpool::{Builder, ThreadPool};
-use crate::dart::{Dart_PostInteger_DL, DartPort};
+use crate::dart::{dart_post_int, DartPort};
 
 static THREAD_POOL: Lazy<Mutex<ThreadPool>> = Lazy::new(|| Mutex::new(Builder::new().build()));
 
@@ -82,9 +82,9 @@ impl IsarDartTxn {
         run_async(move || {
             let new_txn = isar.begin_txn(write, silent);
             match new_txn {
-                Ok(new_txn) => unsafe {
+                Ok(new_txn) => {
                     txn_clone.lock().unwrap().replace(IsarTxnSend(new_txn));
-                    Dart_PostInteger_DL(port, 0);
+                    dart_post_int(port, 0);
                     loop {
                         let (job, stop) = rx.recv().unwrap();
                         job();
@@ -93,8 +93,8 @@ impl IsarDartTxn {
                         }
                     }
                 }
-                Err(e) => unsafe {
-                    Dart_PostInteger_DL(port, e.into_dart_err_code());
+                Err(e) =>  {
+                    dart_post_int(port, e.into_dart_err_code());
                 }
             }
         });
@@ -108,12 +108,12 @@ impl IsarDartTxn {
         tx: Sender<AsyncJob>,
         stop: bool,
     ) {
-        let handle_response_job = move || unsafe {
+        let handle_response_job = move || {
             let result = match job() {
                 Ok(()) => 0,
                 Err(e) => e.into_dart_err_code(),
             };
-            Dart_PostInteger_DL(port, result as i64);
+            dart_post_int(port, result as i64);
         };
         tx.send((Box::new(handle_response_job), stop)).unwrap();
     }

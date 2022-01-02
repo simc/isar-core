@@ -7,7 +7,7 @@ use isar_core::instance::IsarInstance;
 use isar_core::schema::Schema;
 use std::os::raw::c_char;
 use std::sync::Arc;
-use crate::dart::{Dart_PostInteger_DL, DartPort};
+use crate::dart::{dart_post_int, DartPort};
 
 struct IsarInstanceSend(*mut *const IsarInstance);
 
@@ -36,10 +36,10 @@ pub unsafe extern "C" fn isar_create_instance(
         match open(path, relaxed_durability, schema_json) {
             Ok(instance) => {
                 isar.0.write(instance.as_ref());
-                Dart_PostInteger_DL(port, 0);
+                dart_post_int(port, 0);
             }
             Err(e) => {
-                Dart_PostInteger_DL(port, e.into_dart_err_code());
+                dart_post_int(port, e.into_dart_err_code());
             }
         };
     });

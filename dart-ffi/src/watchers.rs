@@ -2,7 +2,7 @@ use isar_core::collection::IsarCollection;
 use isar_core::instance::IsarInstance;
 use isar_core::query::Query;
 use isar_core::watch::WatchHandle;
-use crate::dart::{Dart_PostInteger_DL, DartPort};
+use crate::dart::{dart_post_int, DartPort};
 
 #[no_mangle]
 pub extern "C" fn isar_watch_collection(
@@ -12,8 +12,8 @@ pub extern "C" fn isar_watch_collection(
 ) -> *mut WatchHandle {
     let handle = isar.watch_collection(
         collection,
-        Box::new(move || unsafe {
-            Dart_PostInteger_DL(port, 1);
+        Box::new(move ||  {
+            dart_post_int(port, 1);
         }),
     );
     Box::into_raw(Box::new(handle))
@@ -30,7 +30,7 @@ pub unsafe extern "C" fn isar_watch_object(
         collection,
         id,
         Box::new(move || {
-            Dart_PostInteger_DL(port, 1);
+            dart_post_int(port, 1);
         }),
     );
     Box::into_raw(Box::new(handle))
@@ -46,8 +46,8 @@ pub extern "C" fn isar_watch_query(
     let handle = isar.watch_query(
         collection,
         query.clone(),
-        Box::new(move || unsafe {
-            Dart_PostInteger_DL(port, 1);
+        Box::new(move ||  {
+            dart_post_int(port, 1);
         }),
     );
     Box::into_raw(Box::new(handle))
