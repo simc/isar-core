@@ -50,7 +50,7 @@ pub enum IsarError {
     #[error("InstanceMismatch: The transaction is from a different instance.")]
     InstanceMismatch {},
 
-    #[error("LmdbError ({code:?}): {message:?}")]
+    #[error("MdbxError ({code:?}): {message:?}")]
     LmdbError { code: i32, message: String },
 }
 
