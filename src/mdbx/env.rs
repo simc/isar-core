@@ -11,7 +11,7 @@ pub struct Env {
 unsafe impl Sync for Env {}
 unsafe impl Send for Env {}
 
-const MB: isize = 1000000;
+const MB: isize = 1 << 20;
 
 impl Env {
     pub fn create(path: &str, max_dbs: u64, relaxed_durability: bool) -> Result<Env> {
@@ -28,9 +28,9 @@ impl Env {
             mdbx_result(ffi::mdbx_env_set_geometry(
                 env,
                 MB,
-                -1,
+                0,
                 2000 * MB,
-                10 * MB,
+                5 * MB,
                 20 * MB,
                 -1,
             ))?;

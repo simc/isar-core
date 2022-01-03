@@ -1,7 +1,7 @@
 cargo-features = ["strip"]
 
 [package]
-name = "isar-core-dart-ffi"
+name = "isar"
 version = "0.0.0"
 authors = ["Simon Leier <simonleier@gmail.com>"]
 edition = "2021"

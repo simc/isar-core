@@ -21,21 +21,21 @@ if [ "$1" = "x64" ]; then
   export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$COMPILER_DIR/x86_64-linux-android29-clang"
 
   cargo build --target x86_64-linux-android --release
-  mv "target/x86_64-linux-android/release/libisar_core_dart_ffi.so" "libisar_android_x64.so"
+  mv "target/x86_64-linux-android/release/libisar.so" "libisar_android_x64.so"
 elif [ "$1" = "armv7" ]; then
   rustup target add armv7-linux-androideabi
   export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_AR="$COMPILER_DIR/armv7a-linux-androideabi29-ar"
   export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$COMPILER_DIR/armv7a-linux-androideabi29-clang"
 
   cargo build --target armv7-linux-androideabi --release
-  mv "target/armv7-linux-androideabi/release/libisar_core_dart_ffi.so" "libisar_android_armv7.so"
+  mv "target/armv7-linux-androideabi/release/libisar.so" "libisar_android_armv7.so"
 else
   rustup target add aarch64-linux-android
   export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$COMPILER_DIR/aarch64-linux-android29-ar"
   export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$COMPILER_DIR/aarch64-linux-android29-clang"
 
   cargo build --target aarch64-linux-android --release
-  mv "target/aarch64-linux-android/release/libisar_core_dart_ffi.so" "libisar_android_arm64.so"
+  mv "target/aarch64-linux-android/release/libisar.so" "libisar_android_arm64.so"
 fi
 
 
