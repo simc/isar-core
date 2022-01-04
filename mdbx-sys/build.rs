@@ -92,13 +92,42 @@ fn main() {
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wbad-function-cast")
         .flag_if_supported("-Wuninitialized")
-        .flag_if_supported("-miphoneos-version-min=10.0")
-        .define("MDBX_BUILD_FLAGS", flags.as_str())
-        .define("MDBX_TXN_CHECKOWNER", "0")
-        .define("MDBX_ENV_CHECKPID", "0")
-        .define("MDBX_OSX_SPEED_INSTEADOF_DURABILITY", "1")
-        .define("MDBX_DISABLE_PAGECHECKS", "1")
-        .define("MDBX_ENABLE_PGOP_STAT", "0")
-        .file(mdbx.join("mdbx.c"))
-        .compile("libmdbx.a");
+        .flag_if_supported("-miphoneos-version-min=10.0");
+
+    if cfg!(any(windows, feature = "cmake-build")) {
+        let dst = cmake::Config::new(&mdbx)
+            .define("MDBX_INSTALL_STATIC", "1")
+            .define("MDBX_BUILD_CXX", "0")
+            .define("MDBX_BUILD_TOOLS", "0")
+            .define("MDBX_BUILD_SHARED_LIBRARY", "0")
+            .define("MDBX_TXN_CHECKOWNER", "0")
+            .define("MDBX_ENV_CHECKPID", "0")
+            .define("MDBX_DISABLE_PAGECHECKS", "1")
+            .define("MDBX_ENABLE_PGOP_STAT", "0")
+            // Setting HAVE_LIBM=1 is necessary to override issues with `pow` detection on Windows
+            .define("HAVE_LIBM", "1")
+            .init_c_cfg(cc_builder)
+            .build();
+
+        println!("cargo:rustc-link-lib=mdbx");
+        println!(
+            "cargo:rustc-link-search=native={}",
+            dst.join("lib").display()
+        );
+
+        if cfg!(windows) {
+            println!(r"cargo:rustc-link-lib=ntdll");
+            println!(r"cargo:rustc-link-search=C:\windows\system32");
+        }
+    } else {
+        cc_builder
+            .define("MDBX_BUILD_FLAGS", flags.as_str())
+            .define("MDBX_TXN_CHECKOWNER", "0")
+            .define("MDBX_ENV_CHECKPID", "0")
+            .define("MDBX_OSX_SPEED_INSTEADOF_DURABILITY", "1")
+            .define("MDBX_DISABLE_PAGECHECKS", "1")
+            .define("MDBX_ENABLE_PGOP_STAT", "0")
+            .file(mdbx.join("mdbx.c"))
+            .compile("libmdbx.a");
+    }
 }
