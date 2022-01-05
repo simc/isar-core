@@ -127,7 +127,7 @@ impl<'txn> Cursor<'txn> {
                 self.cursor.cursor,
                 &key,
                 &mut data,
-                flags,
+                flags.try_into().unwrap(),
             ))?;
         }
         Ok(())

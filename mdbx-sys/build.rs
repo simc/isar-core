@@ -96,6 +96,7 @@ fn main() {
 
     if cfg!(any(windows, feature = "cmake-build")) {
         let dst = cmake::Config::new(&mdbx)
+            .generator("Ninja")
             .define("MDBX_INSTALL_STATIC", "1")
             .define("MDBX_BUILD_CXX", "0")
             .define("MDBX_BUILD_TOOLS", "0")
