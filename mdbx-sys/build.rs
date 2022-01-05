@@ -1,6 +1,6 @@
 use bindgen::callbacks::{IntKind, ParseCallbacks};
 use std::io::Cursor;
-use std::{env, path::PathBuf};
+use std::{env, fs, path::PathBuf};
 use zip::ZipArchive;
 
 #[derive(Debug)]
@@ -63,6 +63,11 @@ fn main() {
     let mut archive = ZipArchive::new(cursor).unwrap();
     archive.extract(mdbx.clone()).unwrap();
 
+    let core_path = mdbx.join("mdbx.c");
+    let core = fs::read_to_string(core_path.as_path()).unwrap();
+    let core = core.replace("CharToOemBuffA(buf, buf, size)", "false");
+    fs::write(core_path.as_path(), core).unwrap();
+
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     let bindings = bindgen::Builder::default()
@@ -94,9 +99,8 @@ fn main() {
         .flag_if_supported("-Wuninitialized")
         .flag_if_supported("-miphoneos-version-min=10.0");
 
-    if cfg!(any(windows, feature = "cmake-build")) {
+    if cfg!(windows) {
         let dst = cmake::Config::new(&mdbx)
-            .generator("Ninja")
             .define("MDBX_INSTALL_STATIC", "1")
             .define("MDBX_BUILD_CXX", "0")
             .define("MDBX_BUILD_TOOLS", "0")
