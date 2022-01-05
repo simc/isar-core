@@ -25,23 +25,29 @@ impl Env {
                 max_dbs,
             ))?;
 
-            mdbx_result(ffi::mdbx_env_set_geometry(
-                env,
-                MB,
-                0,
-                2000 * MB,
-                5 * MB,
-                20 * MB,
-                -1,
-            ))?;
-
             let mut flags =
                 ffi::MDBX_NOTLS | ffi::MDBX_EXCLUSIVE | ffi::MDBX_NOMEMINIT | ffi::MDBX_COALESCE;
             if relaxed_durability {
                 flags |= ffi::MDBX_NOMETASYNC;
             }
 
-            let err_code = ffi::mdbx_env_open(env, path.as_ptr(), flags, 0o600);
+            let mut err_code = 0;
+            for i in 1..10 {
+                mdbx_result(ffi::mdbx_env_set_geometry(
+                    env,
+                    MB,
+                    0,
+                    (2000 * MB) / i,
+                    (5 * MB) / i,
+                    (20 * MB) / i,
+                    -1,
+                ))?;
+
+                err_code = ffi::mdbx_env_open(env, path.as_ptr(), flags, 0o600);
+                if err_code == ffi::MDBX_SUCCESS {
+                    break;
+                }
+            }
 
             match err_code {
                 ffi::MDBX_SUCCESS => Ok(Env { env }),
