@@ -6,3 +6,6 @@ rustflags = ["-C", "link-arg=-Wl,--hash-style=both"]
 
 [target.x86_64-linux-android]
 rustflags = ["-C", "link-arg=-Wl,--hash-style=both"]
+
+[target.i686-linux-android]
+rustflags = ["-C", "link-arg=-Wl,--hash-style=both"]
