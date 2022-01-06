@@ -22,6 +22,9 @@ jobs:
             artifact_name: libisar_android_x64.so
             script: build_android.sh x64
           - os: macos-latest
+            artifact_name: libisar_android_x86.so
+            script: build_android.sh x86
+          - os: macos-latest
             artifact_name: libisar_ios.a
             script: build_ios.sh
           - os: ubuntu-latest
