@@ -42,4 +42,11 @@ impl WhereClause {
             _ => false,
         }
     }
+
+    pub(crate) fn has_duplicates(&self) -> bool {
+        match self {
+            WhereClause::Id(_) => false,
+            WhereClause::Index(wc) => wc.has_duplicates(),
+        }
+    }
 }

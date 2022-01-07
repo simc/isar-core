@@ -200,11 +200,7 @@ pub unsafe extern "C" fn isar_json_import(
     json_length: u32,
     replace_on_conflict: bool,
 ) -> i64 {
-    let id_name = if !id_name.is_null() {
-        Some(from_c_str(id_name).unwrap())
-    } else {
-        None
-    };
+    let id_name = from_c_str(id_name).unwrap();
     let bytes = std::slice::from_raw_parts(json_bytes, json_length as usize);
     let json: Value = serde_json::from_slice(bytes).unwrap();
     isar_try_txn!(txn, move |txn| {

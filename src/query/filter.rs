@@ -103,28 +103,25 @@ impl Filter {
         upper: Option<&str>,
         case_sensitive: bool,
     ) -> Result<Filter> {
-        let lower = if case_sensitive {
-            lower.map(|s| s.to_string())
-        } else {
-            lower.map(|s| s.to_lowercase())
-        };
-        let upper = if case_sensitive {
-            upper.map(|s| s.to_string())
-        } else {
-            upper.map(|s| s.to_lowercase())
+        let case_string = |str: Option<&str>| {
+            if case_sensitive {
+                str.map(|s| s.to_string())
+            } else {
+                str.map(|s| s.to_lowercase())
+            }
         };
         let filter_cond = if property.data_type == DataType::String {
             Ok(FilterCond::StringBetween(StringBetweenCond {
                 property,
-                lower,
-                upper,
+                lower: case_string(lower),
+                upper: case_string(upper),
                 case_sensitive,
             }))
         } else if property.data_type == DataType::StringList {
             Ok(FilterCond::AnyStringBetween(AnyStringBetweenCond {
                 property,
-                lower,
-                upper,
+                lower: case_string(lower),
+                upper: case_string(upper),
                 case_sensitive,
             }))
         } else {
@@ -384,6 +381,7 @@ macro_rules! float_filter_between_list {
         impl Condition for $name {
             fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
                 let vals = object.$prop_accessor(self.property);
+                eprintln!("{:?}",vals);
                 if let Some(vals) = vals {
                     for val in vals {
                         if float_filter_between!(eval val, self.lower, self.upper) {

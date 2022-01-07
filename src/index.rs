@@ -242,22 +242,16 @@ impl IsarIndex {
                 }
             }
             DataType::StringList => {
-                if index_property.index_type == IndexType::HashElements {
-                    for value in object.read_string_list(property).unwrap() {
-                        key.truncate(0);
+                for value in object.read_string_list(property).unwrap() {
+                    key.truncate(0);
+                    if index_property.index_type == IndexType::HashElements {
                         let hash = IsarObject::hash_string(value, index_property.case_sensitive, 0);
                         key.add_hash(hash);
-                        if !callback(&key)? {
-                            return Ok(false);
-                        }
-                    }
-                } else {
-                    for value in object.read_string_list(property).unwrap() {
-                        key.truncate(0);
+                    } else {
                         key.add_string(value, index_property.case_sensitive);
-                        if !callback(&key)? {
-                            return Ok(false);
-                        }
+                    }
+                    if !callback(&key)? {
+                        return Ok(false);
                     }
                 }
             }

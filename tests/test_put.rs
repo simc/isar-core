@@ -106,6 +106,23 @@ fn test_many() {
     isar.close();
 }
 
+#[test]
+fn test_put_with_list() {
+    isar!(isar, col =>TestObj::default_schema());
+    txn!(isar, txn);
+
+    put!(col, txn, byte_list,
+        obj1 => Some(vec![]),
+        obj2 => Some(vec![1,1,2]),
+        obj3 => Some(vec![1,3]),
+        obj4 => None
+    );
+    verify!(txn, col, obj1, obj2, obj3, obj4);
+
+    txn.abort();
+    isar.close();
+}
+
 /*#[test]
 fn test_put_calls_notifiers() {
     isar!(isar, col =>TestObj::default_schema());

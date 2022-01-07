@@ -123,6 +123,7 @@ impl<'txn> Cursor<'txn> {
         unsafe {
             let key = to_mdb_val(key);
             let mut data = to_mdb_val(data);
+            #[allow(clippy::useless_conversion)]
             mdbx_result(ffi::mdbx_cursor_put(
                 self.cursor.cursor,
                 &key,

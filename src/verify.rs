@@ -60,8 +60,7 @@ pub fn verify_isar(
                 index
                     .create_keys(object, |key| {
                         let entry = (key.as_bytes().to_vec(), id_key.as_bytes().to_vec());
-                        let inserted = index_entries[i].insert(entry);
-                        assert!(inserted);
+                        index_entries[i].insert(entry);
                         Ok(true)
                     })
                     .unwrap();

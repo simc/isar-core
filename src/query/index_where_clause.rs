@@ -18,7 +18,7 @@ pub(crate) struct IndexWhereClause {
 }
 
 impl IndexWhereClause {
-    pub(crate) fn new(
+    pub fn new(
         db: Db,
         index: IsarIndex,
         lower_key: IndexKey,
@@ -36,7 +36,7 @@ impl IndexWhereClause {
         })
     }
 
-    pub(crate) fn object_matches(&self, object: IsarObject) -> bool {
+    pub fn object_matches(&self, object: IsarObject) -> bool {
         let mut key_matches = false;
         self.index
             .create_keys(object, |key| {
@@ -47,7 +47,7 @@ impl IndexWhereClause {
         key_matches
     }
 
-    pub(crate) fn iter_ids<'txn, 'env, F>(
+    pub fn iter_ids<'txn, 'env, F>(
         &self,
         cursors: &IsarCursors<'txn, 'env>,
         callback: F,
@@ -65,7 +65,7 @@ impl IndexWhereClause {
         )
     }
 
-    pub(crate) fn iter<'txn, 'env, F>(
+    pub fn iter<'txn, 'env, F>(
         &self,
         cursors: &IsarCursors<'txn, 'env>,
         mut result_ids: Option<&mut IntMap<()>>,
@@ -92,10 +92,14 @@ impl IndexWhereClause {
         })
     }
 
-    pub(crate) fn is_overlapping(&self, other: &Self) -> bool {
+    pub fn is_overlapping(&self, other: &Self) -> bool {
         self.index == other.index
             && ((self.lower_key <= other.lower_key && self.upper_key >= other.upper_key)
                 || (other.lower_key <= self.lower_key && other.upper_key >= self.upper_key))
+    }
+
+    pub fn has_duplicates(&self) -> bool {
+        self.index.multi_entry
     }
 }
 

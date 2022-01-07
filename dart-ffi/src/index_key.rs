@@ -42,11 +42,7 @@ pub unsafe extern "C" fn isar_key_add_string(
     value: *const c_char,
     case_sensitive: bool,
 ) {
-    let value = if !value.is_null() {
-        Some(from_c_str(value).unwrap())
-    } else {
-        None
-    };
+    let value = from_c_str(value).unwrap();
     key.add_string(value, case_sensitive)
 }
 
@@ -56,11 +52,7 @@ pub unsafe extern "C" fn isar_key_add_string_hash(
     value: *const c_char,
     case_sensitive: bool,
 ) {
-    let value = if !value.is_null() {
-        Some(from_c_str(value).unwrap())
-    } else {
-        None
-    };
+    let value = from_c_str(value).unwrap();
     let hash = IsarObject::hash_string(value, case_sensitive, 0);
     key.add_hash(hash);
 }
@@ -76,11 +68,7 @@ pub unsafe extern "C" fn isar_key_add_string_list_hash(
         let raw_strings = std::slice::from_raw_parts(value, length as usize);
         let mut strings = vec![];
         for raw_str in raw_strings {
-            let str = if !raw_str.is_null() {
-                Some(from_c_str(*raw_str).unwrap())
-            } else {
-                None
-            };
+            let str = from_c_str(*raw_str).unwrap();
             strings.push(str);
         }
         Some(strings)

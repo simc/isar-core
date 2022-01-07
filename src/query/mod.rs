@@ -34,7 +34,7 @@ pub enum Case {
 pub struct Query {
     instance_id: u64,
     where_clauses: Vec<WhereClause>,
-    where_clauses_overlapping: bool,
+    where_clauses_dup: bool,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
     distinct: Vec<(Property, bool)>,
@@ -53,11 +53,11 @@ impl<'txn> Query {
         offset: usize,
         limit: usize,
     ) -> Self {
-        let where_clauses_overlapping = Self::check_where_clauses_overlapping(&where_clauses);
+        let where_clauses_dup = Self::check_where_clauses_duplicates(&where_clauses);
         Query {
             instance_id,
             where_clauses,
-            where_clauses_overlapping,
+            where_clauses_dup,
             filter,
             sort,
             distinct,
@@ -66,8 +66,11 @@ impl<'txn> Query {
         }
     }
 
-    fn check_where_clauses_overlapping(where_clauses: &[WhereClause]) -> bool {
+    fn check_where_clauses_duplicates(where_clauses: &[WhereClause]) -> bool {
         for (i, wc1) in where_clauses.iter().enumerate() {
+            if wc1.has_duplicates() {
+                return true;
+            }
             for wc2 in where_clauses.iter().skip(i + 1) {
                 if wc1.is_overlapping(wc2) {
                     return true;
@@ -85,7 +88,7 @@ impl<'txn> Query {
     where
         F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
-        let mut result_ids = if self.where_clauses_overlapping {
+        let mut result_ids = if self.where_clauses_dup {
             Some(IntMap::new())
         } else {
             None

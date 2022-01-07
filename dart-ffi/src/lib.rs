@@ -22,10 +22,14 @@ pub mod raw_object_set;
 pub mod txn;
 pub mod watchers;
 
-pub unsafe fn from_c_str<'a>(str: *const c_char) -> Result<&'a str> {
-    match CStr::from_ptr(str).to_str() {
-        Ok(str) => Ok(str),
-        Err(_) => illegal_arg("The provided String is not valid."),
+pub unsafe fn from_c_str<'a>(str: *const c_char) -> Result<Option<&'a str>> {
+    if !str.is_null() {
+        match CStr::from_ptr(str).to_str() {
+            Ok(str) => Ok(Some(str)),
+            Err(_) => illegal_arg("The provided String is not valid."),
+        }
+    } else {
+        Ok(None)
     }
 }
 

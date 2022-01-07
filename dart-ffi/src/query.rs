@@ -169,11 +169,7 @@ pub unsafe extern "C" fn isar_q_export_json(
     json_bytes: *mut *mut u8,
     json_length: *mut u32,
 ) -> i64 {
-    let id_name = if !id_name.is_null() {
-        Some(from_c_str(id_name).unwrap())
-    } else {
-        None
-    };
+    let id_name = from_c_str(id_name).unwrap();
     let json = JsonBytes(json_bytes);
     let json_length = JsonLen(json_length);
     isar_try_txn!(txn, move |txn| {

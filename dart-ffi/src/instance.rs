@@ -1,3 +1,4 @@
+use crate::dart::{dart_post_int, DartPort};
 use crate::error::DartErrCode;
 use crate::from_c_str;
 use crate::txn::run_async;
@@ -7,7 +8,6 @@ use isar_core::instance::IsarInstance;
 use isar_core::schema::Schema;
 use std::os::raw::c_char;
 use std::sync::Arc;
-use crate::dart::{dart_post_int, DartPort};
 
 struct IsarInstanceSend(*mut *const IsarInstance);
 
@@ -22,8 +22,8 @@ pub unsafe extern "C" fn isar_create_instance(
     port: DartPort,
 ) {
     let isar = IsarInstanceSend(isar);
-    let path = from_c_str(path).unwrap();
-    let schema_json = from_c_str(schema_json).unwrap();
+    let path = from_c_str(path).unwrap().unwrap();
+    let schema_json = from_c_str(schema_json).unwrap().unwrap();
 
     fn open(path: &str, relaxed_durability: bool, schema_json: &str) -> Result<Arc<IsarInstance>> {
         let schema = Schema::from_json(schema_json.as_bytes())?;
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn isar_create_instance(
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_get_instance(isar: *mut *const IsarInstance, name: *const c_char) {
-    let name = from_c_str(name).unwrap();
+    let name = from_c_str(name).unwrap().unwrap();
     let instance = IsarInstance::get_instance(&name);
     if let Some(instance) = instance {
         isar.write(instance.as_ref());
