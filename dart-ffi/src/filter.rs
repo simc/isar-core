@@ -231,21 +231,72 @@ pub unsafe extern "C" fn isar_filter_double(
     }
 }
 
+unsafe fn get_lower(lower: Option<Vec<u8>>, include_lower: bool) -> Option<Vec<u8>> {
+    if include_lower {
+        lower
+    } else if let Some(mut lower) = lower {
+        if let Some(last) = lower.pop() {
+            if last < 255 {
+                lower.push(last + 1);
+            } else {
+                lower.push(255);
+                lower.push(0);
+            }
+        } else {
+            lower.push(0);
+        }
+        Some(lower)
+    } else {
+        Some(vec![])
+    }
+}
+
+unsafe fn get_upper(upper: Option<Vec<u8>>, include_upper: bool) -> Option<Option<Vec<u8>>> {
+    if include_upper {
+        Some(upper)
+    } else if let Some(mut upper) = upper {
+        if upper.is_empty() {
+            Some(None)
+        } else {
+            for i in (upper.len() - 1)..0 {
+                if upper[i] > 0 {
+                    upper[i] -= 1;
+                    return Some(Some(upper));
+                }
+            }
+            Some(Some(vec![]))
+        }
+    } else {
+        // cannot exclude upper limit
+        None
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn isar_filter_string(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     lower: *const c_char,
+    include_lower: bool,
     upper: *const c_char,
+    include_upper: bool,
     case_sensitive: bool,
     property_index: u32,
 ) -> i64 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
         if let Some((_, property)) = property {
-            let lower = from_c_str(lower)?;
-            let upper = from_c_str(upper)?;
-            let query_filter = Filter::string(*property, lower, upper, case_sensitive)?;
+            let lower_bytes = Filter::string_to_bytes(from_c_str(lower)?, case_sensitive);
+            let lower = get_lower(lower_bytes, include_lower);
+
+            let upper_bytes = Filter::string_to_bytes(from_c_str(upper)?, case_sensitive);
+            let upper = get_upper(upper_bytes, include_upper);
+
+            let query_filter = if let Some(upper) = upper {
+                Filter::byte_string(*property, lower, upper, case_sensitive)?
+            } else {
+                Filter::stat(false)
+            };
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
         } else {
