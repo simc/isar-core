@@ -1,7 +1,9 @@
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
+use crate::id_key::IdKey;
+use crate::index::index_key::IndexKey;
+use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::index::IsarIndex;
-use crate::key::{IdKey, IndexKey};
 use crate::mdbx::db::Db;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
@@ -38,7 +40,8 @@ impl IndexWhereClause {
 
     pub fn object_matches(&self, object: IsarObject) -> bool {
         let mut key_matches = false;
-        self.index
+        let key_builder = IndexKeyBuilder::new(&self.index.properties);
+        key_builder
             .create_keys(object, |key| {
                 key_matches = key >= &self.lower_key && key <= &self.upper_key;
                 Ok(!key_matches)

@@ -2,7 +2,7 @@ mod common;
 
 use std::vec;
 
-use isar_core::key::IndexKey;
+use isar_core::index::index_key::IndexKey;
 use itertools::Itertools;
 
 use crate::common::test_obj::TestObj;

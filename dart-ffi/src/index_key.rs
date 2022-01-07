@@ -1,5 +1,5 @@
 use crate::from_c_str;
-use isar_core::key::IndexKey;
+use isar_core::index::index_key::IndexKey;
 use isar_core::object::isar_object::IsarObject;
 use paste::paste;
 use std::os::raw::c_char;

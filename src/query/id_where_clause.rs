@@ -1,6 +1,6 @@
 use crate::cursor::IsarCursors;
 use crate::error::Result;
-use crate::key::IdKey;
+use crate::id_key::IdKey;
 use crate::mdbx::db::Db;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;

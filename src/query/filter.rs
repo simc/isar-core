@@ -1,7 +1,7 @@
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
 use crate::error::{illegal_arg, IsarError, Result};
-use crate::key::IdKey;
+use crate::id_key::IdKey;
 use crate::link::IsarLink;
 use crate::object::data_type::DataType;
 use crate::object::isar_object::{IsarObject, Property};
@@ -97,31 +97,46 @@ impl Filter {
         primitive_create!(Double, property, lower, upper)
     }
 
+    pub fn string_to_bytes(str: Option<&str>, case_sensitive: bool) -> Option<Vec<u8>> {
+        if case_sensitive {
+            str.map(|s| s.as_bytes().to_vec())
+        } else {
+            str.map(|s| s.to_lowercase().as_bytes().to_vec())
+        }
+    }
+
     pub fn string(
         property: Property,
         lower: Option<&str>,
         upper: Option<&str>,
         case_sensitive: bool,
     ) -> Result<Filter> {
-        let case_string = |str: Option<&str>| {
-            if case_sensitive {
-                str.map(|s| s.to_string())
-            } else {
-                str.map(|s| s.to_lowercase())
-            }
-        };
+        Self::byte_string(
+            property,
+            Self::string_to_bytes(lower, case_sensitive),
+            Self::string_to_bytes(upper, case_sensitive),
+            case_sensitive,
+        )
+    }
+
+    pub fn byte_string(
+        property: Property,
+        lower: Option<Vec<u8>>,
+        upper: Option<Vec<u8>>,
+        case_sensitive: bool,
+    ) -> Result<Filter> {
         let filter_cond = if property.data_type == DataType::String {
             Ok(FilterCond::StringBetween(StringBetweenCond {
                 property,
-                lower: case_string(lower),
-                upper: case_string(upper),
+                lower,
+                upper,
                 case_sensitive,
             }))
         } else if property.data_type == DataType::StringList {
             Ok(FilterCond::AnyStringBetween(AnyStringBetweenCond {
                 property,
-                lower: case_string(lower),
-                upper: case_string(upper),
+                lower,
+                upper,
                 case_sensitive,
             }))
         } else {
@@ -403,43 +418,43 @@ float_filter_between_list!(AnyDoubleBetweenCond, read_double_list);
 #[derive(Clone)]
 struct StringBetweenCond {
     property: Property,
-    lower: Option<String>,
-    upper: Option<String>,
+    lower: Option<Vec<u8>>,
+    upper: Option<Vec<u8>>,
     case_sensitive: bool,
 }
 
 #[derive(Clone)]
 struct AnyStringBetweenCond {
     property: Property,
-    lower: Option<String>,
-    upper: Option<String>,
+    lower: Option<Vec<u8>>,
+    upper: Option<Vec<u8>>,
     case_sensitive: bool,
 }
 
 fn string_between(
     value: Option<&str>,
-    lower: Option<&str>,
-    upper: Option<&str>,
+    lower: Option<&[u8]>,
+    upper: Option<&[u8]>,
     case_sensitive: bool,
 ) -> bool {
     if let Some(obj_str) = value {
         let mut matches = true;
         if case_sensitive {
             if let Some(lower) = lower {
-                matches = lower <= obj_str;
+                matches = lower <= obj_str.as_bytes();
             }
             matches &= if let Some(upper) = upper {
-                upper >= obj_str
+                upper >= obj_str.as_bytes()
             } else {
                 false
             };
         } else {
             let obj_str = obj_str.to_lowercase();
             if let Some(lower) = lower {
-                matches = lower <= obj_str.as_str();
+                matches = lower <= obj_str.as_bytes();
             }
             matches &= if let Some(upper) = upper {
-                upper >= obj_str.as_str()
+                upper >= obj_str.as_bytes()
             } else {
                 false
             };

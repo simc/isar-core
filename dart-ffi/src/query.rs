@@ -3,7 +3,7 @@ use crate::txn::IsarDartTxn;
 use crate::{from_c_str, UintSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
-use isar_core::key::IndexKey;
+use isar_core::index::index_key::IndexKey;
 use isar_core::query::filter::Filter;
 use isar_core::query::query_builder::QueryBuilder;
 use isar_core::query::{Query, Sort};

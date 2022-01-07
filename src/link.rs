@@ -1,7 +1,7 @@
 use crate::cursor::IsarCursors;
 use crate::error::IsarError::DbCorrupted;
 use crate::error::{IsarError, Result};
-use crate::key::IdKey;
+use crate::id_key::IdKey;
 use crate::mdbx::cursor::Cursor;
 use crate::mdbx::db::Db;
 use crate::mdbx::debug_dump_db;

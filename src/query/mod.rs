@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
 use crate::error::Result;
-use crate::key::IdKey;
+use crate::id_key::IdKey;
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::query::filter::Filter;

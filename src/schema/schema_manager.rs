@@ -1,7 +1,7 @@
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
-use crate::key::IdKey;
+use crate::id_key::IdKey;
 use crate::link::IsarLink;
 use crate::mdbx::cursor::{Cursor, UnboundCursor};
 use crate::mdbx::db::Db;

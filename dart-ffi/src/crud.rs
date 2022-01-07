@@ -2,7 +2,7 @@ use crate::raw_object_set::{RawObject, RawObjectSet};
 use crate::txn::IsarDartTxn;
 use crate::{from_c_str, BoolSend, UintSend};
 use isar_core::collection::IsarCollection;
-use isar_core::key::IndexKey;
+use isar_core::index::index_key::IndexKey;
 use serde_json::Value;
 use std::os::raw::c_char;
 

@@ -1,7 +1,7 @@
 use super::index_where_clause::IndexWhereClause;
 use crate::collection::IsarCollection;
 use crate::error::{illegal_arg, Result};
-use crate::key::IndexKey;
+use crate::index::index_key::IndexKey;
 use crate::object::isar_object::Property;
 use crate::query::filter::Filter;
 use crate::query::id_where_clause::IdWhereClause;
