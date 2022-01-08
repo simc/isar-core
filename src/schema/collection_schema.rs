@@ -93,6 +93,20 @@ impl CollectionSchema {
                 }
                 let property = property.unwrap();
 
+                if property.data_type == DataType::Float
+                    || property.data_type == DataType::Double
+                    || property.data_type == DataType::FloatList
+                    || property.data_type == DataType::DoubleList
+                {
+                    if index_property.index_type == IndexType::Hash {
+                        schema_error("Float values cannot be hashed.")?;
+                    } else if i != index.properties.len() - 1 {
+                        schema_error(
+                            "Float indexes must only be at the end of a composite index.",
+                        )?;
+                    }
+                }
+
                 if property.data_type.get_element_type().is_some() {
                     if index.properties.len() > 1 && index_property.index_type != IndexType::Hash {
                         schema_error("Composite list indexes are not supported.")?;

@@ -40,7 +40,6 @@ macro_rules! isar_try {
             match l() {
                 Ok(_) => 0,
                 Err(e) => {
-                    eprintln!("{}",e);
                     e.into_dart_err_code()
                 },
             }

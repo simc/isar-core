@@ -1,5 +1,4 @@
 use crate::from_c_str;
-use float_next_after::NextAfter;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::object::data_type::DataType;
@@ -108,7 +107,7 @@ macro_rules! num_filter {
         } else {
             Some($lower)
         };
-        let upper = if $include_upper {
+        let upper = if !$include_upper {
             $upper.checked_sub(1)
         } else {
             Some($upper)
@@ -172,56 +171,27 @@ pub unsafe extern "C" fn isar_filter_long(
     }
 }
 
-#[macro_export]
-macro_rules! double_filter {
-    ($filter:ident, $type:ident, $property:expr, $lower:ident, $include_lower:expr, $upper:ident, $include_upper:expr) => {{
-        let lower = if !$include_lower {
-            if $lower == $type::INFINITY {
-                None
-            } else {
-                Some($lower.next_after($type::INFINITY))
-            }
-        } else {
-            Some($lower)
-        };
-        let upper = if !$include_upper {
-            if $upper.is_nan() {
-                None
-            } else if $upper == $type::NEG_INFINITY {
-                Some($type::NAN)
-            } else {
-                Some($upper.next_after($type::NEG_INFINITY))
-            }
-        } else {
-            Some($upper)
-        };
-        if let (Some(lower), Some(upper)) = (lower, upper) {
-            Filter::$filter(*$property, lower, upper)?
-        } else {
-            Filter::stat(false)
-        }
-    }};
-}
-
 #[no_mangle]
 pub unsafe extern "C" fn isar_filter_double(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     lower: f64,
-    include_lower: bool,
     upper: f64,
-    include_upper: bool,
     property_index: u32,
 ) -> i64 {
     let property = collection.properties.get(property_index as usize);
     isar_try! {
         if let Some((_, property)) = property {
-            let query_filter = if property.data_type == DataType::Float || property.data_type == DataType::FloatList {
+            let query_filter = if upper.is_nan() {
+                Filter::stat(false)
+            } else if lower.is_nan() {
+                Filter::stat(true)
+            } else if property.data_type == DataType::Float || property.data_type == DataType::FloatList {
                 let lower = lower as f32;
                 let upper = upper as f32;
-                double_filter!(float, f32, property, lower, include_lower, upper, include_upper)
+                Filter::float(*property, lower, upper)?
             } else {
-                double_filter!(double, f64, property, lower, include_lower, upper, include_upper)
+                Filter::double(*property, lower, upper)?
             };
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
@@ -231,7 +201,7 @@ pub unsafe extern "C" fn isar_filter_double(
     }
 }
 
-unsafe fn get_lower(lower: Option<Vec<u8>>, include_lower: bool) -> Option<Vec<u8>> {
+unsafe fn get_lower_str(lower: Option<Vec<u8>>, include_lower: bool) -> Option<Vec<u8>> {
     if include_lower {
         lower
     } else if let Some(mut lower) = lower {
@@ -251,7 +221,7 @@ unsafe fn get_lower(lower: Option<Vec<u8>>, include_lower: bool) -> Option<Vec<u
     }
 }
 
-unsafe fn get_upper(upper: Option<Vec<u8>>, include_upper: bool) -> Option<Option<Vec<u8>>> {
+unsafe fn get_upper_str(upper: Option<Vec<u8>>, include_upper: bool) -> Option<Option<Vec<u8>>> {
     if include_upper {
         Some(upper)
     } else if let Some(mut upper) = upper {
@@ -287,10 +257,10 @@ pub unsafe extern "C" fn isar_filter_string(
     isar_try! {
         if let Some((_, property)) = property {
             let lower_bytes = Filter::string_to_bytes(from_c_str(lower)?, case_sensitive);
-            let lower = get_lower(lower_bytes, include_lower);
+            let lower = get_lower_str(lower_bytes, include_lower);
 
             let upper_bytes = Filter::string_to_bytes(from_c_str(upper)?, case_sensitive);
-            let upper = get_upper(upper_bytes, include_upper);
+            let upper = get_upper_str(upper_bytes, include_upper);
 
             let query_filter = if let Some(upper) = upper {
                 Filter::byte_string(*property, lower, upper, case_sensitive)?

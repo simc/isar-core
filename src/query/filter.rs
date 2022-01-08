@@ -367,22 +367,17 @@ primitive_filter_between_list!(AnyLongBetweenCond, read_long_list);
 macro_rules! float_filter_between {
     ($name:ident, $prop_accessor:ident) => {
         impl Condition for $name {
-            fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+            fn evaluate(
+                &self,
+                _id: &IdKey,
+                object: IsarObject,
+                _: Option<&IsarCursors>,
+            ) -> Result<bool> {
                 let val = object.$prop_accessor(self.property);
-                Ok(float_filter_between!(eval val, self.lower, self.upper))
+                Ok(self.lower < val && self.upper > val)
             }
         }
     };
-
-    (eval $val:expr, $lower:expr, $upper:expr) => {{
-        if $upper.is_nan() {
-            $lower.is_nan() && $val.is_nan()
-        } else if $lower.is_nan() {
-            $upper >= $val || $val.is_nan()
-        } else {
-            $lower <= $val && $upper >= $val
-        }
-    }};
 }
 
 filter_between_struct!(FloatBetweenCond, Float, f32);
@@ -394,12 +389,16 @@ float_filter_between!(DoubleBetweenCond, read_double);
 macro_rules! float_filter_between_list {
     ($name:ident, $prop_accessor:ident) => {
         impl Condition for $name {
-            fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+            fn evaluate(
+                &self,
+                _id: &IdKey,
+                object: IsarObject,
+                _: Option<&IsarCursors>,
+            ) -> Result<bool> {
                 let vals = object.$prop_accessor(self.property);
-                eprintln!("{:?}",vals);
                 if let Some(vals) = vals {
                     for val in vals {
-                        if float_filter_between!(eval val, self.lower, self.upper) {
+                        if self.lower < val && self.upper > val {
                             return Ok(true);
                         }
                     }

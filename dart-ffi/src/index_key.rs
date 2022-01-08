@@ -103,6 +103,4 @@ macro_rules! hash_list {
 
 hash_list!(byte, u8);
 hash_list!(int, i32);
-hash_list!(float, f32);
 hash_list!(long, i64);
-hash_list!(double, f64);
