@@ -51,7 +51,7 @@ impl ParseCallbacks for Callbacks {
 }
 
 const LIBMDBX_RELEASE: &str =
-    "https://github.com/erthink/libmdbx/releases/download/v0.11.2/libmdbx-amalgamated-0_11_2.zip";
+    "https://github.com/erthink/libmdbx/releases/download/v0.11.3/libmdbx-amalgamated-0_11_3.zip";
 
 fn main() {
     let mut mdbx = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
