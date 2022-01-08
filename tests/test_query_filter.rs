@@ -124,11 +124,11 @@ fn test_float_filter() {
     let results = vec![
         (0.0, 0.0, vec![]),
         (5.0, 5.0, vec![]),
-        (2.0, 1.0, vec![]),
-        (0.0, 2.0, vec![&obj1, &obj2]),
-        (1.0, 1.0, vec![&obj1]),
-        (2.0, 3.0, vec![&obj2, &obj3]),
-        (4.0, 6.0, vec![&obj4]),
+        (1.9, 1.1, vec![]),
+        (0.0, 2.5, vec![&obj1, &obj2]),
+        (0.9, 1.1, vec![&obj1]),
+        (1.9, 3.5, vec![&obj2, &obj3]),
+        (3.5, 6.0, vec![&obj4]),
     ];
     for (lower, upper, objects) in results {
         expect_filter(
@@ -155,11 +155,11 @@ fn test_double_filter() {
     let results = vec![
         (0.0, 0.0, vec![]),
         (5.0, 5.0, vec![]),
-        (2.0, 1.0, vec![]),
-        (0.0, 2.0, vec![&obj1, &obj2]),
-        (1.0, 1.0, vec![&obj1]),
-        (2.0, 3.0, vec![&obj2, &obj3]),
-        (4.0, 6.0, vec![&obj4]),
+        (1.9, 1.1, vec![]),
+        (0.0, 2.5, vec![&obj1, &obj2]),
+        (0.9, 1.1, vec![&obj1]),
+        (1.9, 3.5, vec![&obj2, &obj3]),
+        (3.5, 6.0, vec![&obj4]),
     ];
     for (lower, upper, objects) in results {
         expect_filter(
