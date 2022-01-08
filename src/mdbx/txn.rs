@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::mdbx::error::mdbx_result;
+use crate::mdbx::mdbx_result;
 use core::ptr;
 use std::marker::PhantomData;
 

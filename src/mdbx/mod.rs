@@ -1,15 +1,16 @@
 #![allow(clippy::missing_safety_doc)]
 
+use crate::error::{IsarError, Result};
 use crate::mdbx::cursor::Cursor;
 use core::slice;
+use libc::c_int;
 use std::cmp::{min, Ordering};
 use std::collections::HashSet;
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr};
 
 pub mod cursor;
 pub mod db;
 pub mod env;
-pub mod error;
 pub mod txn;
 
 pub type KeyVal<'txn> = (&'txn [u8], &'txn [u8]);
@@ -34,6 +35,22 @@ pub unsafe fn to_mdb_val(value: &[u8]) -> ffi::MDBX_val {
     ffi::MDBX_val {
         iov_len: value.len() as ffi::size_t,
         iov_base: value.as_ptr() as *mut libc::c_void,
+    }
+}
+
+#[inline]
+pub fn mdbx_result(err_code: c_int) -> Result<()> {
+    match err_code {
+        ffi::MDBX_SUCCESS | ffi::MDBX_RESULT_TRUE => Ok(()),
+        ffi::MDBX_MAP_FULL => Err(IsarError::DbFull {}),
+        other => unsafe {
+            let err_raw = ffi::mdbx_strerror(other);
+            let err = CStr::from_ptr(err_raw);
+            Err(IsarError::MdbxError {
+                code: other,
+                message: err.to_str().unwrap().to_string(),
+            })
+        },
     }
 }
 

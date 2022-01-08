@@ -1,5 +1,5 @@
 use crate::error::{IsarError, Result};
-use crate::mdbx::error::mdbx_result;
+use crate::mdbx::mdbx_result;
 use crate::mdbx::txn::Txn;
 use core::ptr;
 use std::ffi::CString;

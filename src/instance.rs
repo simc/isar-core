@@ -54,7 +54,8 @@ impl IsarInstance {
         let _ = create_dir_all(path);
 
         let db_count = schema.count_dbs() as u64 + 3;
-        let env = Env::create(path, db_count, relaxed_durability)?;
+        let env = Env::create(path, db_count, relaxed_durability)
+            .map_err(|e| IsarError::EnvError { error: Box::new(e) })?;
 
         let txn = env.txn(true)?;
         let collections = {

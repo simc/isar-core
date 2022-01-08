@@ -1,8 +1,7 @@
 use crate::error::Result;
 use crate::mdbx::db::Db;
-use crate::mdbx::error::{mdbx_result, MdbxError};
 use crate::mdbx::txn::Txn;
-use crate::mdbx::{from_mdb_val, to_mdb_val, ByteKey, KeyVal, EMPTY_KEY, EMPTY_VAL};
+use crate::mdbx::{from_mdb_val, mdbx_result, to_mdb_val, ByteKey, KeyVal, EMPTY_KEY, EMPTY_VAL};
 use core::ptr;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -56,24 +55,19 @@ impl<'txn> Cursor<'txn> {
         let mut key = key.map_or(EMPTY_KEY, |key| unsafe { to_mdb_val(key) });
         let mut data = val.map_or(EMPTY_VAL, |val| unsafe { to_mdb_val(val) });
 
-        let result = unsafe {
-            mdbx_result(ffi::mdbx_cursor_get(
-                self.cursor.cursor,
-                &mut key,
-                &mut data,
-                op,
-            ))
-        };
+        let result = unsafe { ffi::mdbx_cursor_get(self.cursor.cursor, &mut key, &mut data, op) };
 
         match result {
-            Ok(_) => {
+            ffi::MDBX_SUCCESS | ffi::MDBX_RESULT_TRUE => {
                 let key = unsafe { from_mdb_val(&key) };
                 let data = unsafe { from_mdb_val(&data) };
                 Ok(Some((key, data)))
             }
-            Err(MdbxError::NotFound { .. }) => Ok(None),
-            Err(MdbxError::NoData { .. }) => Ok(None),
-            Err(e) => Err(e)?,
+            ffi::MDBX_NOTFOUND | ffi::MDBX_ENODATA => Ok(None),
+            e => {
+                mdbx_result(e)?;
+                unreachable!();
+            }
         }
     }
 
@@ -114,12 +108,7 @@ impl<'txn> Cursor<'txn> {
         Ok(())
     }
 
-    fn put_internal(
-        &mut self,
-        key: &[u8],
-        data: &[u8],
-        flags: u32,
-    ) -> std::result::Result<(), MdbxError> {
+    fn put_internal(&mut self, key: &[u8], data: &[u8], flags: u32) -> Result<()> {
         unsafe {
             let key = to_mdb_val(key);
             let mut data = to_mdb_val(data);
