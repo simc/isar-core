@@ -55,8 +55,14 @@ jobs:
       with:
         submodules: true
     - uses: actions-rs/toolchain@v1
+      if: matrix.artifact != 'libisar_ios.a'
       with:
         toolchain: nightly
+        override: true
+    - uses: actions-rs/toolchain@v1
+      if: matrix.artifact == 'libisar_ios.a'
+      with:
+        toolchain: 1.55.0
         override: true
     - name: Build
       working-directory: dart-ffi

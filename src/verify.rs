@@ -5,6 +5,7 @@ use crate::object::isar_object::IsarObject;
 use crate::txn::IsarTxn;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 
 #[derive(Clone)]
 pub struct ObjectEntry {

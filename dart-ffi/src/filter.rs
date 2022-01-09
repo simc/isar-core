@@ -184,8 +184,6 @@ pub unsafe extern "C" fn isar_filter_double(
         if let Some((_, property)) = property {
             let query_filter = if upper.is_nan() {
                 Filter::stat(false)
-            } else if lower.is_nan() {
-                Filter::stat(true)
             } else if property.data_type == DataType::Float || property.data_type == DataType::FloatList {
                 let lower = lower as f32;
                 let upper = upper as f32;

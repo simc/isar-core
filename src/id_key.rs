@@ -1,4 +1,5 @@
 use std::borrow::{Borrow, Cow};
+use std::convert::TryInto;
 
 pub struct IdKey<'a> {
     bytes: Cow<'a, [u8]>,

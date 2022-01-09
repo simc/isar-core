@@ -4,6 +4,7 @@ use crate::mdbx::txn::Txn;
 use crate::mdbx::{from_mdb_val, mdbx_result, to_mdb_val, ByteKey, KeyVal, EMPTY_KEY, EMPTY_VAL};
 use core::ptr;
 use std::cmp::Ordering;
+use std::convert::TryInto;
 use std::marker::PhantomData;
 
 pub struct UnboundCursor {

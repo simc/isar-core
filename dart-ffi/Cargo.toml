@@ -1,10 +1,8 @@
-cargo-features = ["strip"]
-
 [package]
 name = "isar"
 version = "0.0.0"
 authors = ["Simon Leier <simonleier@gmail.com>"]
-edition = "2021"
+edition = "2018"
 
 [dependencies]
 isar-core = { path = "../" }
@@ -20,4 +18,4 @@ crate-type=["staticlib", "cdylib"]
 [profile.release]
 lto = true
 codegen-units = 1
-strip = "symbols"
+#strip = "symbols"
