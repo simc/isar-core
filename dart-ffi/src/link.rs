@@ -88,6 +88,7 @@ pub unsafe extern "C" fn isar_link_get_first(
     object: &'static mut RawObject,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
+        object.set_object(None);
         collection.get_linked_objects(txn, link_index, backlink, id, |id, o| {
             object.set_id(id);
             object.set_object(Some(o));
