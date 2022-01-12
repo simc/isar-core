@@ -35,8 +35,8 @@ fn test_link() {
         "col1",
         &[],
         &[
-            LinkSchema::new("self", "col1"),
-            LinkSchema::new("other", "col2"),
+            LinkSchema::new("a_self", "col1"),
+            LinkSchema::new("b_other", "col2"),
         ],
     );
     let col2_schema = TestObj::schema("col2", &[], &[]);
@@ -60,8 +60,8 @@ fn test_link() {
 
     verify!(txn,
         col!(col1, obj1a, obj1b;
-            "self", obj1a.id => obj1a.id, obj1a.id => obj1b.id;
-            "other", obj1a.id => obj2b.id
+            "a_self", obj1a.id => obj1a.id, obj1a.id => obj1b.id;
+            "b_other", obj1a.id => obj2b.id
         );
         col!(col2, obj2a, obj2b)
     );
@@ -134,8 +134,8 @@ fn test_get_linked_objects() {
         "col1",
         &[],
         &[
-            LinkSchema::new("self", "col1"),
-            LinkSchema::new("other", "col2"),
+            LinkSchema::new("a_self", "col1"),
+            LinkSchema::new("b_other", "col2"),
         ],
     );
     let col2_schema = TestObj::schema("col2", &[], &[]);
