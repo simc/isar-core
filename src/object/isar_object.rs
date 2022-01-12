@@ -5,7 +5,7 @@ use num_traits::Float;
 use std::cmp::Ordering;
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Property {
     pub data_type: DataType,
     pub offset: usize,

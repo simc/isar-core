@@ -12,7 +12,6 @@ use crate::schema::index_schema::IndexSchema;
 use crate::schema::link_schema::LinkSchema;
 use crate::schema::Schema;
 use itertools::Itertools;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryInto;
 
@@ -197,14 +196,7 @@ impl<'a> SchemaManger<'a> {
                 }
             }
         }
-        backlinks.sort_by(|(col1, l1, _), (col2, l2, _)| {
-            let col_cmp = col1.cmp(col2);
-            if col_cmp == Ordering::Equal {
-                l1.cmp(l2)
-            } else {
-                col_cmp
-            }
-        });
+        backlinks.sort_by(|(col1, l1, _), (col2, l2, _)| col1.cmp(col2).then(l1.cmp(l2)));
         let backlinks = backlinks.into_iter().map(|(_, _, link)| link).collect_vec();
 
         Ok(IsarCollection::new(

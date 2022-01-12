@@ -27,10 +27,13 @@ impl PartialEq for CollectionSchema {
 impl CollectionSchema {
     pub fn new(
         name: &str,
-        properties: Vec<PropertySchema>,
-        indexes: Vec<IndexSchema>,
-        links: Vec<LinkSchema>,
+        mut properties: Vec<PropertySchema>,
+        mut indexes: Vec<IndexSchema>,
+        mut links: Vec<LinkSchema>,
     ) -> CollectionSchema {
+        properties.sort_by(|a, b| a.name.cmp(&b.name));
+        indexes.sort_by(|a, b| a.name.cmp(&b.name));
+        links.sort_by(|a, b| a.name.cmp(&b.name));
         CollectionSchema {
             name: name.to_string(),
             properties,
