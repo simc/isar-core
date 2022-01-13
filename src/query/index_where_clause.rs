@@ -38,11 +38,11 @@ impl IndexWhereClause {
         })
     }
 
-    pub fn object_matches(&self, id: i64, object: IsarObject) -> bool {
+    pub fn object_matches(&self, object: IsarObject) -> bool {
         let mut key_matches = false;
         let key_builder = IndexKeyBuilder::new(&self.index.properties);
         key_builder
-            .create_keys(id, object, |key| {
+            .create_keys(object, |key| {
                 key_matches = key >= &self.lower_key && key <= &self.upper_key;
                 Ok(!key_matches)
             })

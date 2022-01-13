@@ -13,7 +13,7 @@ pub enum IndexType {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct IndexPropertySchema {
-    pub(crate) name: Option<String>,
+    pub(crate) name: String,
     #[serde(rename = "type")]
     pub(crate) index_type: IndexType,
     #[serde(rename = "caseSensitive")]
@@ -21,13 +21,9 @@ pub struct IndexPropertySchema {
 }
 
 impl IndexPropertySchema {
-    pub fn new(
-        name: Option<&str>,
-        index_type: IndexType,
-        case_sensitive: bool,
-    ) -> IndexPropertySchema {
+    pub fn new(name: &str, index_type: IndexType, case_sensitive: bool) -> IndexPropertySchema {
         IndexPropertySchema {
-            name: name.map(|name| name.to_string()),
+            name: name.to_string(),
             index_type,
             case_sensitive,
         }
@@ -55,12 +51,8 @@ impl IndexSchema {
             .properties
             .iter()
             .map(|p| {
-                let property = if let Some(ref name) = p.name {
-                    Some(properties.iter().find(|(n, _)| n == name).unwrap().1)
-                } else {
-                    None
-                };
-                IndexProperty::new(property, p.index_type, p.case_sensitive)
+                let (_, property) = properties.iter().find(|(n, _)| &p.name == n).unwrap();
+                IndexProperty::new(*property, p.index_type, p.case_sensitive)
             })
             .collect_vec();
         IsarIndex::new(db, index_properties, self.unique)
