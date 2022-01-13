@@ -57,8 +57,9 @@ jobs:
     - uses: actions-rs/toolchain@v1
       if: matrix.artifact_name != 'libisar_ios.a'
       with:
-        toolchain: stable
+        toolchain: nightly
         override: true
+        components: rust-src
     - uses: actions-rs/toolchain@v1
       if: matrix.artifact_name == 'libisar_ios.a'
       with:
