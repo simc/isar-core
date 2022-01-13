@@ -61,7 +61,7 @@ pub fn verify_isar(
             for (i, (_, index)) in col.indexes.iter().enumerate() {
                 let key_builder = IndexKeyBuilder::new(&index.properties);
                 key_builder
-                    .create_keys(object, |key| {
+                    .create_keys(id_key.get_id(), object, |key| {
                         let entry = (key.as_bytes().to_vec(), id_key.as_bytes().to_vec());
                         index_entries[i].insert(entry);
                         Ok(true)

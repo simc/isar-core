@@ -15,13 +15,17 @@ pub(crate) mod index_key_builder;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct IndexProperty {
-    pub property: Property,
+    pub property: Option<Property>,
     pub index_type: IndexType,
     pub case_sensitive: bool,
 }
 
 impl IndexProperty {
-    pub(crate) fn new(property: Property, index_type: IndexType, case_sensitive: bool) -> Self {
+    pub(crate) fn new(
+        property: Option<Property>,
+        index_type: IndexType,
+        case_sensitive: bool,
+    ) -> Self {
         IndexProperty {
             property,
             index_type,
@@ -30,7 +34,7 @@ impl IndexProperty {
     }
 
     pub fn get_string_with_case(&self, object: IsarObject) -> Option<String> {
-        object.read_string(self.property).map(|str| {
+        object.read_string(self.property.unwrap()).map(|str| {
             if self.case_sensitive {
                 str.to_string()
             } else {
@@ -40,7 +44,11 @@ impl IndexProperty {
     }
 
     fn is_multi_entry(&self) -> bool {
-        self.property.data_type.get_element_type().is_some() && self.index_type != IndexType::Hash
+        if let Some(property) = self.property {
+            property.data_type.get_element_type().is_some() && self.index_type != IndexType::Hash
+        } else {
+            return false;
+        }
     }
 }
 
@@ -77,7 +85,7 @@ impl IsarIndex {
     {
         let mut cursor = cursors.get_cursor(self.db)?;
         let key_builder = IndexKeyBuilder::new(&self.properties);
-        key_builder.create_keys(object, |key| {
+        key_builder.create_keys(id_key.get_id(), object, |key| {
             if self.unique {
                 let existing = cursor.move_to(key.as_bytes())?;
                 if let Some((_, existing_key)) = existing {
@@ -98,7 +106,7 @@ impl IsarIndex {
     ) -> Result<()> {
         let mut cursor = cursors.get_cursor(self.db)?;
         let key_builder = IndexKeyBuilder::new(&self.properties);
-        key_builder.create_keys(object, |key| {
+        key_builder.create_keys(id_key.get_id(), object, |key| {
             let entry = if self.unique {
                 cursor.move_to(key.as_bytes())?
             } else {

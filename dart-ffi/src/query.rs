@@ -98,11 +98,17 @@ pub unsafe extern "C" fn isar_qb_add_distinct_by(
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_set_offset_limit(
     builder: &mut QueryBuilder,
-    offset: u32,
-    limit: u32,
+    offset: i64,
+    limit: i64,
 ) {
-    builder.set_offset(offset as usize);
-    builder.set_limit(limit as usize);
+    let offset = if offset < 0 { 0 } else { offset as usize };
+    let limit = if limit < 0 {
+        usize::MAX
+    } else {
+        limit as usize
+    };
+    builder.set_offset(offset);
+    builder.set_limit(limit);
 }
 
 #[no_mangle]

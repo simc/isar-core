@@ -87,58 +87,66 @@ impl CollectionSchema {
             }
 
             for (i, index_property) in index.properties.iter().enumerate() {
-                let property = self
-                    .properties
-                    .iter()
-                    .find(|p| p.name == index_property.name);
-                if property.is_none() {
-                    schema_error("IsarIndex property does not exist")?;
-                }
-                let property = property.unwrap();
+                if let Some(ref property_name) = index_property.name {
+                    let property = self.properties.iter().find(|p| &p.name == property_name);
+                    if property.is_none() {
+                        schema_error("IsarIndex property does not exist")?;
+                    }
+                    let property = property.unwrap();
 
-                if property.data_type == DataType::Float
-                    || property.data_type == DataType::Double
-                    || property.data_type == DataType::FloatList
-                    || property.data_type == DataType::DoubleList
-                {
-                    if index_property.index_type == IndexType::Hash {
-                        schema_error("Float values cannot be hashed.")?;
-                    } else if i != index.properties.len() - 1 {
+                    if property.data_type == DataType::Float
+                        || property.data_type == DataType::Double
+                        || property.data_type == DataType::FloatList
+                        || property.data_type == DataType::DoubleList
+                    {
+                        if index_property.index_type == IndexType::Hash {
+                            schema_error("Float values cannot be hashed.")?;
+                        } else if i != index.properties.len() - 1 {
+                            schema_error(
+                                "Float indexes must only be at the end of a composite index.",
+                            )?;
+                        }
+                    }
+
+                    if property.data_type.get_element_type().is_some() {
+                        if index.properties.len() > 1
+                            && index_property.index_type != IndexType::Hash
+                        {
+                            schema_error("Composite list indexes are not supported.")?;
+                        }
+                    } else if property.data_type == DataType::String
+                        && i != index.properties.len() - 1
+                        && index_property.index_type != IndexType::Hash
+                    {
                         schema_error(
-                            "Float indexes must only be at the end of a composite index.",
+                            "Non-hashed string indexes must only be at the end of a composite index.",
                         )?;
                     }
-                }
 
-                if property.data_type.get_element_type().is_some() {
-                    if index.properties.len() > 1 && index_property.index_type != IndexType::Hash {
-                        schema_error("Composite list indexes are not supported.")?;
+                    if property.data_type != DataType::String
+                        && property.data_type.get_element_type().is_none()
+                        && index_property.index_type == IndexType::Hash
+                    {
+                        schema_error("Only string and list indexes may be hashed")?;
                     }
-                } else if property.data_type == DataType::String
-                    && i != index.properties.len() - 1
-                    && index_property.index_type != IndexType::Hash
-                {
-                    schema_error(
-                        "Non-hashed string indexes must only be at the end of a composite index.",
-                    )?;
-                }
-
-                if property.data_type != DataType::String
-                    && property.data_type.get_element_type().is_none()
-                    && index_property.index_type == IndexType::Hash
-                {
-                    schema_error("Only string and list indexes may be hashed")?;
-                }
-                if property.data_type != DataType::StringList
-                    && index_property.index_type == IndexType::HashElements
-                {
-                    schema_error("Only string list indexes may be use hash elements")?;
-                }
-                if property.data_type != DataType::String
-                    && property.data_type != DataType::StringList
-                    && index_property.case_sensitive
-                {
-                    schema_error("Only String and StringList indexes may be case sensitive.")?;
+                    if property.data_type != DataType::StringList
+                        && index_property.index_type == IndexType::HashElements
+                    {
+                        schema_error("Only string list indexes may be use hash elements")?;
+                    }
+                    if property.data_type != DataType::String
+                        && property.data_type != DataType::StringList
+                        && index_property.case_sensitive
+                    {
+                        schema_error("Only String and StringList indexes may be case sensitive.")?;
+                    }
+                } else {
+                    if index_property.index_type != IndexType::Value {
+                        schema_error("Id index only supports IndexType.value")?;
+                    }
+                    if index_property.case_sensitive {
+                        schema_error("Only String and StringList indexes may be case sensitive.")?;
+                    }
                 }
             }
         }

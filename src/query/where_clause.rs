@@ -16,7 +16,7 @@ impl WhereClause {
     pub fn matches(&self, id: i64, object: IsarObject) -> bool {
         match self {
             WhereClause::Id(wc) => wc.id_matches(id),
-            WhereClause::Index(wc) => wc.object_matches(object),
+            WhereClause::Index(wc) => wc.object_matches(id, object),
         }
     }
 

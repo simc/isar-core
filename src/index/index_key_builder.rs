@@ -16,14 +16,18 @@ impl<'a> IndexKeyBuilder<'a> {
 
     pub fn create_keys(
         &self,
+        id: i64,
         object: IsarObject,
         mut callback: impl FnMut(&IndexKey) -> Result<bool>,
     ) -> Result<bool> {
         let first = self.properties.first().unwrap();
-        if first.property.data_type.get_element_type().is_none()
-            || first.index_type == IndexType::Hash
-        {
-            let key = self.create_primitive_key(object);
+        let primitive = if let Some(property) = first.property {
+            property.data_type.get_element_type().is_none() || first.index_type == IndexType::Hash
+        } else {
+            true
+        };
+        if primitive {
+            let key = self.create_primitive_key(id, object);
             callback(&key)?;
             Ok(true)
         } else {
@@ -32,26 +36,29 @@ impl<'a> IndexKeyBuilder<'a> {
         }
     }
 
-    fn create_primitive_key(&self, object: IsarObject) -> IndexKey {
+    fn create_primitive_key(&self, id: i64, object: IsarObject) -> IndexKey {
         let mut key = IndexKey::new();
         for index_property in self.properties {
-            let property = index_property.property;
-
-            if index_property.index_type == IndexType::Hash {
-                let hash = object.hash_property(property, index_property.case_sensitive, 0);
-                key.add_hash(hash);
-            } else {
-                match property.data_type {
-                    DataType::Byte => key.add_byte(object.read_byte(property)),
-                    DataType::Int => key.add_int(object.read_int(property)),
-                    DataType::Float => key.add_float(object.read_float(property)),
-                    DataType::Long => key.add_long(object.read_long(property)),
-                    DataType::Double => key.add_double(object.read_double(property)),
-                    DataType::String => {
-                        key.add_string(object.read_string(property), index_property.case_sensitive)
+            if let Some(property) = index_property.property {
+                if index_property.index_type == IndexType::Hash {
+                    let hash = object.hash_property(property, index_property.case_sensitive, 0);
+                    key.add_hash(hash);
+                } else {
+                    match property.data_type {
+                        DataType::Byte => key.add_byte(object.read_byte(property)),
+                        DataType::Int => key.add_int(object.read_int(property)),
+                        DataType::Float => key.add_float(object.read_float(property)),
+                        DataType::Long => key.add_long(object.read_long(property)),
+                        DataType::Double => key.add_double(object.read_double(property)),
+                        DataType::String => key.add_string(
+                            object.read_string(property),
+                            index_property.case_sensitive,
+                        ),
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
                 }
+            } else {
+                key.add_long(id)
             }
         }
         key
@@ -63,7 +70,7 @@ impl<'a> IndexKeyBuilder<'a> {
         mut callback: impl FnMut(&IndexKey) -> Result<bool>,
     ) -> Result<bool> {
         let mut key = IndexKey::new();
-        let property = index_property.property;
+        let property = index_property.property.unwrap();
         if object.is_null(property) {
             return Ok(true);
         }
