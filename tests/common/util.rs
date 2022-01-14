@@ -4,6 +4,7 @@ use crate::TestObj;
 use isar_core::query::Query;
 use isar_core::txn::IsarTxn;
 use itertools::Itertools;
+use isar_core::collection::IsarCollection;
 
 #[macro_export]
 macro_rules! isar (
@@ -119,7 +120,7 @@ macro_rules! col (
             #[allow(unused_mut)]
             let mut objects = vec![
                 $(
-                    isar_core::verify::ObjectEntry::new($obj.id, $obj.to_bytes()),
+                    isar_core::verify::ObjectEntry::new($obj.id, $obj.to_bytes($col)),
                 )*
             ];
 
@@ -139,12 +140,12 @@ macro_rules! col (
     };
 );
 
-pub fn assert_find<'a>(txn: &'a mut IsarTxn, query: Query, objects: &[&TestObj]) {
+pub fn assert_find<'a>(txn: &'a mut IsarTxn, col:&IsarCollection,query: Query, objects: &[&TestObj]) {
     let result = query
         .find_all_vec(txn)
         .unwrap()
         .iter()
-        .map(|(_, o)| TestObj::from(*o))
+        .map(|(_, o)| TestObj::fromObject(col,*o))
         .collect_vec();
     let borrowed = result.iter().collect_vec();
     assert_eq!(&borrowed, objects);

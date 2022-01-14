@@ -80,7 +80,7 @@ fn test_put_existing() {
 }
 
 #[test]
-fn test_many() {
+fn test_put_many() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 

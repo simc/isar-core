@@ -1,6 +1,7 @@
 use std::vec;
 
 use isar_core::collection::IsarCollection;
+use isar_core::object::data_type::DataType;
 use isar_core::query::filter::Filter;
 use isar_core::txn::IsarTxn;
 
@@ -15,7 +16,7 @@ fn expect_filter(txn: &mut IsarTxn, col: &IsarCollection, filter: Filter, object
     let result = q.find_all_vec(txn).unwrap();
     assert_eq!(objects.len(), result.len());
     for (o, (_, r)) in objects.iter().zip(result.into_iter()) {
-        assert_eq!(TestObj::from(r), **o);
+        assert_eq!(TestObj::fromObject(col,r), **o);
     }
 }
 
@@ -24,7 +25,7 @@ fn test_byte_filter() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let p = TestObj::BYTE_PROP;
+    let p = TestObj::get_prop(col, DataType::Byte);
 
     put!(col, txn, byte, obj1 => 1, obj2 => 2, obj3 => 3, obj4 => 4);
 
@@ -55,7 +56,7 @@ fn test_int_filter() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let p = TestObj::INT_PROP;
+    let p = TestObj::get_prop(col, DataType::Int);
 
     put!(col, txn, int, obj1 => 1, obj2 => 2, obj3 => 3, obj4 => 4);
 
@@ -86,7 +87,7 @@ fn test_long_filter() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let p = TestObj::LONG_PROP;
+    let p = TestObj::get_prop(col, DataType::Long);
 
     put!(col, txn, id, obj1 => 1, obj2 => 2, obj3 => 3, obj4 => 4);
 
@@ -117,7 +118,7 @@ fn test_float_filter() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let p = TestObj::FLOAT_PROP;
+    let p = TestObj::get_prop(col, DataType::Float);
 
     put!(col, txn, float, obj1 => 1.0, obj2 => 2.0, obj3 => 3.0, obj4 => 4.0);
 
@@ -148,7 +149,7 @@ fn test_double_filter() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let p = TestObj::DOUBLE_PROP;
+    let p = TestObj::get_prop(col, DataType::Double);
 
     put!(col, txn, double, obj1 => 1.0, obj2 => 2.0, obj3 => 3.0, obj4 => 4.0);
 
@@ -179,7 +180,7 @@ fn test_string_filter() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let p = TestObj::STRING_PROP;
+    let p = TestObj::get_prop(col, DataType::String);
 
     put!(col, txn, string,
         obj1 => Some("a".to_string()),
@@ -232,7 +233,7 @@ fn test_string_starts_ends_with_filter() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let p = TestObj::STRING_PROP;
+    let p = TestObj::get_prop(col, DataType::String);
 
     put!(col, txn, string,
         obj1 => None,
@@ -299,7 +300,7 @@ fn test_string_matches_filter() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    let p = TestObj::STRING_PROP;
+    let p = TestObj::get_prop(col, DataType::String);
 
     put!(col, txn, string,
         obj1 => None,

@@ -5,7 +5,6 @@ use std::vec;
 use isar_core::collection::IsarCollection;
 use isar_core::object::data_type::DataType;
 use isar_core::object::isar_object::{IsarObject, Property};
-use isar_core::object::object_builder::ObjectBuilder;
 use isar_core::schema::collection_schema::CollectionSchema;
 use isar_core::schema::index_schema::{IndexPropertySchema, IndexSchema, IndexType};
 use isar_core::schema::link_schema::LinkSchema;
@@ -30,33 +29,6 @@ pub struct TestObj {
 }
 
 impl TestObj {
-    pub const BYTE_PROP: Property = Property::new(DataType::Byte, 2);
-    pub const INT_PROP: Property = Property::new(DataType::Int, 3);
-    pub const LONG_PROP: Property = Property::new(DataType::Long, 7);
-    pub const FLOAT_PROP: Property = Property::new(DataType::Float, 15);
-    pub const DOUBLE_PROP: Property = Property::new(DataType::Double, 19);
-    pub const STRING_PROP: Property = Property::new(DataType::String, 27);
-    pub const BYTE_LIST_PROP: Property = Property::new(DataType::ByteList, 35);
-    pub const INT_LIST_PROP: Property = Property::new(DataType::IntList, 43);
-    pub const LONG_LIST_PROP: Property = Property::new(DataType::LongList, 51);
-    pub const FLOAT_LIST_PROP: Property = Property::new(DataType::FloatList, 59);
-    pub const DOUBLE_LIST_PROP: Property = Property::new(DataType::DoubleList, 67);
-    pub const STRING_LIST_PROP: Property = Property::new(DataType::StringList, 75);
-    pub const PROPS: [Property; 12] = [
-        TestObj::BYTE_PROP,
-        TestObj::INT_PROP,
-        TestObj::LONG_PROP,
-        TestObj::FLOAT_PROP,
-        TestObj::DOUBLE_PROP,
-        TestObj::STRING_PROP,
-        TestObj::BYTE_LIST_PROP,
-        TestObj::INT_LIST_PROP,
-        TestObj::LONG_LIST_PROP,
-        TestObj::FLOAT_LIST_PROP,
-        TestObj::DOUBLE_LIST_PROP,
-        TestObj::STRING_LIST_PROP,
-    ];
-
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: i64,
@@ -90,6 +62,10 @@ impl TestObj {
 
     pub fn default(id: i64) -> Self {
         Self::new(id, 0, 0, 0.0, 0.0, None, None, None, None, None, None, None)
+    }
+
+    pub fn get_prop(col: &IsarCollection, prop: DataType) -> Property {
+        col.properties.iter().find(|(_,p)|p.data_type == prop).unwrap().1
     }
 
     pub fn byte_index() -> IndexPropertySchema {
@@ -225,60 +201,63 @@ impl TestObj {
         Self::schema("obj", &indexes, &[])
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut builder = ObjectBuilder::new(&TestObj::PROPS, None);
-        builder.write_byte(self.byte);
-        builder.write_int(self.int);
-        builder.write_long(self.id);
-        builder.write_float(self.float);
-        builder.write_double(self.double);
-        builder.write_string(self.string.as_deref());
-        builder.write_byte_list(self.byte_list.as_deref());
-        builder.write_int_list(self.int_list.as_deref());
-        builder.write_long_list(self.long_list.as_deref());
-        builder.write_float_list(self.float_list.as_deref());
-        builder.write_double_list(self.double_list.as_deref());
-
-        let string_list = self
-            .string_list
-            .as_deref()
-            .map(|l| l.iter().map(|e| e.as_deref()).collect_vec());
-        builder.write_string_list(string_list.as_deref());
+    pub fn to_bytes(&self, col: &IsarCollection) -> Vec<u8> {
+        let mut builder = col.new_object_builder(None);
+        for (_,prop) in &col.properties {
+            match prop.data_type {
+                DataType::Byte => builder.write_byte(self.byte),
+                DataType::Int => builder.write_int(self.int),
+                DataType::Float => builder.write_float(self.float),
+                DataType::Long => builder.write_long(self.id),
+                DataType::Double =>builder.write_double(self.double),
+                DataType::String => builder.write_string(self.string.as_deref()),
+                DataType::ByteList => builder.write_byte_list(self.byte_list.as_deref()),
+                DataType::IntList => builder.write_int_list(self.int_list.as_deref()),
+                DataType::FloatList => builder.write_float_list(self.float_list.as_deref()),
+                DataType::LongList => builder.write_long_list(self.long_list.as_deref()),
+                DataType::DoubleList => builder.write_double_list(self.double_list.as_deref()),
+                DataType::StringList => {
+                    let string_list = self
+                        .string_list
+                        .as_deref()
+                        .map(|l| l.iter().map(|e| e.as_deref()).collect_vec());
+                    builder.write_string_list(string_list.as_deref());
+                }
+            }
+        }
         builder.finish().as_bytes().to_vec()
     }
 
     pub fn get(col: &IsarCollection, txn: &mut IsarTxn, id: i64) -> Option<Self> {
         let object = col.get(txn, id).unwrap();
-        object.map(TestObj::from)
+        object.map(|o|TestObj::fromObject(col,o))
     }
 
     pub fn save(&self, txn: &mut IsarTxn, col: &IsarCollection) {
-        let bytes = self.to_bytes();
+        let bytes = self.to_bytes(col);
         col.put(txn, self.id, IsarObject::from_bytes(&bytes), false)
             .unwrap();
     }
-}
 
-impl<'a> From<IsarObject<'a>> for TestObj {
-    fn from(item: IsarObject) -> Self {
+    pub fn fromObject(col: &IsarCollection, item: IsarObject) -> Self {
         TestObj {
-            byte: item.read_byte(TestObj::BYTE_PROP),
-            int: item.read_int(TestObj::INT_PROP),
-            id: item.read_long(TestObj::LONG_PROP),
-            float: item.read_float(TestObj::FLOAT_PROP),
-            double: item.read_double(TestObj::DOUBLE_PROP),
+            byte: item.read_byte(TestObj::get_prop(col,DataType::Byte)),
+            int: item.read_int(TestObj::get_prop(col,DataType::Int)),
+            id: item.read_long(TestObj::get_prop(col,DataType::Long)),
+            float: item.read_float(TestObj::get_prop(col,DataType::Float)),
+            double: item.read_double(TestObj::get_prop(col,DataType::Double)),
             string: item
-                .read_string(TestObj::STRING_PROP)
+                .read_string(TestObj::get_prop(col,DataType::String))
                 .map(|s| s.to_string()),
             byte_list: item
-                .read_byte_list(TestObj::BYTE_LIST_PROP)
+                .read_byte_list(TestObj::get_prop(col,DataType::ByteList))
                 .map(|l| l.to_vec()),
-            int_list: item.read_int_list(TestObj::INT_LIST_PROP),
-            long_list: item.read_long_list(TestObj::LONG_LIST_PROP),
-            float_list: item.read_float_list(TestObj::FLOAT_LIST_PROP),
-            double_list: item.read_double_list(TestObj::DOUBLE_LIST_PROP),
+            int_list: item.read_int_list(TestObj::get_prop(col,DataType::IntList)),
+            long_list: item.read_long_list(TestObj::get_prop(col,DataType::LongList)),
+            float_list: item.read_float_list(TestObj::get_prop(col,DataType::FloatList)),
+            double_list: item.read_double_list(TestObj::get_prop(col,DataType::DoubleList)),
             string_list: item
-                .read_string_list(TestObj::STRING_LIST_PROP)
+                .read_string_list(TestObj::get_prop(col,DataType::StringList))
                 .map(|l| l.iter().map(|s| s.map(|s| s.to_string())).collect_vec()),
         }
     }
