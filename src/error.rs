@@ -12,7 +12,7 @@ pub enum IsarError {
     ))]
     PathError {},
 
-    #[snafu(display("Cannot open Environment"))]
+    #[snafu(display("Cannot open Environment: {}", error))]
     EnvError { error: Box<IsarError> },
 
     #[snafu(display("The database is full."))]
