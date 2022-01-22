@@ -108,7 +108,15 @@ pub unsafe extern "C" fn isar_link_get_all(
     result: &'static mut RawObjectSet,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
-        result.fill_from_link(collection, txn, link_index, backlink, id)?;
+        let mut objects = vec![];
+        collection.get_linked_objects(txn, link_index, backlink, id, |id, object| {
+            let mut raw_obj = RawObject::new();
+            raw_obj.set_id(id);
+            raw_obj.set_object(Some(object));
+            objects.push(raw_obj);
+            true
+        })?;
+        result.fill_from_vec(collection, txn, link_index, backlink, id)?;
         Ok(())
     })
 }

@@ -328,6 +328,7 @@ impl IsarCollection {
         }
         txn.clear_db(self.db)?;
         txn.register_all_changed(self.get_runtime_id())?;
+        self.next_auto_increment.set(i64::MIN + 1);
         Ok(())
     }
 
@@ -343,11 +344,11 @@ impl IsarCollection {
             let mut ob_result_cache = None;
             for value in array {
                 let id = if let Some(id_name) = id_name {
-                    value
-                        .get(id_name)
-                        .ok_or(IsarError::InvalidJson {})?
-                        .as_i64()
-                        .ok_or(IsarError::InvalidJson {})?
+                    if let Some(id) = value.get(id_name) {
+                        id.as_i64().ok_or(IsarError::InvalidJson {})?
+                    } else {
+                        self.auto_increment_internal()?
+                    }
                 } else {
                     self.auto_increment_internal()?
                 };

@@ -60,48 +60,6 @@ pub struct RawObjectSet {
 unsafe impl Send for RawObjectSet {}
 
 impl RawObjectSet {
-    pub fn fill_from_query(
-        &mut self,
-        query: &Query,
-        txn: &mut IsarTxn,
-        limit: usize,
-    ) -> Result<()> {
-        let mut objects = vec![];
-        let mut count = 0;
-        query.find_while(txn, |id, object| {
-            let mut raw_obj = RawObject::new();
-            raw_obj.set_id(id);
-            raw_obj.set_object(Some(object));
-            objects.push(raw_obj);
-            count += 1;
-            count < limit
-        })?;
-
-        self.fill_from_vec(objects);
-        Ok(())
-    }
-
-    pub fn fill_from_link(
-        &mut self,
-        collection: &IsarCollection,
-        txn: &mut IsarTxn,
-        link_index: usize,
-        backlink: bool,
-        id: i64,
-    ) -> Result<()> {
-        let mut objects = vec![];
-        collection.get_linked_objects(txn, link_index, backlink, id, |id, object| {
-            let mut raw_obj = RawObject::new();
-            raw_obj.set_id(id);
-            raw_obj.set_object(Some(object));
-            objects.push(raw_obj);
-            true
-        })?;
-
-        self.fill_from_vec(objects);
-        Ok(())
-    }
-
     pub fn fill_from_vec(&mut self, objects: Vec<RawObject>) {
         let mut objects = objects.into_boxed_slice();
         self.objects = objects.as_mut_ptr();

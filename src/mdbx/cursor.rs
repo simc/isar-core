@@ -105,11 +105,6 @@ impl<'txn> Cursor<'txn> {
     }
 
     pub fn put(&mut self, key: &[u8], data: &[u8]) -> Result<()> {
-        self.put_internal(key, data, 0)?;
-        Ok(())
-    }
-
-    fn put_internal(&mut self, key: &[u8], data: &[u8], flags: u32) -> Result<()> {
         unsafe {
             let key = to_mdb_val(key);
             let mut data = to_mdb_val(data);
@@ -118,7 +113,7 @@ impl<'txn> Cursor<'txn> {
                 self.cursor.cursor,
                 &key,
                 &mut data,
-                flags.try_into().unwrap(),
+                0,
             ))?;
         }
         Ok(())

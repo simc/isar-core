@@ -19,7 +19,7 @@ impl<'a> JsonEncodeDecode {
         for (property_name, property) in &collection.properties {
             let property = *property;
             let value =
-                if primitive_null && property.data_type.is_static() && object.is_null(property) {
+                if primitive_null && object.is_null(property) {
                     Value::Null
                 } else {
                     match property.data_type {

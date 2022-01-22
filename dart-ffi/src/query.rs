@@ -130,7 +130,18 @@ pub unsafe extern "C" fn isar_q_find(
     limit: u32,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
-        result.fill_from_query(query, txn, limit as usize)?;
+        let mut objects = vec![];
+        let mut count = 0;
+        query.find_while(txn, |id, object| {
+            let mut raw_obj = RawObject::new();
+            raw_obj.set_id(id);
+            raw_obj.set_object(Some(object));
+            objects.push(raw_obj);
+            count += 1;
+            count < limit
+        })?;
+
+        result.fill_from_vec(objects);
         Ok(())
     })
 }
