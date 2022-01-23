@@ -1,7 +1,7 @@
 use crate::object::data_type::DataType;
 use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Serialize, Deserialize, Clone, Debug, Eq)]
+#[derive(PartialEq, Serialize, Deserialize, Clone, Debug, Eq, Hash)]
 pub struct PropertySchema {
     pub(crate) name: String,
     #[serde(rename = "type")]

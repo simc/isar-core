@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 use crate::TestObj;
+use isar_core::collection::IsarCollection;
 use isar_core::query::Query;
 use isar_core::txn::IsarTxn;
 use itertools::Itertools;
-use isar_core::collection::IsarCollection;
 
 #[macro_export]
 macro_rules! isar (
@@ -26,14 +26,16 @@ macro_rules! isar (
     ($path:expr, $isar:ident,) => {
         let schema = isar_core::schema::Schema::new(vec![]).unwrap();
         let path = $path.to_string();
-        let $isar = isar_core::instance::IsarInstance::open(&path, false, schema).unwrap();
+        let name = xxhash_rust::xxh3::xxh3_64(path.as_bytes()).to_string();
+        let $isar = isar_core::instance::IsarInstance::open(&name, &path, false, schema).unwrap();
     };
 
     ($path:expr, $isar:ident, $($col:ident => $schema:expr),+) => {
         let col_schemas = vec![$($schema.clone()),*];
         let schema = isar_core::schema::Schema::new(col_schemas).unwrap();
         let path = $path.to_string();
-        let $isar = isar_core::instance::IsarInstance::open(&path, false, schema).unwrap();
+        let name = xxhash_rust::xxh3::xxh3_64(path.as_bytes()).to_string();
+        let $isar = isar_core::instance::IsarInstance::open(&name, &path, false, schema).unwrap();
         isar!(col $isar, 0, $($col),+)
     };
 
@@ -140,12 +142,17 @@ macro_rules! col (
     };
 );
 
-pub fn assert_find<'a>(txn: &'a mut IsarTxn, col:&IsarCollection,query: Query, objects: &[&TestObj]) {
+pub fn assert_find<'a>(
+    txn: &'a mut IsarTxn,
+    col: &IsarCollection,
+    query: Query,
+    objects: &[&TestObj],
+) {
     let result = query
         .find_all_vec(txn)
         .unwrap()
         .iter()
-        .map(|(_, o)| TestObj::fromObject(col,*o))
+        .map(|(_, o)| TestObj::from_object(col, *o))
         .collect_vec();
     let borrowed = result.iter().collect_vec();
     assert_eq!(&borrowed, objects);

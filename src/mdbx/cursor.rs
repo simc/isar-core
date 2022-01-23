@@ -4,7 +4,6 @@ use crate::mdbx::txn::Txn;
 use crate::mdbx::{from_mdb_val, mdbx_result, to_mdb_val, ByteKey, KeyVal, EMPTY_KEY, EMPTY_VAL};
 use core::ptr;
 use std::cmp::Ordering;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 
 pub struct UnboundCursor {
@@ -109,12 +108,7 @@ impl<'txn> Cursor<'txn> {
             let key = to_mdb_val(key);
             let mut data = to_mdb_val(data);
             #[allow(clippy::useless_conversion)]
-            mdbx_result(ffi::mdbx_cursor_put(
-                self.cursor.cursor,
-                &key,
-                &mut data,
-                0,
-            ))?;
+            mdbx_result(ffi::mdbx_cursor_put(self.cursor.cursor, &key, &mut data, 0))?;
         }
         Ok(())
     }

@@ -13,7 +13,10 @@ use crossbeam_channel::{unbounded, Sender};
 use intmap::IntMap;
 use once_cell::sync::Lazy;
 use rand::random;
+use std::collections::hash_map::DefaultHasher;
 use std::fs::create_dir_all;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -21,9 +24,11 @@ static INSTANCES: Lazy<RwLock<IntMap<Arc<IsarInstance>>>> =
     Lazy::new(|| RwLock::new(IntMap::new()));
 
 pub struct IsarInstance {
-    pub path: String,
+    pub name: String,
+    pub dir: String,
     pub collections: Vec<IsarCollection>,
     pub(crate) instance_id: u64,
+    pub(crate) schema_hash: u64,
 
     env: Env,
     watchers: Mutex<IsarWatchers>,
@@ -31,14 +36,26 @@ pub struct IsarInstance {
 }
 
 impl IsarInstance {
-    pub fn open(path: &str, relaxed_durability: bool, schema: Schema) -> Result<Arc<Self>> {
+    pub fn open(
+        name: &str,
+        dir: &str,
+        relaxed_durability: bool,
+        schema: Schema,
+    ) -> Result<Arc<Self>> {
         let mut lock = INSTANCES.write().unwrap();
-        let instance_id = xxh3_64(path.as_bytes());
-        let instance = lock.get(instance_id);
-        if let Some(instance) = instance {
-            Ok(instance.clone())
+        let instance_id = xxh3_64(name.as_bytes());
+        if let Some(instance) = lock.get(instance_id) {
+            let mut hasher = DefaultHasher::new();
+            schema.hash(&mut hasher);
+            let schema_hash = hasher.finish();
+            if instance.schema_hash == schema_hash {
+                Ok(instance.clone())
+            } else {
+                Err(IsarError::SchemaMismatch {})
+            }
         } else {
-            let new_instance = Self::open_internal(path, instance_id, relaxed_durability, schema)?;
+            let new_instance =
+                Self::open_internal(name, dir, instance_id, relaxed_durability, schema)?;
             let new_instance = Arc::new(new_instance);
             lock.insert(instance_id, new_instance.clone());
             Ok(new_instance)
@@ -46,16 +63,24 @@ impl IsarInstance {
     }
 
     fn open_internal(
-        path: &str,
+        name: &str,
+        dir: &str,
         instance_id: u64,
         relaxed_durability: bool,
         mut schema: Schema,
     ) -> Result<Self> {
+        let mut path_buf = PathBuf::from(dir);
+        path_buf.push(name);
+        let path = path_buf.as_path().to_str().unwrap();
         let _ = create_dir_all(path);
 
         let db_count = schema.count_dbs() as u64 + 3;
         let env = Env::create(path, db_count, relaxed_durability)
             .map_err(|e| IsarError::EnvError { error: Box::new(e) })?;
+
+        let mut hasher = DefaultHasher::new();
+        schema.hash(&mut hasher);
+        let schema_hash = hasher.finish();
 
         let txn = env.txn(true)?;
         let collections = {
@@ -69,9 +94,11 @@ impl IsarInstance {
 
         Ok(IsarInstance {
             env,
-            path: path.to_string(),
+            name: name.to_string(),
+            dir: dir.to_string(),
             collections,
             instance_id,
+            schema_hash,
             watchers: Mutex::new(IsarWatchers::new(rx)),
             watcher_modifier_sender: tx,
         })

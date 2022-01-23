@@ -9,7 +9,7 @@ use crate::schema::collection_schema::CollectionSchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Hash)]
 pub struct Schema {
     pub(crate) collections: Vec<CollectionSchema>,
 }

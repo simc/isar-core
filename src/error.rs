@@ -51,6 +51,9 @@ pub enum IsarError {
     #[snafu(display("SchemaError: {}", message))]
     SchemaError { message: String },
 
+    #[snafu(display("SchemaMismatch: The schema of the existing instance does not match."))]
+    SchemaMismatch {},
+
     #[snafu(display("InstanceMismatch: The transaction is from a different instance."))]
     InstanceMismatch {},
 

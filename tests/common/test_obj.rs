@@ -65,7 +65,11 @@ impl TestObj {
     }
 
     pub fn get_prop(col: &IsarCollection, prop: DataType) -> Property {
-        col.properties.iter().find(|(_,p)|p.data_type == prop).unwrap().1
+        col.properties
+            .iter()
+            .find(|(_, p)| p.data_type == prop)
+            .unwrap()
+            .1
     }
 
     pub fn byte_index() -> IndexPropertySchema {
@@ -203,13 +207,13 @@ impl TestObj {
 
     pub fn to_bytes(&self, col: &IsarCollection) -> Vec<u8> {
         let mut builder = col.new_object_builder(None);
-        for (_,prop) in &col.properties {
+        for (_, prop) in &col.properties {
             match prop.data_type {
                 DataType::Byte => builder.write_byte(self.byte),
                 DataType::Int => builder.write_int(self.int),
                 DataType::Float => builder.write_float(self.float),
                 DataType::Long => builder.write_long(self.id),
-                DataType::Double =>builder.write_double(self.double),
+                DataType::Double => builder.write_double(self.double),
                 DataType::String => builder.write_string(self.string.as_deref()),
                 DataType::ByteList => builder.write_byte_list(self.byte_list.as_deref()),
                 DataType::IntList => builder.write_int_list(self.int_list.as_deref()),
@@ -230,7 +234,7 @@ impl TestObj {
 
     pub fn get(col: &IsarCollection, txn: &mut IsarTxn, id: i64) -> Option<Self> {
         let object = col.get(txn, id).unwrap();
-        object.map(|o|TestObj::fromObject(col,o))
+        object.map(|o| TestObj::from_object(col, o))
     }
 
     pub fn save(&self, txn: &mut IsarTxn, col: &IsarCollection) {
@@ -239,25 +243,25 @@ impl TestObj {
             .unwrap();
     }
 
-    pub fn fromObject(col: &IsarCollection, item: IsarObject) -> Self {
+    pub fn from_object(col: &IsarCollection, item: IsarObject) -> Self {
         TestObj {
-            byte: item.read_byte(TestObj::get_prop(col,DataType::Byte)),
-            int: item.read_int(TestObj::get_prop(col,DataType::Int)),
-            id: item.read_long(TestObj::get_prop(col,DataType::Long)),
-            float: item.read_float(TestObj::get_prop(col,DataType::Float)),
-            double: item.read_double(TestObj::get_prop(col,DataType::Double)),
+            byte: item.read_byte(TestObj::get_prop(col, DataType::Byte)),
+            int: item.read_int(TestObj::get_prop(col, DataType::Int)),
+            id: item.read_long(TestObj::get_prop(col, DataType::Long)),
+            float: item.read_float(TestObj::get_prop(col, DataType::Float)),
+            double: item.read_double(TestObj::get_prop(col, DataType::Double)),
             string: item
-                .read_string(TestObj::get_prop(col,DataType::String))
+                .read_string(TestObj::get_prop(col, DataType::String))
                 .map(|s| s.to_string()),
             byte_list: item
-                .read_byte_list(TestObj::get_prop(col,DataType::ByteList))
+                .read_byte_list(TestObj::get_prop(col, DataType::ByteList))
                 .map(|l| l.to_vec()),
-            int_list: item.read_int_list(TestObj::get_prop(col,DataType::IntList)),
-            long_list: item.read_long_list(TestObj::get_prop(col,DataType::LongList)),
-            float_list: item.read_float_list(TestObj::get_prop(col,DataType::FloatList)),
-            double_list: item.read_double_list(TestObj::get_prop(col,DataType::DoubleList)),
+            int_list: item.read_int_list(TestObj::get_prop(col, DataType::IntList)),
+            long_list: item.read_long_list(TestObj::get_prop(col, DataType::LongList)),
+            float_list: item.read_float_list(TestObj::get_prop(col, DataType::FloatList)),
+            double_list: item.read_double_list(TestObj::get_prop(col, DataType::DoubleList)),
             string_list: item
-                .read_string_list(TestObj::get_prop(col,DataType::StringList))
+                .read_string_list(TestObj::get_prop(col, DataType::StringList))
                 .map(|l| l.iter().map(|s| s.map(|s| s.to_string())).collect_vec()),
         }
     }

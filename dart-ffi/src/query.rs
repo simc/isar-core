@@ -1,4 +1,4 @@
-use super::raw_object_set::RawObjectSet;
+use super::raw_object_set::{RawObject, RawObjectSet};
 use crate::txn::IsarDartTxn;
 use crate::{from_c_str, UintSend};
 use isar_core::collection::IsarCollection;

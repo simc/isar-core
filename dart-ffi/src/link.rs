@@ -116,7 +116,7 @@ pub unsafe extern "C" fn isar_link_get_all(
             objects.push(raw_obj);
             true
         })?;
-        result.fill_from_vec(collection, txn, link_index, backlink, id)?;
+        result.fill_from_vec(objects);
         Ok(())
     })
 }

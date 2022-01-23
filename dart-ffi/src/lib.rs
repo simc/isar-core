@@ -40,6 +40,10 @@ pub struct BoolSend(&'static mut bool);
 
 unsafe impl Send for BoolSend {}
 
+pub struct CharsSend(*const i8);
+
+unsafe impl Send for CharsSend {}
+
 #[no_mangle]
 pub unsafe extern "C" fn isar_find_word_boundaries(
     input_bytes: *const u8,

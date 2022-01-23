@@ -8,7 +8,7 @@ mod common;
 #[test]
 fn test_open_instance_multiple_times() {
     isar!(isar1, col => TestObj::default_schema());
-    let path = isar1.path.clone();
+    let path = isar1.dir.clone();
     txn!(isar1, txn);
     put!(id: col, txn, obj1 => 1, obj2 => 2);
 
@@ -32,7 +32,7 @@ fn test_open_instance_added_collection() {
 
     // empty database
     isar!(isar);
-    let path = isar.path.clone();
+    let path = isar.dir.clone();
     txn!(isar, txn);
     verify_isar(&mut txn, vec![]);
     txn.abort();
@@ -66,7 +66,7 @@ fn test_open_instance_removed_collection() {
 
     // database with two collections
     isar!(isar, col1 => schema1, col2 => schema2);
-    let path = isar.path.clone();
+    let path = isar.dir.clone();
     txn!(isar, txn);
     put!(id: col1, txn, obj1 => 1, obj2 => 2);
     put!(id: col2, txn, obj3 => 3, obj4 => 4);
@@ -95,7 +95,7 @@ fn test_open_instance_removed_collection() {
 fn test_open_instance_added_index() {
     let schema = TestObj::schema("obj", &[], &[]);
     isar!(isar, col => schema);
-    let path = isar.path.clone();
+    let path = isar.dir.clone();
     txn!(isar, txn);
     put!(col, txn, byte, obj1 => 1, obj2 => 2, obj3 => 2, obj4 => 3, obj5 => 1);
     verify!(txn, col, obj1, obj2, obj3, obj4, obj5);

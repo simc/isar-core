@@ -2,6 +2,7 @@ use crate::dart::{dart_post_int, DartPort};
 use crate::error::DartErrCode;
 use crate::from_c_str;
 use crate::txn::run_async;
+use crate::CharsSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
 use isar_core::instance::IsarInstance;
@@ -16,32 +17,46 @@ unsafe impl Send for IsarInstanceSend {}
 #[no_mangle]
 pub unsafe extern "C" fn isar_create_instance(
     isar: *mut *const IsarInstance,
+    name: *const c_char,
+    path: *const c_char,
+    relaxed_durability: bool,
+    schema_json: *const c_char,
+) -> i64 {
+    let open = || -> Result<()> {
+        let name = from_c_str(name).unwrap().unwrap();
+        let path = from_c_str(path).unwrap().unwrap();
+        let schema_json = from_c_str(schema_json).unwrap().unwrap();
+        let schema = Schema::from_json(schema_json.as_bytes())?;
+
+        let instance = IsarInstance::open(name, path, relaxed_durability, schema)?;
+        isar.write(instance.as_ref());
+        Ok(())
+    };
+
+    match open() {
+        Ok(_) => 0,
+        Err(e) => e.into_dart_err_code(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_create_instance_async(
+    isar: *mut *const IsarInstance,
+    name: *const c_char,
     path: *const c_char,
     relaxed_durability: bool,
     schema_json: *const c_char,
     port: DartPort,
 ) {
     let isar = IsarInstanceSend(isar);
-    let path = from_c_str(path).unwrap().unwrap();
-    let schema_json = from_c_str(schema_json).unwrap().unwrap();
-
-    fn open(path: &str, relaxed_durability: bool, schema_json: &str) -> Result<Arc<IsarInstance>> {
-        let schema = Schema::from_json(schema_json.as_bytes())?;
-        let instance = IsarInstance::open(path, relaxed_durability, schema)?;
-        Ok(instance)
-    }
-
+    let name = CharsSend(name);
+    let path = CharsSend(path);
+    let schema_json = CharsSend(schema_json);
     run_async(move || {
         let isar = isar;
-        match open(path, relaxed_durability, schema_json) {
-            Ok(instance) => {
-                isar.0.write(instance.as_ref());
-                dart_post_int(port, 0);
-            }
-            Err(e) => {
-                dart_post_int(port, e.into_dart_err_code());
-            }
-        };
+        let result =
+            isar_create_instance(isar.0, name.0, path.0, relaxed_durability, schema_json.0);
+        dart_post_int(port, result);
     });
 }
 

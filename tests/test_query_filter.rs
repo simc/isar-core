@@ -16,7 +16,7 @@ fn expect_filter(txn: &mut IsarTxn, col: &IsarCollection, filter: Filter, object
     let result = q.find_all_vec(txn).unwrap();
     assert_eq!(objects.len(), result.len());
     for (o, (_, r)) in objects.iter().zip(result.into_iter()) {
-        assert_eq!(TestObj::fromObject(col,r), **o);
+        assert_eq!(TestObj::from_object(col, r), **o);
     }
 }
 

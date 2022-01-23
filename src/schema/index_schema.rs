@@ -4,14 +4,14 @@ use crate::object::isar_object::Property;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum IndexType {
     Value,
     Hash,
     HashElements,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct IndexPropertySchema {
     pub(crate) name: String,
     #[serde(rename = "type")]
@@ -30,7 +30,7 @@ impl IndexPropertySchema {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct IndexSchema {
     pub(crate) name: String,
     pub(crate) properties: Vec<IndexPropertySchema>,

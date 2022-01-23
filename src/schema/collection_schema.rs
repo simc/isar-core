@@ -7,7 +7,7 @@ use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash)]
 pub struct CollectionSchema {
     pub(crate) name: String,
     pub(crate) properties: Vec<PropertySchema>,
