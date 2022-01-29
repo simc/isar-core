@@ -40,7 +40,7 @@ pub struct BoolSend(&'static mut bool);
 
 unsafe impl Send for BoolSend {}
 
-pub struct CharsSend(*const i8);
+pub struct CharsSend(*const c_char);
 
 unsafe impl Send for CharsSend {}
 
