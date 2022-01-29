@@ -31,7 +31,12 @@ pub unsafe extern "C" fn isar_get_by_index(
     let key = *Box::from_raw(key);
     isar_try_txn!(txn, move |txn| {
         let result = collection.get_by_index(txn, index_index as usize, &key)?;
-        object.set_object(result);
+        if let Some((id, obj)) = result {
+            object.set_id(id);
+            object.set_object(Some(obj));
+        } else {
+            object.set_object(None);
+        }
         Ok(())
     })
 }
@@ -65,7 +70,12 @@ pub unsafe extern "C" fn isar_get_all_by_index(
     isar_try_txn!(txn, move |txn| {
         for (object, key) in objects.get_objects().iter_mut().zip(keys) {
             let result = collection.get_by_index(txn, index_index as usize, &key)?;
-            object.set_object(result);
+            if let Some((id, obj)) = result {
+                object.set_id(id);
+                object.set_object(Some(obj));
+            } else {
+                object.set_object(None);
+            }
         }
         Ok(())
     })

@@ -120,7 +120,7 @@ impl IsarCollection {
         txn: &'txn mut IsarTxn,
         index_index: usize,
         key: &IndexKey,
-    ) -> Result<Option<IsarObject<'txn>>> {
+    ) -> Result<Option<(i64, IsarObject<'txn>)>> {
         let index = self.get_index_by_index(index_index)?;
         txn.read(self.instance_id, |cursors| {
             if let Some(id_key) = index.get_id(cursors, key)? {
@@ -131,7 +131,8 @@ impl IsarCollection {
                         .ok_or(IsarError::DbCorrupted {
                             message: "Invalid index entry".to_string(),
                         })?;
-                Ok(Some(IsarObject::from_bytes(bytes)))
+                let result = (id_key.get_id(), IsarObject::from_bytes(bytes));
+                Ok(Some(result))
             } else {
                 Ok(None)
             }
