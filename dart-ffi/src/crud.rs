@@ -162,7 +162,7 @@ pub unsafe extern "C" fn isar_delete_all(
     let ids = std::slice::from_raw_parts(ids, ids_length as usize);
     let count = UintSend(count);
     isar_try_txn!(txn, move |txn| {
-        let mut count = 0;
+        let mut count = 0u32;
         for id in ids {
             if collection.delete(txn, *id)? {
                 count += 1;
@@ -186,7 +186,7 @@ pub unsafe extern "C" fn isar_delete_all_by_index(
     let keys: Vec<IndexKey> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
     let count = UintSend(count);
     isar_try_txn!(txn, move |txn| {
-        let mut count = 0;
+        let mut count = 0u32;
         for key in keys {
             if collection.delete_by_index(txn, index_index as usize, &key)? {
                 count += 1;
