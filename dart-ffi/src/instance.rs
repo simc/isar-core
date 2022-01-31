@@ -29,7 +29,7 @@ pub unsafe extern "C" fn isar_create_instance(
         let schema = Schema::from_json(schema_json.as_bytes())?;
 
         let instance = IsarInstance::open(name, path, relaxed_durability, schema)?;
-        isar.write(instance.as_ref());
+        isar.write(Arc::into_raw(instance));
         Ok(())
     };
 
@@ -58,17 +58,6 @@ pub unsafe extern "C" fn isar_create_instance_async(
             isar_create_instance(isar.0, name.0, path.0, relaxed_durability, schema_json.0);
         dart_post_int(port, result);
     });
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_get_instance(isar: *mut *const IsarInstance, name: *const c_char) {
-    let name = from_c_str(name).unwrap().unwrap();
-    let instance = IsarInstance::get_instance(&name);
-    if let Some(instance) = instance {
-        isar.write(instance.as_ref());
-    } else {
-        isar.write(std::ptr::null());
-    }
 }
 
 #[no_mangle]

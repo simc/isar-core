@@ -8,6 +8,8 @@ use crate::error::{schema_error, Result};
 use crate::schema::collection_schema::CollectionSchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Hash)]
 pub struct Schema {
@@ -27,6 +29,12 @@ impl Schema {
         } else {
             schema_error("Could not deserialize schema JSON")
         }
+    }
+
+    pub fn get_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 
     fn verify(&mut self) -> Result<()> {

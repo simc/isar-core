@@ -58,12 +58,6 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn update_auto_increment(&self, id: i64) {
-        if id >= self.next_auto_increment.get() {
-            self.next_auto_increment.set(id + 1);
-        }
-    }
-
     fn get_links_and_backlinks(&self) -> impl Iterator<Item = &IsarLink> {
         self.links
             .iter()
@@ -77,6 +71,21 @@ impl IsarCollection {
 
     pub fn new_query_builder(&self) -> QueryBuilder {
         QueryBuilder::new(self)
+    }
+
+    pub(crate) fn init_auto_increment(&self, cursors: &IsarCursors) -> Result<()> {
+        let mut cursor = cursors.get_cursor(self.db)?;
+        if let Some((key, _)) = cursor.move_to_last()? {
+            let id = IdKey::from_bytes(key).get_id();
+            self.update_auto_increment(id);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn update_auto_increment(&self, id: i64) {
+        if id >= self.next_auto_increment.get() {
+            self.next_auto_increment.set(id + 1);
+        }
     }
 
     pub fn auto_increment(&self, _txn: &mut IsarTxn) -> Result<i64> {
@@ -211,7 +220,7 @@ impl IsarCollection {
         })
     }
 
-    pub(crate) fn delete_internal(
+    fn delete_internal(
         &self,
         cursors: &IsarCursors,
         delete_links: bool,
@@ -373,6 +382,33 @@ impl IsarCollection {
             change_set.register_change(self.get_runtime_id(), None, None);
             change_set.register_change(link.get_target_col_runtime_id(), None, None);
         }
+    }
+
+    pub(crate) fn fill_indexes(&self, indexes: &[usize], cursors: &IsarCursors) -> Result<()> {
+        let mut cursor = cursors.get_cursor(self.db)?;
+        cursor.iter_between(
+            &u64::MIN.to_le_bytes(),
+            &u64::MAX.to_le_bytes(),
+            false,
+            false,
+            true,
+            |cursor, key, object| {
+                let id_key = IdKey::from_bytes(key);
+                let object = IsarObject::from_bytes(object);
+                for index_index in indexes {
+                    let (_, index) = self.indexes.get(*index_index).unwrap();
+                    index.create_for_object(cursors, &id_key, object, |id_key| {
+                        let deleted = self.delete_internal(cursors, true, None, id_key)?;
+                        if deleted {
+                            cursor.move_to_next()?; // todo find out why this is necessary
+                        }
+                        Ok(true)
+                    })?;
+                }
+                Ok(true)
+            },
+        )?;
+        Ok(())
     }
 
     pub(crate) fn debug_dump(&self, cursors: &IsarCursors) -> HashSet<(Vec<u8>, Vec<u8>)> {

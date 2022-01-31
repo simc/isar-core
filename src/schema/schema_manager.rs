@@ -1,12 +1,10 @@
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
-use crate::id_key::IdKey;
 use crate::link::IsarLink;
 use crate::mdbx::cursor::{Cursor, UnboundCursor};
 use crate::mdbx::db::Db;
 use crate::mdbx::txn::Txn;
-use crate::object::isar_object::IsarObject;
 use crate::schema::collection_schema::CollectionSchema;
 use crate::schema::index_schema::IndexSchema;
 use crate::schema::link_schema::LinkSchema;
@@ -153,11 +151,16 @@ impl<'a> SchemaManger<'a> {
     }
 
     pub fn open_collections(&mut self, schema: &Schema) -> Result<Vec<IsarCollection>> {
+        let cursors = IsarCursors::new(self.txn, vec![]);
         let mut cols = vec![];
         for col_schema in &schema.collections {
-            cols.push(self.open_collection(schema, col_schema)?);
+            let col = self.open_collection(schema, col_schema)?;
+            col.init_auto_increment(&cursors)?;
+            if let Some(new_indexes) = self.new_indexes.get(&col.name) {
+                col.fill_indexes(new_indexes, &cursors)?;
+            }
+            cols.push(col);
         }
-        self.create_missing_indexes(&cols)?;
         Ok(cols)
     }
 
@@ -208,43 +211,6 @@ impl<'a> SchemaManger<'a> {
             links,
             backlinks,
         ))
-    }
-
-    fn create_missing_indexes(&mut self, cols: &[IsarCollection]) -> Result<()> {
-        let cursors = IsarCursors::new(self.txn, vec![]);
-        for col in cols {
-            if let Some(new_indexes) = self.new_indexes.get(&col.name) {
-                Self::fill_indexes(col, new_indexes, &cursors)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn fill_indexes(col: &IsarCollection, indexes: &[usize], cursors: &IsarCursors) -> Result<()> {
-        let mut cursor = cursors.get_cursor(col.db)?;
-        cursor.iter_between(
-            &u64::MIN.to_le_bytes(),
-            &u64::MAX.to_le_bytes(),
-            false,
-            false,
-            true,
-            |cursor, key, object| {
-                let id_key = IdKey::from_bytes(key);
-                let object = IsarObject::from_bytes(object);
-                for index_index in indexes {
-                    let (_, index) = col.indexes.get(*index_index).unwrap();
-                    index.create_for_object(cursors, &id_key, object, |id_key| {
-                        let deleted = col.delete_internal(cursors, true, None, id_key)?;
-                        if deleted {
-                            cursor.move_to_next()?; // todo find out why this is necessary
-                        }
-                        Ok(true)
-                    })?;
-                }
-                Ok(true)
-            },
-        )?;
-        Ok(())
     }
 }
 

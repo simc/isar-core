@@ -13,9 +13,7 @@ use crossbeam_channel::{unbounded, Sender};
 use intmap::IntMap;
 use once_cell::sync::Lazy;
 use rand::random;
-use std::collections::hash_map::DefaultHasher;
 use std::fs::create_dir_all;
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use xxhash_rust::xxh3::xxh3_64;
@@ -45,10 +43,7 @@ impl IsarInstance {
         let mut lock = INSTANCES.write().unwrap();
         let instance_id = xxh3_64(name.as_bytes());
         if let Some(instance) = lock.get(instance_id) {
-            let mut hasher = DefaultHasher::new();
-            schema.hash(&mut hasher);
-            let schema_hash = hasher.finish();
-            if instance.schema_hash == schema_hash {
+            if instance.schema_hash == schema.get_hash() {
                 Ok(instance.clone())
             } else {
                 Err(IsarError::SchemaMismatch {})
@@ -69,6 +64,8 @@ impl IsarInstance {
         relaxed_durability: bool,
         mut schema: Schema,
     ) -> Result<Self> {
+        let schema_hash = schema.get_hash();
+
         let mut path_buf = PathBuf::from(dir);
         path_buf.push(name);
         let path = path_buf.as_path().to_str().unwrap();
@@ -77,10 +74,6 @@ impl IsarInstance {
         let db_count = schema.count_dbs() as u64 + 3;
         let env = Env::create(path, db_count, relaxed_durability)
             .map_err(|e| IsarError::EnvError { error: Box::new(e) })?;
-
-        let mut hasher = DefaultHasher::new();
-        schema.hash(&mut hasher);
-        let schema_hash = hasher.finish();
 
         let txn = env.txn(true)?;
         let collections = {
