@@ -69,7 +69,9 @@ impl IsarInstance {
         let mut path_buf = PathBuf::from(dir);
         path_buf.push(name);
         let path = path_buf.as_path().to_str().unwrap();
-        let _ = create_dir_all(path);
+        if create_dir_all(path).is_err() {
+            return Err(IsarError::PathError {});
+        }
 
         let db_count = schema.count_dbs() as u64 + 3;
         let env = Env::create(path, db_count, relaxed_durability)
