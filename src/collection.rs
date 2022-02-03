@@ -27,7 +27,7 @@ pub struct IsarCollection {
     pub(crate) links: Vec<(String, IsarLink)>, // links from this collection
     pub(crate) backlinks: Vec<IsarLink>,       // links to this collection
 
-    next_auto_increment: Cell<i64>,
+    auto_increment: Cell<i64>,
 }
 
 unsafe impl Send for IsarCollection {}
@@ -54,7 +54,7 @@ impl IsarCollection {
             indexes,
             links,
             backlinks,
-            next_auto_increment: Cell::new(i64::MIN + 1),
+            auto_increment: Cell::new(i64::MIN),
         }
     }
 
@@ -83,20 +83,16 @@ impl IsarCollection {
     }
 
     pub(crate) fn update_auto_increment(&self, id: i64) {
-        if id >= self.next_auto_increment.get() {
-            self.next_auto_increment.set(id + 1);
+        if id > self.auto_increment.get() {
+            self.auto_increment.set(id);
         }
     }
 
-    pub fn auto_increment(&self, _txn: &mut IsarTxn) -> Result<i64> {
-        self.auto_increment_internal()
-    }
-
-    pub(crate) fn auto_increment_internal(&self) -> Result<i64> {
-        let id = self.next_auto_increment.get();
-        if id < i64::MAX {
-            self.next_auto_increment.set(id + 1);
-            Ok(id)
+    pub(crate) fn auto_increment(&self) -> Result<i64> {
+        let last = self.auto_increment.get();
+        if last < i64::MAX {
+            self.auto_increment.set(last + 1);
+            Ok(last + 1)
         } else {
             Err(IsarError::AutoIncrementOverflow {})
         }
@@ -151,10 +147,10 @@ impl IsarCollection {
     pub fn put(
         &self,
         txn: &mut IsarTxn,
-        id: i64,
+        id: Option<i64>,
         object: IsarObject,
         replace_on_conflict: bool,
-    ) -> Result<()> {
+    ) -> Result<i64> {
         txn.write(self.instance_id, |cursors, change_set| {
             self.put_internal(cursors, change_set, id, object, replace_on_conflict)
         })
@@ -164,14 +160,19 @@ impl IsarCollection {
         &self,
         cursors: &IsarCursors,
         mut change_set: Option<&mut ChangeSet>,
-        id: i64,
+        id: Option<i64>,
         object: IsarObject,
         replace_on_conflict: bool,
-    ) -> Result<()> {
-        let id_key = IdKey::new(id);
-
-        self.delete_internal(cursors, false, change_set.as_deref_mut(), &id_key)?;
-        self.update_auto_increment(id);
+    ) -> Result<i64> {
+        let (id, id_key) = if let Some(id) = id {
+            let id_key = IdKey::new(id);
+            self.delete_internal(cursors, false, change_set.as_deref_mut(), &id_key)?;
+            self.update_auto_increment(id);
+            (id, id_key)
+        } else {
+            let id = self.auto_increment()?;
+            (id, IdKey::new(id))
+        };
 
         /*if !self.object_info.verify_object(object) {
             return Err(IsarError::InvalidObject {});
@@ -193,7 +194,7 @@ impl IsarCollection {
         if let Some(change_set) = change_set {
             change_set.register_change(self.get_runtime_id(), Some(id), Some(object));
         }
-        Ok(())
+        Ok(id)
     }
 
     pub fn delete(&self, txn: &mut IsarTxn, id: i64) -> Result<bool> {
@@ -338,7 +339,7 @@ impl IsarCollection {
         }
         txn.clear_db(self.db)?;
         txn.register_all_changed(self.get_runtime_id())?;
-        self.next_auto_increment.set(i64::MIN + 1);
+        self.auto_increment.set(i64::MIN);
         Ok(())
     }
 
@@ -355,12 +356,13 @@ impl IsarCollection {
             for value in array {
                 let id = if let Some(id_name) = id_name {
                     if let Some(id) = value.get(id_name) {
-                        id.as_i64().ok_or(IsarError::InvalidJson {})?
+                        let id = id.as_i64().ok_or(IsarError::InvalidJson {})?;
+                        Some(id)
                     } else {
-                        self.auto_increment_internal()?
+                        None
                     }
                 } else {
-                    self.auto_increment_internal()?
+                    None
                 };
                 let ob = JsonEncodeDecode::decode(self, value, ob_result_cache)?;
                 let object = ob.finish();

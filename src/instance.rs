@@ -13,7 +13,8 @@ use crossbeam_channel::{unbounded, Sender};
 use intmap::IntMap;
 use once_cell::sync::Lazy;
 use rand::random;
-use std::fs::create_dir_all;
+use std::fs::{create_dir_all, remove_dir_all};
+use std::mem;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use xxhash_rust::xxh3::xxh3_64;
@@ -184,13 +185,20 @@ impl IsarInstance {
         )
     }
 
-    pub fn close(self: Arc<Self>) -> bool {
+    pub fn close(self: Arc<Self>, delete_from_disk: bool) -> bool {
         // Check whether all other references are gone
         if Arc::strong_count(&self) == 2 {
             let mut lock = INSTANCES.write().unwrap();
             // Check again to make sure there are no new references
             if Arc::strong_count(&self) == 2 {
                 lock.remove(self.instance_id);
+
+                if delete_from_disk {
+                    let mut path_buf = PathBuf::from(&self.dir);
+                    path_buf.push(&self.name);
+                    mem::drop(self);
+                    let _ = remove_dir_all(path_buf);
+                }
                 return true;
             }
         }

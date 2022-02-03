@@ -89,12 +89,12 @@ pub unsafe extern "C" fn isar_put(
     replace_on_conflict: bool,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
-        let id = if object.get_id() == i64::MIN {
-            collection.auto_increment(txn)?
+        let id = if object.get_id() != i64::MIN {
+            Some(object.get_id())
         } else {
-            object.get_id()
+            None
         };
-        collection.put(txn, id, object.get_object(), replace_on_conflict)?;
+        let id = collection.put(txn, id, object.get_object(), replace_on_conflict)?;
         object.set_id(id);
         Ok(())
     })
@@ -108,14 +108,14 @@ pub unsafe extern "C" fn isar_put_all(
     replace_on_conflict: bool,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
-        for raw_obj in objects.get_objects() {
-            let id = if raw_obj.get_id() == i64::MIN {
-                collection.auto_increment(txn)?
+        for object in objects.get_objects() {
+            let id = if object.get_id() != i64::MIN {
+                Some(object.get_id())
             } else {
-                raw_obj.get_id()
+                None
             };
-            collection.put(txn, id, raw_obj.get_object(), replace_on_conflict)?;
-            raw_obj.set_id(id)
+            let id = collection.put(txn, id, object.get_object(), replace_on_conflict)?;
+            object.set_id(id)
         }
         Ok(())
     })
