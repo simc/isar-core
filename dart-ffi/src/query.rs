@@ -182,7 +182,6 @@ pub unsafe extern "C" fn isar_q_export_json(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     id_name: *const c_char,
-    primitive_null: bool,
     json_bytes: *mut *mut u8,
     json_length: *mut u32,
 ) -> i64 {
@@ -192,7 +191,7 @@ pub unsafe extern "C" fn isar_q_export_json(
     isar_try_txn!(txn, move |txn| {
         let json = json;
         let json_length = json_length;
-        let exported_json = query.export_json(txn, collection, id_name, primitive_null, true)?;
+        let exported_json = query.export_json(txn, collection, id_name, true, true)?;
         let bytes = serde_json::to_vec(&exported_json).unwrap();
         let mut bytes = bytes.into_boxed_slice();
         json_length.0.write(bytes.len() as u32);

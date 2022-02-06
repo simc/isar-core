@@ -54,7 +54,7 @@ impl IsarCollection {
             indexes,
             links,
             backlinks,
-            auto_increment: Cell::new(i64::MIN),
+            auto_increment: Cell::new(0),
         }
     }
 
