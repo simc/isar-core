@@ -66,7 +66,11 @@ pub unsafe extern "C" fn isar_close_instance(
     delete_from_disk: bool,
 ) -> bool {
     let isar = Arc::from_raw(isar);
-    isar.close(delete_from_disk)
+    if delete_from_disk {
+        isar.close_and_delete()
+    } else {
+        isar.close()
+    }
 }
 
 #[no_mangle]
