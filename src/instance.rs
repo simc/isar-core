@@ -185,7 +185,7 @@ impl IsarInstance {
         )
     }
 
-    pub fn close(self: Arc<Self>, delete_from_disk: bool) -> bool {
+    fn close_internal(self: Arc<Self>, delete_from_disk: bool) -> bool {
         // Check whether all other references are gone
         if Arc::strong_count(&self) == 2 {
             let mut lock = INSTANCES.write().unwrap();
@@ -203,5 +203,13 @@ impl IsarInstance {
             }
         }
         false
+    }
+
+    pub fn close(self: Arc<Self>) -> bool {
+        self.close_internal(false)
+    }
+
+    pub fn close_and_delete(self: Arc<Self>) -> bool {
+        self.close_internal(true)
     }
 }

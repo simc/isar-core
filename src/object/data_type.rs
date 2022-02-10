@@ -1,20 +1,21 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Debug, Hash)]
-#[repr(u8)]
 pub enum DataType {
-    Byte = 0,
-    Int = 1,
-    Float = 2,
-    Long = 3,
-    Double = 4,
-    String = 5,
-    ByteList = 6,
-    IntList = 7,
-    FloatList = 8,
-    LongList = 9,
-    DoubleList = 10,
-    StringList = 11,
+    #[serde(alias = "Bool")]
+    Byte,
+    Int,
+    Float,
+    Long,
+    Double,
+    String,
+    #[serde(alias = "BoolList")]
+    ByteList,
+    IntList,
+    FloatList,
+    LongList,
+    DoubleList,
+    StringList,
 }
 
 impl DataType {

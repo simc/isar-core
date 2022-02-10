@@ -30,17 +30,17 @@ fn test_put_new() {
     isar!(isar, col =>TestObj::default_schema());
     txn!(isar, txn);
 
-    assert_eq!(col.auto_increment(&mut txn).unwrap(), i64::MIN + 1);
+    assert_eq!(col.auto_increment(&mut txn).unwrap(), 1);
 
-    // put new object with id 1
-    let obj1 = TestObj::default(1);
+    // put new object with id 5
+    let obj1 = TestObj::default(5);
     obj1.save(&mut txn, col);
-    assert_eq!(col.auto_increment(&mut txn).unwrap(), 2);
+    assert_eq!(col.auto_increment(&mut txn).unwrap(), 6);
 
-    // put new object with id 2
-    let obj2 = TestObj::default(3);
+    // put new object with id 6
+    let obj2 = TestObj::default(6);
     obj2.save(&mut txn, col);
-    assert_eq!(col.auto_increment(&mut txn).unwrap(), 4);
+    assert_eq!(col.auto_increment(&mut txn).unwrap(), 7);
 
     // both objects should be in the database
     verify!(txn, col, obj1, obj2);

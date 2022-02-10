@@ -88,7 +88,11 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn auto_increment(&self) -> Result<i64> {
+    pub fn auto_increment(&self, _: &mut IsarTxn) -> Result<i64> {
+        self.auto_increment_internal()
+    }
+
+    pub(crate) fn auto_increment_internal(&self) -> Result<i64> {
         let last = self.auto_increment.get();
         if last < i64::MAX {
             self.auto_increment.set(last + 1);
@@ -170,7 +174,7 @@ impl IsarCollection {
             self.update_auto_increment(id);
             (id, id_key)
         } else {
-            let id = self.auto_increment()?;
+            let id = self.auto_increment_internal()?;
             (id, IdKey::new(id))
         };
 
