@@ -122,6 +122,36 @@ macro_rules! num_filter {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_filter_id(
+    filter: *mut *const Filter,
+    lower: i64,
+    include_lower: bool,
+    upper: i64,
+    include_upper: bool,
+) -> i64 {
+    isar_try! {
+        let lower = if !include_lower {
+            lower.checked_add(1)
+        } else {
+            Some(lower)
+        };
+        let upper = if !include_upper {
+            upper.checked_sub(1)
+        } else {
+            Some(upper)
+        };
+
+        let query_filter = if let (Some(lower), Some(upper)) = (lower, upper) {
+            Filter::id(lower, upper)?
+        } else {
+            Filter::stat(false)
+        };
+        let ptr = Box::into_raw(Box::new(query_filter));
+        filter.write(ptr);
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_filter_byte(
     collection: &IsarCollection,
     filter: *mut *const Filter,
