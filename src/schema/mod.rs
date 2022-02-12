@@ -17,9 +17,15 @@ pub struct Schema {
 }
 
 impl Schema {
-    pub fn new(collections: Vec<CollectionSchema>) -> Result<Schema> {
-        let mut schema = Schema { collections };
-        schema.verify()?;
+    pub fn new(mut collections: Vec<CollectionSchema>) -> Result<Schema> {
+        if collections.iter().unique_by(|c| &c.name).count() != collections.len() {
+            return schema_error("Duplicate collections");
+        }
+        for col in &mut collections {
+            col.verify()?;
+        }
+
+        let schema = Schema { collections };
         Ok(schema)
     }
 
@@ -35,16 +41,6 @@ impl Schema {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish()
-    }
-
-    fn verify(&mut self) -> Result<()> {
-        if self.collections.iter().unique_by(|c| &c.name).count() != self.collections.len() {
-            return schema_error("Duplicate collections");
-        }
-        for col in &mut self.collections {
-            col.verify()?;
-        }
-        Ok(())
     }
 
     pub(crate) fn get_collection(&self, name: &str) -> Option<&CollectionSchema> {

@@ -90,10 +90,15 @@ pub unsafe extern "C" fn isar_get_collection<'a>(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_get_property_offsets(collection: &IsarCollection, offsets: *mut u32) {
+pub unsafe extern "C" fn isar_get_static_size_and_offsets(
+    collection: &IsarCollection,
+    offsets: *mut u32,
+) -> u32 {
     let properties = &collection.properties;
     let offsets = std::slice::from_raw_parts_mut(offsets, properties.len());
     for (i, (_, p)) in properties.iter().enumerate() {
         offsets[i] = p.offset as u32;
     }
+    let property = properties.iter().max_by_key(|(_, p)| p.offset);
+    property.map_or(2, |(_, p)| p.offset + p.data_type.get_static_size())
 }
