@@ -95,8 +95,7 @@ fn main() {
     let flags = format!("{:?}", cc_builder.get_compiler().cflags_env());
     cc_builder
         .flag_if_supported("-Wno-everything")
-        .flag_if_supported("-miphoneos-version-min=10.0")
-        .flag_if_supported("/w");
+        .flag_if_supported("-miphoneos-version-min=10.0");
 
     if cfg!(windows) {
         let dst = cmake::Config::new(&mdbx)
@@ -110,6 +109,7 @@ fn main() {
             .define("MDBX_ENABLE_PGOP_STAT", "0")
             // Setting HAVE_LIBM=1 is necessary to override issues with `pow` detection on Windows
             .define("HAVE_LIBM", "1")
+            .cflag("/w")
             .init_c_cfg(cc_builder)
             .build();
 
