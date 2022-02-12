@@ -94,9 +94,7 @@ fn main() {
     let mut cc_builder = cc::Build::new();
     let flags = format!("{:?}", cc_builder.get_compiler().cflags_env());
     cc_builder
-        .flag_if_supported("-Wno-unused-parameter")
-        .flag_if_supported("-Wbad-function-cast")
-        .flag_if_supported("-Wuninitialized")
+        .flag_if_supported("-Wno-everything")
         .flag_if_supported("-miphoneos-version-min=10.0");
 
     if cfg!(windows) {
