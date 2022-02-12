@@ -95,7 +95,8 @@ fn main() {
     let flags = format!("{:?}", cc_builder.get_compiler().cflags_env());
     cc_builder
         .flag_if_supported("-Wno-everything")
-        .flag_if_supported("-miphoneos-version-min=10.0");
+        .flag_if_supported("-miphoneos-version-min=10.0")
+        .flag_if_supported("/w");
 
     if cfg!(windows) {
         let dst = cmake::Config::new(&mdbx)
