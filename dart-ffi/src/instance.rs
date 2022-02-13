@@ -100,5 +100,5 @@ pub unsafe extern "C" fn isar_get_static_size_and_offsets(
         offsets[i] = p.offset as u32;
     }
     let property = properties.iter().max_by_key(|(_, p)| p.offset);
-    property.map_or(2, |(_, p)| p.offset + p.data_type.get_static_size())
+    property.map_or(2, |(_, p)| p.offset + p.data_type.get_static_size()) as u32
 }

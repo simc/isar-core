@@ -170,7 +170,8 @@ impl<'a> SchemaManger<'a> {
         col_schema: &CollectionSchema,
     ) -> Result<IsarCollection> {
         let db = self.open_collection_db(col_schema)?;
-        let properties = col_schema.get_properties();
+        let mut properties = col_schema.get_properties();
+        properties.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         let mut indexes = vec![];
         for index_schema in &col_schema.indexes {
@@ -178,6 +179,7 @@ impl<'a> SchemaManger<'a> {
             let index = index_schema.as_index(db, &properties);
             indexes.push((index_schema.name.clone(), index));
         }
+        indexes.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         let mut links = vec![];
         for link_schema in &col_schema.links {
@@ -187,6 +189,7 @@ impl<'a> SchemaManger<'a> {
             let link = IsarLink::new(link_db, backlink_db, db, target_db);
             links.push((link_schema.name.clone(), link));
         }
+        links.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         let mut backlinks = vec![];
         for other_col_schema in &schema.collections {
@@ -199,8 +202,11 @@ impl<'a> SchemaManger<'a> {
                 }
             }
         }
-        backlinks.sort_by(|(col1, l1, _), (col2, l2, _)| col1.cmp(col2).then(l1.cmp(l2)));
-        let backlinks = backlinks.into_iter().map(|(_, _, link)| link).collect_vec();
+        let backlinks = backlinks
+            .into_iter()
+            .sorted_by(|(col1, l1, _), (col2, l2, _)| col1.cmp(col2).then(l1.cmp(l2)))
+            .map(|(_, _, link)| link)
+            .collect_vec();
 
         Ok(IsarCollection::new(
             db,

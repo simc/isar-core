@@ -39,14 +39,11 @@ impl IsarCollection {
         db: Db,
         instance_id: u64,
         name: String,
-        mut properties: Vec<(String, Property)>,
-        mut indexes: Vec<(String, IsarIndex)>,
-        mut links: Vec<(String, IsarLink)>,
+        properties: Vec<(String, Property)>,
+        indexes: Vec<(String, IsarIndex)>,
+        links: Vec<(String, IsarLink)>,
         backlinks: Vec<IsarLink>,
     ) -> Self {
-        properties.sort_by(|(a, _), (b, _)| a.cmp(&b));
-        indexes.sort_by(|(a, _), (b, _)| a.cmp(&b));
-        links.sort_by(|(a, _), (b, _)| a.cmp(&b));
         let props = properties.iter().map(|(_, p)| *p).collect();
         IsarCollection {
             instance_id,
