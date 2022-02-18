@@ -1,6 +1,6 @@
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
-use crate::error::{illegal_arg, IsarError, Result};
+use crate::error::{illegal_arg, Result};
 use crate::id_key::IdKey;
 use crate::link::IsarLink;
 use crate::object::data_type::DataType;
@@ -679,7 +679,7 @@ impl Condition for LinkCond {
                 })
                 .map(|none_matches| !none_matches)
         } else {
-            Err(IsarError::VersionError {})
+            Ok(true)
         }
     }
 }

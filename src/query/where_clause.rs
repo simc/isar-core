@@ -4,19 +4,22 @@ use crate::id_key::IdKey;
 use crate::object::isar_object::IsarObject;
 use crate::query::id_where_clause::IdWhereClause;
 use crate::query::index_where_clause::IndexWhereClause;
+use crate::query::link_where_clause::LinkWhereClause;
 use intmap::IntMap;
 
 #[derive(Clone)]
 pub(crate) enum WhereClause {
     Id(IdWhereClause),
     Index(IndexWhereClause),
+    Link(LinkWhereClause),
 }
 
 impl WhereClause {
-    pub fn matches(&self, id: i64, object: IsarObject) -> bool {
+    pub fn maybe_matches(&self, id: i64, object: IsarObject) -> bool {
         match self {
             WhereClause::Id(wc) => wc.id_matches(id),
             WhereClause::Index(wc) => wc.object_matches(object),
+            WhereClause::Link(_) => true,
         }
     }
 
@@ -32,6 +35,7 @@ impl WhereClause {
         match self {
             WhereClause::Id(wc) => wc.iter(cursors, result_ids, callback),
             WhereClause::Index(wc) => wc.iter(cursors, result_ids, callback),
+            WhereClause::Link(wc) => wc.iter(cursors, result_ids, callback),
         }
     }
 
@@ -39,7 +43,7 @@ impl WhereClause {
         match (self, other) {
             (WhereClause::Id(wc1), WhereClause::Id(wc2)) => wc1.is_overlapping(wc2),
             (WhereClause::Index(wc1), WhereClause::Index(wc2)) => wc1.is_overlapping(wc2),
-            _ => false,
+            _ => true,
         }
     }
 
@@ -47,6 +51,7 @@ impl WhereClause {
         match self {
             WhereClause::Id(_) => false,
             WhereClause::Index(wc) => wc.has_duplicates(),
+            WhereClause::Link(_) => false,
         }
     }
 }

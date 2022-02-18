@@ -5,6 +5,7 @@ use crate::index::index_key::IndexKey;
 use crate::object::isar_object::Property;
 use crate::query::filter::Filter;
 use crate::query::id_where_clause::IdWhereClause;
+use crate::query::link_where_clause::LinkWhereClause;
 use crate::query::where_clause::WhereClause;
 use crate::query::{Query, Sort};
 
@@ -31,10 +32,14 @@ impl<'a> QueryBuilder<'a> {
         }
     }
 
-    pub fn add_id_where_clause(&mut self, start: i64, end: i64) -> Result<()> {
+    fn init_where_clauses(&mut self) {
         if self.where_clauses.is_none() {
             self.where_clauses = Some(vec![]);
         }
+    }
+
+    pub fn add_id_where_clause(&mut self, start: i64, end: i64) -> Result<()> {
+        self.init_where_clauses();
         let (lower, upper, sort) = if start > end {
             (end, start, Sort::Descending)
         } else {
@@ -66,9 +71,7 @@ impl<'a> QueryBuilder<'a> {
             (start, include_start, end, include_end, Sort::Ascending)
         };
 
-        if self.where_clauses.is_none() {
-            self.where_clauses = Some(vec![]);
-        }
+        self.init_where_clauses();
 
         if (!include_lower && !lower.increase()) || (!include_upper && !upper.decrease()) {
             return Ok(());
@@ -86,6 +89,22 @@ impl<'a> QueryBuilder<'a> {
             .unwrap()
             .push(WhereClause::Index(wc));
 
+        Ok(())
+    }
+
+    pub fn add_link_where_clause(
+        &mut self,
+        link_index: usize,
+        backlink: bool,
+        id: i64,
+    ) -> Result<()> {
+        let link = self.collection.get_link_backlink(link_index, backlink)?;
+        self.init_where_clauses();
+        let wc = LinkWhereClause::new(link, id)?;
+        self.where_clauses
+            .as_mut()
+            .unwrap()
+            .push(WhereClause::Link(wc));
         Ok(())
     }
 

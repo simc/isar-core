@@ -314,26 +314,6 @@ impl IsarCollection {
         })
     }
 
-    pub fn get_linked_objects<'txn, F>(
-        &self,
-        txn: &'txn mut IsarTxn,
-        link_index: usize,
-        backlink: bool,
-        id: i64,
-        mut callback: F,
-    ) -> Result<bool>
-    where
-        F: FnMut(i64, IsarObject<'txn>) -> bool,
-    {
-        let link = self.get_link_backlink(link_index, backlink)?;
-        txn.read(self.instance_id, |cursors| {
-            let source_id_key = IdKey::new(id);
-            link.iter(cursors, &source_id_key, |id, object| {
-                Ok(callback(id.get_id(), object))
-            })
-        })
-    }
-
     pub fn clear(&self, txn: &mut IsarTxn) -> Result<()> {
         for (_, index) in &self.indexes {
             index.clear(txn)?;

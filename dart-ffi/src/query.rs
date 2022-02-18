@@ -51,6 +51,18 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_qb_add_link_where_clause(
+    builder: &mut QueryBuilder,
+    link_index: u32,
+    backlink: bool,
+    id: i64,
+) -> i64 {
+    isar_try! {
+        builder.add_link_where_clause(link_index as usize, backlink, id)?;
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_qb_set_filter(builder: &mut QueryBuilder, filter: *mut Filter) {
     let filter = *Box::from_raw(filter);
     builder.set_filter(filter);

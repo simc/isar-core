@@ -53,7 +53,7 @@ impl IsarLink {
         mut callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(IdKey, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
     {
         let mut target_cursor = cursors.get_cursor(self.target_db)?;
         self.iter_ids(cursors, id_key, |_, link_target_key| {

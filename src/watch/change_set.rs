@@ -40,7 +40,7 @@ impl<'a> ChangeSet<'a> {
             if let Some(object) = object {
                 for (q, w) in &cw.query_watchers {
                     if !self.changed_watchers.contains_key(w.get_id())
-                        && q.matches_wc_filter(oid, object)
+                        && q.maybe_matches_wc_filter(oid, object)
                     {
                         self.changed_watchers.insert(w.get_id(), w.clone());
                     }

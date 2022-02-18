@@ -1,4 +1,3 @@
-use crate::raw_object_set::{RawObject, RawObjectSet};
 use crate::txn::IsarDartTxn;
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
@@ -7,13 +6,13 @@ use isar_core::error::Result;
 pub unsafe extern "C" fn isar_link(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    link_index: usize,
+    link_index: u32,
     backlink: bool,
     id: i64,
     target_id: i64,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
-        collection.link(txn, link_index, backlink, id, target_id)?;
+        collection.link(txn, link_index as usize, backlink, id, target_id)?;
         Ok(())
     })
 }
@@ -22,13 +21,13 @@ pub unsafe extern "C" fn isar_link(
 pub unsafe extern "C" fn isar_link_unlink(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    link_index: usize,
+    link_index: u32,
     backlink: bool,
     id: i64,
     target_id: i64,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
-        collection.unlink(txn, link_index, backlink, id, target_id)?;
+        collection.unlink(txn, link_index as usize, backlink, id, target_id)?;
         Ok(())
     })
 }
@@ -37,7 +36,7 @@ pub unsafe extern "C" fn isar_link_unlink(
 pub unsafe extern "C" fn isar_link_update_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    link_index: usize,
+    link_index: u32,
     backlink: bool,
     id: i64,
     ids: *const i64,
@@ -47,14 +46,14 @@ pub unsafe extern "C" fn isar_link_update_all(
     let ids = std::slice::from_raw_parts(ids, (link_count + unlink_count) as usize);
     isar_try_txn!(txn, move |txn| {
         for target_id in ids.iter().take(link_count as usize) {
-            collection.link(txn, link_index, backlink, id, *target_id)?;
+            collection.link(txn, link_index as usize, backlink, id, *target_id)?;
         }
         for target_id in ids
             .iter()
             .skip(link_count as usize)
             .take(unlink_count as usize)
         {
-            collection.unlink(txn, link_index, backlink, id, *target_id)?;
+            collection.unlink(txn, link_index as usize, backlink, id, *target_id)?;
         }
         Ok(())
     })
@@ -64,59 +63,16 @@ pub unsafe extern "C" fn isar_link_update_all(
 pub unsafe extern "C" fn isar_link_replace(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    link_index: usize,
+    link_index: u32,
     backlink: bool,
     id: i64,
     target_id: i64,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
-        collection.unlink_all(txn, link_index, backlink, id)?;
+        collection.unlink_all(txn, link_index as usize, backlink, id)?;
         if target_id != i64::MIN {
-            collection.link(txn, link_index, backlink, id, target_id)?;
+            collection.link(txn, link_index as usize, backlink, id, target_id)?;
         }
-        Ok(())
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_link_get_first(
-    collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
-    link_index: usize,
-    backlink: bool,
-    id: i64,
-    object: &'static mut RawObject,
-) -> i64 {
-    isar_try_txn!(txn, move |txn| {
-        object.set_object(None);
-        collection.get_linked_objects(txn, link_index, backlink, id, |id, o| {
-            object.set_id(id);
-            object.set_object(Some(o));
-            false
-        })?;
-        Ok(())
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_link_get_all(
-    collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
-    link_index: usize,
-    backlink: bool,
-    id: i64,
-    result: &'static mut RawObjectSet,
-) -> i64 {
-    isar_try_txn!(txn, move |txn| {
-        let mut objects = vec![];
-        collection.get_linked_objects(txn, link_index, backlink, id, |id, object| {
-            let mut raw_obj = RawObject::new();
-            raw_obj.set_id(id);
-            raw_obj.set_object(Some(object));
-            objects.push(raw_obj);
-            true
-        })?;
-        result.fill_from_vec(objects);
         Ok(())
     })
 }

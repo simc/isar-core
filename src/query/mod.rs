@@ -16,6 +16,7 @@ mod fast_wild_match;
 pub mod filter;
 mod id_where_clause;
 mod index_where_clause;
+mod link_where_clause;
 pub mod query_builder;
 mod where_clause;
 
@@ -231,9 +232,12 @@ impl<'txn> Query {
         results.into_iter().skip(self.offset).take(self.limit)
     }
 
-    pub(crate) fn matches_wc_filter(&self, id: i64, object: IsarObject) -> bool {
-        let wc_matches = self.where_clauses.iter().any(|wc| wc.matches(id, object));
-        if !wc_matches {
+    pub(crate) fn maybe_matches_wc_filter(&self, id: i64, object: IsarObject) -> bool {
+        let maybe_matches = self
+            .where_clauses
+            .iter()
+            .any(|wc| wc.maybe_matches(id, object));
+        if !maybe_matches {
             return false;
         }
 
