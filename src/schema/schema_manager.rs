@@ -191,23 +191,6 @@ impl<'a> SchemaManger<'a> {
         }
         links.sort_by(|(a, _), (b, _)| a.cmp(b));
 
-        let mut backlinks = vec![];
-        for other_col_schema in &schema.collections {
-            for link_schema in &other_col_schema.links {
-                if link_schema.target_col == col_schema.name {
-                    let other_col_db = self.open_collection_db(other_col_schema)?;
-                    let (link_db, bl_db) = self.open_link_dbs(other_col_schema, link_schema)?;
-                    let link = IsarLink::new(bl_db, link_db, db, other_col_db);
-                    backlinks.push((&other_col_schema.name, &link_schema.name, link));
-                }
-            }
-        }
-        let backlinks = backlinks
-            .into_iter()
-            .sorted_by(|(col1, l1, _), (col2, l2, _)| col1.cmp(col2).then(l1.cmp(l2)))
-            .map(|(_, _, link)| link)
-            .collect_vec();
-
         Ok(IsarCollection::new(
             db,
             self.instance_id,
@@ -215,7 +198,6 @@ impl<'a> SchemaManger<'a> {
             properties,
             indexes,
             links,
-            backlinks,
         ))
     }
 }

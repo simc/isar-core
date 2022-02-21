@@ -92,13 +92,26 @@ impl<'a> QueryBuilder<'a> {
         Ok(())
     }
 
-    pub fn add_link_where_clause(
+    pub fn add_link_where_clause(&mut self, link_index: usize, id: i64) -> Result<()> {
+        self.add_link_where_clause_internal(self.collection, link_index, id)
+    }
+
+    pub fn add_backlink_where_clause(
         &mut self,
+        col: &IsarCollection,
         link_index: usize,
-        backlink: bool,
         id: i64,
     ) -> Result<()> {
-        let link = self.collection.get_link_backlink(link_index, backlink)?;
+        self.add_link_where_clause_internal(col, link_index, id)
+    }
+
+    fn add_link_where_clause_internal(
+        &mut self,
+        col: &IsarCollection,
+        link_index: usize,
+        id: i64,
+    ) -> Result<()> {
+        let link = col.get_link(link_index)?;
         self.init_where_clauses();
         let wc = LinkWhereClause::new(link, id)?;
         self.where_clauses
