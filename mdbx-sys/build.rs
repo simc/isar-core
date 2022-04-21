@@ -1,7 +1,6 @@
 use bindgen::callbacks::{IntKind, ParseCallbacks};
-use std::io::Cursor;
+use std::process::Command;
 use std::{env, fs, path::PathBuf};
-use zip::ZipArchive;
 
 #[derive(Debug)]
 struct Callbacks;
@@ -50,19 +49,31 @@ impl ParseCallbacks for Callbacks {
     }
 }
 
-const LIBMDBX_RELEASE: &str =
-    "https://github.com/erthink/libmdbx/releases/download/v0.11.4/libmdbx-amalgamated-0_11_4.zip";
+const LIBMDBX_REPO: &str = "https://gitflic.ru/project/erthink/libmdbx.git";
+const LIBMDBX_TAG: &str = "v0.11.6";
 
 fn main() {
+    fs::remove_dir_all("libmdbx").unwrap();
+
+    Command::new("git")
+        .arg("clone")
+        .arg(LIBMDBX_REPO)
+        .arg("--depth")
+        .arg("1")
+        .arg("--branch")
+        .arg(LIBMDBX_TAG)
+        .output()
+        .unwrap();
+
+    Command::new("make")
+        .arg("release-assets")
+        .current_dir("libmdbx")
+        .output()
+        .unwrap();
+
     let mut mdbx = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
     mdbx.push("libmdbx");
-
-    let response = reqwest::blocking::get(LIBMDBX_RELEASE).unwrap();
-    let cursor = Cursor::new(response.bytes().unwrap());
-
-    let mut archive = ZipArchive::new(cursor).unwrap();
-    archive.extract(mdbx.clone()).unwrap();
-
+    mdbx.push("dist");
     let core_path = mdbx.join("mdbx.c");
     let core = fs::read_to_string(core_path.as_path()).unwrap();
     let core = core.replace("CharToOemBuffA(buf, buf, size)", "false");

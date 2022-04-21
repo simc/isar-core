@@ -13,5 +13,3 @@ libc = "0.2"
 cmake = "0.1"
 cc = "1.0"
 bindgen = { version = "0.59", default-features = false, features = ["runtime"] }
-zip = "0.5"
-reqwest = { version = "0.11", features = ["blocking"] }
