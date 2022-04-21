@@ -8,6 +8,7 @@ use crate::query::id_where_clause::IdWhereClause;
 use crate::query::link_where_clause::LinkWhereClause;
 use crate::query::where_clause::WhereClause;
 use crate::query::{Query, Sort};
+use itertools::Itertools;
 
 pub struct QueryBuilder<'a> {
     collection: &'a IsarCollection,
@@ -92,20 +93,7 @@ impl<'a> QueryBuilder<'a> {
         Ok(())
     }
 
-    pub fn add_link_where_clause(&mut self, link_index: usize, id: i64) -> Result<()> {
-        self.add_link_where_clause_internal(self.collection, link_index, id)
-    }
-
-    pub fn add_backlink_where_clause(
-        &mut self,
-        col: &IsarCollection,
-        link_index: usize,
-        id: i64,
-    ) -> Result<()> {
-        self.add_link_where_clause_internal(col, link_index, id)
-    }
-
-    fn add_link_where_clause_internal(
+    pub fn add_link_where_clause(
         &mut self,
         col: &IsarCollection,
         link_index: usize,

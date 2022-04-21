@@ -53,23 +53,12 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_link_where_clause(
     builder: &mut QueryBuilder,
-    link_index: u32,
-    id: i64,
-) -> i64 {
-    isar_try! {
-        builder.add_link_where_clause(link_index as usize, id)?;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_qb_add_backlink_where_clause(
-    builder: &mut QueryBuilder,
     collection: &IsarCollection,
     link_index: u32,
     id: i64,
 ) -> i64 {
     isar_try! {
-        builder.add_backlink_where_clause(collection, link_index as usize, id)?;
+        builder.add_link_where_clause(collection, link_index as usize, id)?;
     }
 }
 
