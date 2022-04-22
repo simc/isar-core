@@ -50,7 +50,7 @@ impl CollectionSchema {
         }
     }
 
-    pub(crate) fn verify(&self) -> Result<()> {
+    pub(crate) fn verify(&self, collections: &[CollectionSchema]) -> Result<()> {
         Self::verify_name(&self.name)?;
 
         for property in &self.properties {
@@ -142,6 +142,10 @@ impl CollectionSchema {
 
         for link in &self.links {
             Self::verify_name(&link.name)?;
+
+            if !collections.iter().any(|c| c.name == link.name) {
+                schema_error("Link target collection does not exist.")?;
+            }
         }
 
         Ok(())

@@ -17,12 +17,12 @@ pub struct Schema {
 }
 
 impl Schema {
-    pub fn new(mut collections: Vec<CollectionSchema>) -> Result<Schema> {
+    pub fn new(collections: Vec<CollectionSchema>) -> Result<Schema> {
         if collections.iter().unique_by(|c| &c.name).count() != collections.len() {
             return schema_error("Duplicate collections");
         }
-        for col in &mut collections {
-            col.verify()?;
+        for col in &collections {
+            col.verify(&collections)?;
         }
 
         let schema = Schema { collections };
