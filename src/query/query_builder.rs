@@ -8,7 +8,6 @@ use crate::query::id_where_clause::IdWhereClause;
 use crate::query::link_where_clause::LinkWhereClause;
 use crate::query::where_clause::WhereClause;
 use crate::query::{Query, Sort};
-use itertools::Itertools;
 
 pub struct QueryBuilder<'a> {
     collection: &'a IsarCollection,
@@ -95,11 +94,14 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn add_link_where_clause(
         &mut self,
-        col: &IsarCollection,
         link_index: usize,
+        backlink: bool,
         id: i64,
     ) -> Result<()> {
-        let link = col.get_link(link_index)?;
+        let link = self.collection.get_link_backlink(link_index, backlink)?;
+        if link.get_target_col_runtime_id() != self.collection.get_runtime_id() {
+            illegal_arg("Link target and query collection must be the same.")?;
+        }
         self.init_where_clauses();
         let wc = LinkWhereClause::new(link, id)?;
         self.where_clauses

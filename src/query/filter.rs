@@ -203,8 +203,13 @@ impl Filter {
         Filter(filter_cond)
     }
 
-    pub fn link(collection: &IsarCollection, link_index: usize, filter: Filter) -> Result<Filter> {
-        let filter_cond = LinkCond::filter(collection, link_index, filter.0)?;
+    pub fn link(
+        collection: &IsarCollection,
+        link_index: usize,
+        backlink: bool,
+        filter: Filter,
+    ) -> Result<Filter> {
+        let filter_cond = LinkCond::filter(collection, link_index, backlink, filter.0)?;
         Ok(Filter(filter_cond))
     }
 
@@ -683,9 +688,10 @@ impl LinkCond {
     fn filter(
         collection: &IsarCollection,
         link_index: usize,
+        backlink: bool,
         filter: FilterCond,
     ) -> Result<FilterCond> {
-        let link = collection.get_link(link_index)?;
+        let link = collection.get_link_backlink(link_index, backlink)?;
         Ok(FilterCond::Link(LinkCond {
             link,
             filter: Box::new(filter),
