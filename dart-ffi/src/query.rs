@@ -53,11 +53,12 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_link_where_clause(
     builder: &mut QueryBuilder,
+    source_collection: &IsarCollection,
     link_id: u32,
     id: i64,
 ) -> i64 {
     isar_try! {
-        builder.add_link_where_clause(link_id as usize, id)?;
+        builder.add_link_where_clause(source_collection, link_id as usize, id)?;
     }
 }
 
@@ -69,12 +70,11 @@ pub unsafe extern "C" fn isar_qb_set_filter(builder: &mut QueryBuilder, filter: 
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_sort_by(
-    collection: &IsarCollection,
     builder: &mut QueryBuilder,
     property_id: u32,
     asc: bool,
 ) -> i64 {
-    let property = collection.properties.get(property_id as usize);
+    let property = builder.collection.properties.get(property_id as usize);
     let sort = if asc {
         Sort::Ascending
     } else {
@@ -91,12 +91,11 @@ pub unsafe extern "C" fn isar_qb_add_sort_by(
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_distinct_by(
-    collection: &IsarCollection,
     builder: &mut QueryBuilder,
     property_id: u32,
     case_sensitive: bool,
 ) -> i64 {
-    let property = collection.properties.get(property_id as usize);
+    let property = builder.collection.properties.get(property_id as usize);
     isar_try! {
         if let Some((_, property)) = property {
             builder.add_distinct(*property, case_sensitive);
