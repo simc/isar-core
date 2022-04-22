@@ -29,7 +29,7 @@ pub unsafe extern "C" fn isar_qb_add_id_where_clause(
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_index_where_clause(
     builder: &mut QueryBuilder,
-    index_index: u32,
+    index_id: u32,
     start_key: *mut IndexKey,
     include_start: bool,
     end_key: *mut IndexKey,
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
     let end_key = *Box::from_raw(end_key);
     isar_try! {
         builder.add_index_where_clause(
-            index_index as usize,
+            index_id as usize,
             start_key,
             include_start,
             end_key,
@@ -53,12 +53,11 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_link_where_clause(
     builder: &mut QueryBuilder,
-    link_index: u32,
-    backlink: bool,
+    link_id: u32,
     id: i64,
 ) -> i64 {
     isar_try! {
-        builder.add_link_where_clause(link_index as usize, backlink, id)?;
+        builder.add_link_where_clause(link_id as usize, id)?;
     }
 }
 
@@ -72,10 +71,10 @@ pub unsafe extern "C" fn isar_qb_set_filter(builder: &mut QueryBuilder, filter: 
 pub unsafe extern "C" fn isar_qb_add_sort_by(
     collection: &IsarCollection,
     builder: &mut QueryBuilder,
-    property_index: u32,
+    property_id: u32,
     asc: bool,
 ) -> i64 {
-    let property = collection.properties.get(property_index as usize);
+    let property = collection.properties.get(property_id as usize);
     let sort = if asc {
         Sort::Ascending
     } else {
@@ -94,10 +93,10 @@ pub unsafe extern "C" fn isar_qb_add_sort_by(
 pub unsafe extern "C" fn isar_qb_add_distinct_by(
     collection: &IsarCollection,
     builder: &mut QueryBuilder,
-    property_index: u32,
+    property_id: u32,
     case_sensitive: bool,
 ) -> i64 {
-    let property = collection.properties.get(property_index as usize);
+    let property = collection.properties.get(property_id as usize);
     isar_try! {
         if let Some((_, property)) = property {
             builder.add_distinct(*property, case_sensitive);

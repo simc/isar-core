@@ -151,13 +151,13 @@ pub unsafe extern "C" fn isar_q_aggregate(
     query: &'static Query,
     txn: &mut IsarDartTxn,
     operation: u8,
-    property_index: u32,
+    property_id: u32,
     result: *mut *const AggregationResult,
 ) -> i64 {
     let op = AggregationOp::from_u8(operation);
     let property = collection
         .properties
-        .get(property_index as usize)
+        .get(property_id as usize)
         .map(|(_, p)| *p);
     let result = AggregationResultSend(result);
     isar_try_txn!(txn, move |txn| {

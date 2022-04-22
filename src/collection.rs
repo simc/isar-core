@@ -110,9 +110,9 @@ impl IsarCollection {
         })
     }
 
-    pub(crate) fn get_index_by_index(&self, index_index: usize) -> Result<&IsarIndex> {
+    pub(crate) fn get_index_by_id(&self, index_id: usize) -> Result<&IsarIndex> {
         self.indexes
-            .get(index_index)
+            .get(index_id)
             .map(|(_, i)| i)
             .ok_or(IsarError::UnknownIndex {})
     }
@@ -120,10 +120,10 @@ impl IsarCollection {
     pub fn get_by_index<'txn>(
         &self,
         txn: &'txn mut IsarTxn,
-        index_index: usize,
+        index_id: usize,
         key: &IndexKey,
     ) -> Result<Option<(i64, IsarObject<'txn>)>> {
-        let index = self.get_index_by_index(index_index)?;
+        let index = self.get_index_by_id(index_id)?;
         txn.read(self.instance_id, |cursors| {
             if let Some(id_key) = index.get_id(cursors, key)? {
                 let mut cursor = cursors.get_cursor(self.db)?;
@@ -204,10 +204,10 @@ impl IsarCollection {
     pub fn delete_by_index(
         &self,
         txn: &mut IsarTxn,
-        index_index: usize,
+        index_id: usize,
         key: &IndexKey,
     ) -> Result<bool> {
-        let index = self.get_index_by_index(index_index)?;
+        let index = self.get_index_by_id(index_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             if let Some(id_key) = index.get_id(cursors, key)? {
                 self.delete_internal(cursors, true, change_set, &id_key)?;
@@ -250,26 +250,19 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn get_link_backlink(&self, link_index: usize, backlink: bool) -> Result<IsarLink> {
-        if backlink {
-            self.backlinks.get(link_index).copied()
+    pub(crate) fn get_link_backlink(&self, link_id: usize) -> Result<IsarLink> {
+        if link_id < self.links.len() {
+            self.links.get(link_id).map(|(_, l)| *l)
         } else {
-            self.links.get(link_index).map(|(_, l)| *l)
+            self.backlinks.get(link_id - self.links.len()).copied()
         }
         .ok_or(IsarError::IllegalArg {
             message: "IsarLink does not exist".to_string(),
         })
     }
 
-    pub fn link(
-        &self,
-        txn: &mut IsarTxn,
-        link_index: usize,
-        backlink: bool,
-        id: i64,
-        target_id: i64,
-    ) -> Result<bool> {
-        let link = self.get_link_backlink(link_index, backlink)?;
+    pub fn link(&self, txn: &mut IsarTxn, link_id: usize, id: i64, target_id: i64) -> Result<bool> {
+        let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
             let source_key = IdKey::new(id);
@@ -281,12 +274,11 @@ impl IsarCollection {
     pub fn unlink(
         &self,
         txn: &mut IsarTxn,
-        link_index: usize,
-        backlink: bool,
+        link_id: usize,
         id: i64,
         target_id: i64,
     ) -> Result<bool> {
-        let link = self.get_link_backlink(link_index, backlink)?;
+        let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
             let source_key = IdKey::new(id);
@@ -295,14 +287,8 @@ impl IsarCollection {
         })
     }
 
-    pub fn unlink_all(
-        &self,
-        txn: &mut IsarTxn,
-        link_index: usize,
-        backlink: bool,
-        id: i64,
-    ) -> Result<()> {
-        let link = self.get_link_backlink(link_index, backlink)?;
+    pub fn unlink_all(&self, txn: &mut IsarTxn, link_id: usize, id: i64) -> Result<()> {
+        let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
             let id_key = IdKey::new(id);
@@ -380,8 +366,8 @@ impl IsarCollection {
             |cursor, key, object| {
                 let id_key = IdKey::from_bytes(key);
                 let object = IsarObject::from_bytes(object);
-                for index_index in indexes {
-                    let (_, index) = self.indexes.get(*index_index).unwrap();
+                for index_id in indexes {
+                    let (_, index) = self.indexes.get(*index_id).unwrap();
                     index.create_for_object(cursors, &id_key, object, |id_key| {
                         let deleted = self.delete_internal(cursors, true, None, id_key)?;
                         if deleted {

@@ -6,13 +6,12 @@ use isar_core::error::Result;
 pub unsafe extern "C" fn isar_link(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    link_index: u32,
-    backlink: bool,
+    link_id: u32,
     id: i64,
     target_id: i64,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
-        collection.link(txn, link_index as usize, backlink, id, target_id)?;
+        collection.link(txn, link_id as usize, id, target_id)?;
         Ok(())
     })
 }
@@ -21,13 +20,12 @@ pub unsafe extern "C" fn isar_link(
 pub unsafe extern "C" fn isar_link_unlink(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    link_index: u32,
-    backlink: bool,
+    link_id: u32,
     id: i64,
     target_id: i64,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| -> Result<()> {
-        collection.unlink(txn, link_index as usize, backlink, id, target_id)?;
+        collection.unlink(txn, link_id as usize, id, target_id)?;
         Ok(())
     })
 }
@@ -36,8 +34,7 @@ pub unsafe extern "C" fn isar_link_unlink(
 pub unsafe extern "C" fn isar_link_update_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
-    link_index: u32,
-    backlink: bool,
+    link_id: u32,
     id: i64,
     ids: *const i64,
     link_count: u32,
@@ -47,17 +44,17 @@ pub unsafe extern "C" fn isar_link_update_all(
     let ids = std::slice::from_raw_parts(ids, (link_count + unlink_count) as usize);
     isar_try_txn!(txn, move |txn| {
         if replace {
-            collection.unlink_all(txn, link_index as usize, backlink, id)?;
+            collection.unlink_all(txn, link_id as usize, id)?;
         }
         for target_id in ids.iter().take(link_count as usize) {
-            collection.link(txn, link_index as usize, backlink, id, *target_id)?;
+            collection.link(txn, link_id as usize, id, *target_id)?;
         }
         for target_id in ids
             .iter()
             .skip(link_count as usize)
             .take(unlink_count as usize)
         {
-            collection.unlink(txn, link_index as usize, backlink, id, *target_id)?;
+            collection.unlink(txn, link_id as usize, id, *target_id)?;
         }
         Ok(())
     })

@@ -47,12 +47,11 @@ pub unsafe extern "C" fn isar_filter_link(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     condition: *mut Filter,
-    link_index: u32,
-    backlink: bool,
+    link_id: u32,
 ) -> i64 {
     isar_try! {
         let condition = *Box::from_raw(condition);
-        let query_filter = Filter::link(collection, link_index as usize, backlink, condition)?;
+        let query_filter = Filter::link(collection, link_id as usize, condition)?;
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
     }
@@ -62,10 +61,10 @@ pub unsafe extern "C" fn isar_filter_link(
 pub unsafe extern "C" fn isar_filter_null(
     collection: &IsarCollection,
     filter: *mut *const Filter,
-    property_index: u32,
+    property_id: u32,
     any_null: bool,
 ) -> i64 {
-    let property = collection.properties.get(property_index as usize);
+    let property = collection.properties.get(property_id as usize);
     isar_try! {
         if let Some((_, property)) = property {
             let query_filter = if !property.data_type.is_scalar() && any_null {
@@ -159,9 +158,9 @@ pub unsafe extern "C" fn isar_filter_byte(
     include_lower: bool,
     upper: u8,
     include_upper: bool,
-    property_index: u32,
+    property_id: u32,
 ) -> i64 {
-    let property = collection.properties.get(property_index as usize);
+    let property = collection.properties.get(property_id as usize);
     isar_try! {
         if let Some((_, property)) = property {
             let query_filter = num_filter!(byte, property, lower, include_lower, upper, include_upper);
@@ -181,9 +180,9 @@ pub unsafe extern "C" fn isar_filter_long(
     include_lower: bool,
     upper: i64,
     include_upper: bool,
-    property_index: u32,
+    property_id: u32,
 ) -> i64 {
-    let property = collection.properties.get(property_index as usize);
+    let property = collection.properties.get(property_id as usize);
     isar_try! {
         if let Some((_, property)) = property {
             let query_filter = if property.data_type == DataType::Int || property.data_type == DataType::IntList {
@@ -207,9 +206,9 @@ pub unsafe extern "C" fn isar_filter_double(
     filter: *mut *const Filter,
     lower: f64,
     upper: f64,
-    property_index: u32,
+    property_id: u32,
 ) -> i64 {
-    let property = collection.properties.get(property_index as usize);
+    let property = collection.properties.get(property_id as usize);
     isar_try! {
         if let Some((_, property)) = property {
             let query_filter = if upper.is_nan() {
@@ -279,9 +278,9 @@ pub unsafe extern "C" fn isar_filter_string(
     upper: *const c_char,
     include_upper: bool,
     case_sensitive: bool,
-    property_index: u32,
+    property_id: u32,
 ) -> i64 {
-    let property = collection.properties.get(property_index as usize);
+    let property = collection.properties.get(property_id as usize);
     isar_try! {
         if let Some((_, property)) = property {
             let lower_bytes = Filter::string_to_bytes(from_c_str(lower)?, case_sensitive);
@@ -312,9 +311,9 @@ macro_rules! filter_string_ffi {
             filter: *mut *const Filter,
             value: *const c_char,
             case_sensitive: bool,
-            property_index: u32,
+            property_id: u32,
         ) -> i64 {
-            let property = collection.properties.get(property_index as usize);
+            let property = collection.properties.get(property_id as usize);
             isar_try! {
                 if let Some((_, property)) = property {
                     let str = from_c_str(value)?.unwrap();

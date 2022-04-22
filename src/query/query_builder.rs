@@ -12,6 +12,7 @@ use crate::query::{Query, Sort};
 pub struct QueryBuilder<'a> {
     collection: &'a IsarCollection,
     where_clauses: Option<Vec<WhereClause>>,
+    link_where_clause: bool,
     filter: Option<Filter>,
     sort: Vec<(Property, Sort)>,
     distinct: Vec<(Property, bool)>,
@@ -24,6 +25,7 @@ impl<'a> QueryBuilder<'a> {
         QueryBuilder {
             collection,
             where_clauses: None,
+            link_where_clause: false,
             filter: None,
             sort: vec![],
             distinct: vec![],
@@ -32,14 +34,18 @@ impl<'a> QueryBuilder<'a> {
         }
     }
 
-    fn init_where_clauses(&mut self) {
+    fn init_where_clauses(&mut self, init_for_link: bool) -> Result<()> {
         if self.where_clauses.is_none() {
             self.where_clauses = Some(vec![]);
+            self.link_where_clause = init_for_link;
+        } else if self.link_where_clause != init_for_link {
+            illegal_arg("A query can only contain a single link where clause.")?;
         }
+        Ok(())
     }
 
     pub fn add_id_where_clause(&mut self, start: i64, end: i64) -> Result<()> {
-        self.init_where_clauses();
+        self.init_where_clauses(false)?;
         let (lower, upper, sort) = if start > end {
             (end, start, Sort::Descending)
         } else {
@@ -57,21 +63,21 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn add_index_where_clause(
         &mut self,
-        index_index: usize,
+        index_id: usize,
         start: IndexKey,
         include_start: bool,
         end: IndexKey,
         include_end: bool,
         skip_duplicates: bool,
     ) -> Result<()> {
-        let index = self.collection.get_index_by_index(index_index)?;
+        let index = self.collection.get_index_by_id(index_id)?;
         let (mut lower, include_lower, mut upper, include_upper, sort) = if start > end {
             (end, include_end, start, include_start, Sort::Descending)
         } else {
             (start, include_start, end, include_end, Sort::Ascending)
         };
 
-        self.init_where_clauses();
+        self.init_where_clauses(false)?;
 
         if (!include_lower && !lower.increase()) || (!include_upper && !upper.decrease()) {
             return Ok(());
@@ -92,17 +98,9 @@ impl<'a> QueryBuilder<'a> {
         Ok(())
     }
 
-    pub fn add_link_where_clause(
-        &mut self,
-        link_index: usize,
-        backlink: bool,
-        id: i64,
-    ) -> Result<()> {
-        let link = self.collection.get_link_backlink(link_index, backlink)?;
-        if link.get_target_col_runtime_id() != self.collection.get_runtime_id() {
-            illegal_arg("Link target and query collection must be the same.")?;
-        }
-        self.init_where_clauses();
+    pub fn add_link_where_clause(&mut self, link_id: usize, id: i64) -> Result<()> {
+        let link = self.collection.get_link_backlink(link_id)?;
+        self.init_where_clauses(true)?;
         let wc = LinkWhereClause::new(link, id)?;
         self.where_clauses
             .as_mut()

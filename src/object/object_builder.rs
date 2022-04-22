@@ -6,7 +6,7 @@ use std::slice::from_raw_parts;
 pub struct ObjectBuilder<'a> {
     buffer: Vec<u8>,
     properties: &'a [Property],
-    property_index: usize,
+    property_id: usize,
     dynamic_offset: usize,
 }
 
@@ -20,7 +20,7 @@ impl<'a> ObjectBuilder<'a> {
         let mut ob = ObjectBuilder {
             buffer,
             properties,
-            property_index: 0,
+            property_id: 0,
             dynamic_offset: static_size,
         };
         ob.write_at(0, &(static_size as u16).to_le_bytes());
@@ -28,9 +28,9 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     fn next_property(&mut self, peek: bool) -> Property {
-        let property = self.properties.get(self.property_index).unwrap();
+        let property = self.properties.get(self.property_id).unwrap();
         if !peek {
-            self.property_index += 1;
+            self.property_id += 1;
         }
 
         *property
@@ -175,7 +175,7 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     pub fn finish(&self) -> IsarObject {
-        assert_eq!(self.property_index, self.properties.len());
+        assert_eq!(self.property_id, self.properties.len());
         IsarObject::from_bytes(&self.buffer)
     }
 
