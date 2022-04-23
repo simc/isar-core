@@ -143,7 +143,7 @@ impl CollectionSchema {
         for link in &self.links {
             Self::verify_name(&link.name)?;
 
-            if !collections.iter().any(|c| c.name == link.name) {
+            if !collections.iter().any(|c| c.name == link.target_col) {
                 schema_error("Link target collection does not exist.")?;
             }
         }

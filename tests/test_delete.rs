@@ -35,9 +35,9 @@ fn test_delete_clears_links() {
 
     // put new objects
     put!(id: col, txn, obj1 => 1, obj2 => 2, obj3 => 3);
-    col.link(&mut txn, 0, false, 1, 2).unwrap();
-    col.link(&mut txn, 0, false, 2, 3).unwrap();
-    col.link(&mut txn, 0, false, 3, 1).unwrap();
+    col.link(&mut txn, 0, 1, 2).unwrap();
+    col.link(&mut txn, 0, 2, 3).unwrap();
+    col.link(&mut txn, 0, 3, 1).unwrap();
     verify!(txn, col, obj1, obj2, obj3; "link", 1 => 2, 2 => 3, 3 => 1);
 
     // delete obj 1

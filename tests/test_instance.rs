@@ -42,7 +42,7 @@ fn test_open_instance_added_collection() {
     isar!(path, isar, col1 => schema1);
     txn!(isar, txn);
     put!(id: col1, txn, obj1 => 1, obj2 => 2);
-    col1.link(&mut txn, 0, false, 1, 2).unwrap();
+    col1.link(&mut txn, 0, 1, 2).unwrap();
     verify!(txn, col1, obj1, obj2; "testlink", 1 => 2);
     txn.commit().unwrap();
     isar.close();
@@ -70,8 +70,8 @@ fn test_open_instance_removed_collection() {
     txn!(isar, txn);
     put!(id: col1, txn, obj1 => 1, obj2 => 2);
     put!(id: col2, txn, obj3 => 3, obj4 => 4);
-    col1.link(&mut txn, 0, false, 1, 2).unwrap();
-    col2.link(&mut txn, 0, false, 3, 4).unwrap();
+    col1.link(&mut txn, 0, 1, 2).unwrap();
+    col2.link(&mut txn, 0, 3, 4).unwrap();
     verify!(txn, col!(col1, obj1, obj2; "testlink1", 1 => 2); col!(col2, obj3, obj4; "testlink2", 3 => 4));
     txn.commit().unwrap();
     isar.close();
@@ -113,3 +113,32 @@ fn test_open_instance_added_index() {
 
 #[test]
 fn test_open_instance_removed_index() {}
+
+/*#[test]
+fn test_open_instance_added_field() {
+    let str1 = PropertySchema::new("str1", DataType::String);
+    let schema = CollectionSchema::new("col", vec![str1], vec![], vec![]);
+    isar!(isar, col => schema);
+    let path = isar.dir.clone();
+    txn!(isar, txn);
+    verify!(txn, col, obj1, obj2, obj3, obj4, obj5);
+    txn.commit().unwrap();
+    isar.close();
+
+    let byte_index = IndexSchema::new("byte", vec![TestObj::byte_index()], true);
+    let schema = TestObj::schema("obj", &[byte_index], &[]);
+    isar!(path, isar, col => schema);
+    txn!(isar, txn);
+    verify!(txn, col, obj3, obj4, obj5);
+    txn.commit().unwrap();
+    isar.close();
+}*/
+
+#[test]
+fn test_open_instance_removed_field() {}
+
+#[test]
+fn test_open_instance_added_link() {}
+
+#[test]
+fn test_open_instance_removed_link() {}
