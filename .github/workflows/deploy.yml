@@ -27,18 +27,15 @@ jobs:
           - os: macos-latest
             artifact_name: libisar_ios.a
             script: build_ios.sh
-          - os: ubuntu-latest
-            artifact_name: libisar_linux_arm64.so
-            script: build_linux.sh
+         #- os: ubuntu-latest
+         #  artifact_name: libisar_linux_arm64.so
+         #  script: build_linux.sh
           - os: ubuntu-latest
             artifact_name: libisar_linux_x64.so
             script: build_linux.sh x64
-          - os: macos-11
-            artifact_name: libisar_macos_arm64.dylib
-            script: build_macos.sh
           - os: macos-latest
-            artifact_name: libisar_macos_x64.dylib
-            script: build_macos.sh x64
+            artifact_name: libisar_macos.dylib
+            script: build_macos.sh
           - os: windows-latest
             artifact_name: isar_windows_arm64.dll
             script: build_windows.sh
