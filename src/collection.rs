@@ -308,7 +308,7 @@ impl IsarCollection {
         }
         txn.clear_db(self.db)?;
         txn.register_all_changed(self.get_runtime_id())?;
-        self.auto_increment.set(i64::MIN);
+        self.auto_increment.set(0);
         Ok(())
     }
 
