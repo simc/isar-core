@@ -31,6 +31,19 @@ pub unsafe extern "C" fn isar_link_unlink(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_link_unlink_all(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    link_id: u32,
+    id: i64,
+) -> i64 {
+    isar_try_txn!(txn, move |txn| -> Result<()> {
+        collection.unlink_all(txn, link_id as usize, id)?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_link_update_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
