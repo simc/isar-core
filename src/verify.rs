@@ -1,6 +1,7 @@
 use crate::collection::IsarCollection;
 use crate::id_key::IdKey;
 use crate::index::index_key_builder::IndexKeyBuilder;
+use crate::mdbx::Key;
 use crate::object::isar_object::IsarObject;
 use crate::txn::IsarTxn;
 use itertools::Itertools;

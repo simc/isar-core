@@ -5,7 +5,7 @@ use crate::index::index_key::IndexKey;
 use crate::index::IsarIndex;
 use crate::link::IsarLink;
 use crate::mdbx::db::Db;
-use crate::mdbx::debug_dump_db;
+use crate::mdbx::{debug_dump_db, Key};
 use crate::object::isar_object::{IsarObject, Property};
 use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::object::object_builder::ObjectBuilder;
@@ -357,33 +357,26 @@ impl IsarCollection {
 
     pub(crate) fn fill_indexes(&self, indexes: &[usize], cursors: &IsarCursors) -> Result<()> {
         let mut cursor = cursors.get_cursor(self.db)?;
-        cursor.iter_between(
-            &u64::MIN.to_le_bytes(),
-            &u64::MAX.to_le_bytes(),
-            false,
-            false,
-            true,
-            |cursor, key, object| {
-                let id_key = IdKey::from_bytes(key);
-                let object = IsarObject::from_bytes(object);
-                for index_id in indexes {
-                    let (_, index) = self.indexes.get(*index_id).unwrap();
-                    index.create_for_object(cursors, &id_key, object, |id_key| {
-                        let deleted = self.delete_internal(cursors, true, None, id_key)?;
-                        if deleted {
-                            cursor.move_to_next()?; // todo find out why this is necessary
-                        }
-                        Ok(true)
-                    })?;
-                }
-                Ok(true)
-            },
-        )?;
+        cursor.iter_all(false, true, |cursor, key, object| {
+            let id_key = IdKey::from_bytes(key);
+            let object = IsarObject::from_bytes(object);
+            for index_id in indexes {
+                let (_, index) = self.indexes.get(*index_id).unwrap();
+                index.create_for_object(cursors, &id_key, object, |id_key| {
+                    let deleted = self.delete_internal(cursors, true, None, id_key)?;
+                    if deleted {
+                        cursor.move_to_next()?; // todo find out why this is necessary
+                    }
+                    Ok(true)
+                })?;
+            }
+            Ok(true)
+        })?;
         Ok(())
     }
 
     pub(crate) fn debug_dump(&self, cursors: &IsarCursors) -> HashSet<(Vec<u8>, Vec<u8>)> {
         let mut cursor = cursors.get_cursor(self.db).unwrap();
-        debug_dump_db(&mut cursor, true)
+        debug_dump_db(&mut cursor)
     }
 }

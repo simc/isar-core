@@ -45,8 +45,8 @@ impl IdWhereClause {
         let upper_key = IdKey::new(self.upper);
         let mut cursor = cursors.get_cursor(self.db)?;
         cursor.iter_between(
-            lower_key.as_bytes(),
-            upper_key.as_bytes(),
+            &lower_key,
+            &upper_key,
             false,
             false,
             self.sort == Sort::Ascending,

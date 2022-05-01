@@ -5,6 +5,7 @@ use crate::index::index_key::IndexKey;
 use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::index::IsarIndex;
 use crate::mdbx::db::Db;
+use crate::mdbx::Key;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
 use intmap::IntMap;

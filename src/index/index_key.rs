@@ -1,6 +1,7 @@
 use crate::index::IsarIndex;
-use crate::mdbx::ByteKey;
+use crate::mdbx::Key;
 use std::borrow::Borrow;
+use std::cmp;
 use std::cmp::Ordering;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -119,9 +120,21 @@ impl IndexKey {
         }
         decreased
     }
+}
 
-    pub fn as_bytes(&self) -> &[u8] {
+impl Key for IndexKey {
+    fn as_bytes(&self) -> &[u8] {
         self.bytes.borrow()
+    }
+
+    fn cmp_bytes(&self, other: &[u8]) -> Ordering {
+        let len = cmp::min(self.bytes.len(), other.len());
+        let cmp = (&self.bytes[0..len]).cmp(&other[0..len]);
+        if cmp == Ordering::Equal {
+            self.bytes.len().cmp(&other.len())
+        } else {
+            cmp
+        }
     }
 }
 
@@ -133,7 +146,7 @@ impl PartialOrd<Self> for IndexKey {
 
 impl Ord for IndexKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        ByteKey::new(&self.bytes).cmp_bytes(&other.bytes)
+        self.cmp_bytes(&other.bytes)
     }
 }
 

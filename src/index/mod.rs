@@ -4,7 +4,7 @@ use crate::id_key::IdKey;
 use crate::index::index_key::IndexKey;
 use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::mdbx::db::Db;
-use crate::mdbx::debug_dump_db;
+use crate::mdbx::{debug_dump_db, Key};
 use crate::object::isar_object::{IsarObject, Property};
 use crate::schema::index_schema::IndexType;
 use crate::txn::IsarTxn;
@@ -123,8 +123,8 @@ impl IsarIndex {
     ) -> Result<bool> {
         let mut cursor = cursors.get_cursor(self.db)?;
         cursor.iter_between(
-            lower_key.as_bytes(),
-            upper_key.as_bytes(),
+            lower_key,
+            upper_key,
             !self.unique,
             skip_duplicates,
             ascending,
@@ -151,6 +151,6 @@ impl IsarIndex {
 
     pub fn debug_dump(&self, cursors: &IsarCursors) -> HashSet<(Vec<u8>, Vec<u8>)> {
         let mut cursor = cursors.get_cursor(self.db).unwrap();
-        debug_dump_db(&mut cursor, false)
+        debug_dump_db(&mut cursor)
     }
 }

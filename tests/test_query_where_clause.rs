@@ -16,7 +16,7 @@ fn test_no_where_clauses() {
     put!(col, txn, byte, obj1 => 1, obj2 => 2, obj3 => 3, obj4 => 4);
 
     let q = col.new_query_builder().build();
-    assert_find(&mut txn, &col,q, &[&obj1, &obj2, &obj3, &obj4]);
+    assert_find(&mut txn, &col, q, &[&obj1, &obj2, &obj3, &obj4]);
 
     txn.abort();
     isar.close();
@@ -31,11 +31,11 @@ fn test_single_id_where_clause() {
 
     let mut qb = col.new_query_builder();
     qb.add_id_where_clause(1, 3).unwrap();
-    assert_find(&mut txn, &col,qb.build(), &[&obj1, &obj2, &obj3]);
+    assert_find(&mut txn, &col, qb.build(), &[&obj1, &obj2, &obj3]);
 
     let mut qb = col.new_query_builder();
     qb.add_id_where_clause(3, 1).unwrap();
-    assert_find(&mut txn,&col, qb.build(), &[&obj3, &obj2, &obj1]);
+    assert_find(&mut txn, &col, qb.build(), &[&obj3, &obj2, &obj1]);
 
     txn.abort();
     isar.close();
@@ -71,7 +71,7 @@ fn test_single_index_where_clause() {
             false,
         )
         .unwrap();
-        assert_find(&mut txn,&col, qb.build(), &objects);
+        assert_find(&mut txn, &col, qb.build(), &objects);
 
         // verify that the reversed query returns the expected objects in reverse order
         let mut qb = col.new_query_builder();
@@ -85,7 +85,8 @@ fn test_single_index_where_clause() {
         )
         .unwrap();
         assert_find(
-            &mut txn,&col,
+            &mut txn,
+            &col,
             qb.build(),
             &objects.into_iter().rev().collect_vec(),
         );

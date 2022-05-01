@@ -4,7 +4,7 @@ use crate::error::{IsarError, Result};
 use crate::id_key::IdKey;
 use crate::mdbx::cursor::Cursor;
 use crate::mdbx::db::Db;
-use crate::mdbx::debug_dump_db;
+use crate::mdbx::{debug_dump_db, Key};
 use crate::object::isar_object::IsarObject;
 use crate::txn::IsarTxn;
 use std::collections::HashSet;
@@ -86,7 +86,6 @@ impl IsarLink {
 
         let mut backlink_cursor = cursors.get_cursor(self.bl_db)?;
         backlink_cursor.put(target_key.as_bytes(), source_key.as_bytes())?;
-
         Ok(true)
     }
 
@@ -146,11 +145,11 @@ impl IsarLink {
 
     pub fn debug_dump(&self, cursors: &IsarCursors) -> HashSet<(Vec<u8>, Vec<u8>)> {
         let mut cursor = cursors.get_cursor(self.db).unwrap();
-        debug_dump_db(&mut cursor, true)
+        debug_dump_db(&mut cursor)
     }
 
     pub fn debug_dump_bl(&self, cursors: &IsarCursors) -> HashSet<(Vec<u8>, Vec<u8>)> {
         let mut cursor = cursors.get_cursor(self.bl_db).unwrap();
-        debug_dump_db(&mut cursor, true)
+        debug_dump_db(&mut cursor)
     }
 }

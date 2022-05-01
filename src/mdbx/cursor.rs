@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::mdbx::db::Db;
 use crate::mdbx::txn::Txn;
-use crate::mdbx::{from_mdb_val, mdbx_result, to_mdb_val, ByteKey, KeyVal, EMPTY_KEY, EMPTY_VAL};
+use crate::mdbx::{from_mdb_val, mdbx_result, to_mdb_val, Key, KeyVal, EMPTY_KEY, EMPTY_VAL};
 use core::ptr;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -99,6 +99,10 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_NEXT, None, None)
     }
 
+    pub fn move_to_first(&mut self) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(ffi::MDBX_cursor_op::MDBX_FIRST, None, None)
+    }
+
     pub fn move_to_last(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_LAST, None, None)
     }
@@ -120,20 +124,61 @@ impl<'txn> Cursor<'txn> {
         Ok(())
     }
 
-    #[inline(never)]
-    fn iter_between_first(
+    fn iter(
         &mut self,
-        lower_key: ByteKey,
-        upper_key: ByteKey,
+        skip_duplicates: bool,
+        ascending: bool,
+        mut callback: impl FnMut(&mut Self, &'txn [u8], &'txn [u8]) -> Result<bool>,
+    ) -> Result<bool> {
+        let next = match (ascending, skip_duplicates) {
+            (true, true) => ffi::MDBX_cursor_op::MDBX_NEXT_NODUP,
+            (true, false) => ffi::MDBX_cursor_op::MDBX_NEXT,
+            (false, true) => ffi::MDBX_cursor_op::MDBX_PREV_NODUP,
+            (false, false) => ffi::MDBX_cursor_op::MDBX_PREV,
+        };
+        loop {
+            if let Some((key, val)) = self.op_get(next, None, None)? {
+                if !callback(self, key, val)? {
+                    return Ok(false);
+                }
+            } else {
+                return Ok(true);
+            }
+        }
+    }
+
+    pub fn iter_all(
+        &mut self,
+        skip_duplicates: bool,
+        ascending: bool,
+        mut callback: impl FnMut(&mut Self, &'txn [u8], &'txn [u8]) -> Result<bool>,
+    ) -> Result<bool> {
+        let first = if ascending {
+            self.move_to_first()?
+        } else {
+            self.move_to_last()?
+        };
+
+        if let Some((key, val)) = first {
+            if !callback(self, key, val)? {
+                return Ok(false);
+            }
+        } else {
+            return Ok(true);
+        }
+
+        self.iter(skip_duplicates, ascending, callback)
+    }
+
+    fn iter_between_first<K: Key>(
+        &mut self,
+        lower_key: &K,
+        upper_key: &K,
         ascending: bool,
         duplicates: bool,
     ) -> Result<Option<KeyVal<'txn>>> {
-        if upper_key < lower_key {
-            return Ok(None);
-        }
-
         let first_entry = if !ascending {
-            if let Some(first_entry) = self.move_to_gte(upper_key.bytes)? {
+            if let Some(first_entry) = self.move_to_gte(upper_key.as_bytes())? {
                 if duplicates {
                     self.move_to_last_dup()?.or(Some(first_entry))
                 } else {
@@ -141,7 +186,7 @@ impl<'txn> Cursor<'txn> {
                 }
             } else if let Some(last) = self.move_to_last()? {
                 // If some key between upper_key and lower_key happens to be the last key in the db
-                if ByteKey::new(last.0) >= lower_key {
+                if lower_key.cmp_bytes(last.0) != Ordering::Greater {
                     Some(last)
                 } else {
                     None
@@ -150,14 +195,14 @@ impl<'txn> Cursor<'txn> {
                 None
             }
         } else {
-            self.move_to_gte(lower_key.bytes)?
+            self.move_to_gte(lower_key.as_bytes())?
         };
 
         if let Some(first_entry) = first_entry {
-            if upper_key < ByteKey::new(first_entry.0) {
+            if upper_key.cmp_bytes(first_entry.0) == Ordering::Less {
                 if !ascending {
                     if let Some(prev) = self.move_to_prev_no_dup()? {
-                        if lower_key <= ByteKey::new(prev.0) {
+                        if lower_key.cmp_bytes(prev.0) != Ordering::Greater {
                             return Ok(Some(prev));
                         }
                     }
@@ -171,19 +216,16 @@ impl<'txn> Cursor<'txn> {
         }
     }
 
-    pub fn iter_between(
+    pub fn iter_between<K: Key>(
         &mut self,
-        lower_key: &[u8],
-        upper_key: &[u8],
+        lower_key: &K,
+        upper_key: &K,
         duplicates: bool,
         skip_duplicates: bool,
         ascending: bool,
         mut callback: impl FnMut(&mut Self, &'txn [u8], &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
-        let lower_key = ByteKey::new(lower_key);
-        let upper_key = ByteKey::new(upper_key);
-
-        if upper_key < lower_key {
+        if upper_key.cmp_bytes(lower_key.as_bytes()) == Ordering::Less {
             return Ok(true);
         }
 
@@ -197,25 +239,18 @@ impl<'txn> Cursor<'txn> {
             return Ok(true);
         }
 
-        let next = match (ascending, skip_duplicates) {
-            (true, true) => ffi::MDBX_cursor_op::MDBX_NEXT_NODUP,
-            (true, false) => ffi::MDBX_cursor_op::MDBX_NEXT,
-            (false, true) => ffi::MDBX_cursor_op::MDBX_PREV_NODUP,
-            (false, false) => ffi::MDBX_cursor_op::MDBX_PREV,
-        };
-        loop {
-            if let Some((key, val)) = self.op_get(next, None, None)? {
-                if (ascending && upper_key.cmp_bytes(key) == Ordering::Less)
-                    || (!ascending && lower_key.cmp_bytes(key) == Ordering::Greater)
-                {
-                    return Ok(true);
-                } else if !callback(self, key, val)? {
-                    return Ok(false);
-                }
+        self.iter(skip_duplicates, ascending, |cursor, key, val| {
+            let abort = if ascending {
+                upper_key.cmp_bytes(key) == Ordering::Less
             } else {
-                return Ok(true);
+                lower_key.cmp_bytes(key) == Ordering::Greater
+            };
+            if abort {
+                Ok(true)
+            } else {
+                callback(cursor, key, val)
             }
-        }
+        })
     }
 
     pub fn iter_dups(

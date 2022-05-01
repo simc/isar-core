@@ -1,4 +1,6 @@
+use crate::mdbx::Key;
 use std::borrow::{Borrow, Cow};
+use std::cmp::Ordering;
 use std::convert::TryInto;
 
 pub struct IdKey<'a> {
@@ -29,15 +31,23 @@ impl<'a> IdKey<'a> {
         let signed: i64 = unsafe { std::mem::transmute(unsigned) };
         signed ^ 1 << 63
     }
+}
 
-    pub fn as_bytes(&self) -> &[u8] {
+impl<'a> Key for IdKey<'a> {
+    fn as_bytes(&self) -> &[u8] {
         self.bytes.borrow()
+    }
+
+    fn cmp_bytes(&self, other: &[u8]) -> Ordering {
+        let other_key = IdKey::from_bytes(other);
+        self.get_unsigned_id().cmp(&other_key.get_unsigned_id())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::id_key::IdKey;
+    use crate::mdbx::Key;
 
     #[test]
     fn test_new() {
