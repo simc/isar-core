@@ -9,6 +9,3 @@ rustflags = ["-C", "link-arg=-Wl,--hash-style=both"]
 
 [target.i686-linux-android]
 rustflags = ["-C", "link-arg=-Wl,--hash-style=both"]
-
-[target.'cfg(not(target_os = "ios"))']
-rustflags = ["-C", "strip=symbols"]
