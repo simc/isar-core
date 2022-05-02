@@ -58,16 +58,10 @@ jobs:
       with:
         submodules: true
     - uses: actions-rs/toolchain@v1
-      if: matrix.artifact_name != 'libisar_ios.a'
       with:
         toolchain: nightly
         override: true
         components: rust-src
-    - uses: actions-rs/toolchain@v1
-      if: matrix.artifact_name == 'libisar_ios.a'
-      with:
-        toolchain: 1.55.0
-        override: true
     - name: Build
       working-directory: dart-ffi
       run: bash tools/${{ matrix.script }}
