@@ -62,6 +62,11 @@ jobs:
         toolchain: nightly
         override: true
         components: rust-src
+      if: matrix.artifact_name != 'libisar_android_armv7.so'
+    - uses: actions-rs/toolchain@v1
+      with:
+        override: true
+      if: matrix.artifact_name == 'libisar_android_armv7.so'
     - name: Build
       working-directory: dart-ffi
       run: bash tools/${{ matrix.script }}
