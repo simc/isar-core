@@ -26,11 +26,11 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$COMPILER_DIR/aarch64-linux-an
 
 if [ "$1" = "x86" ]; then
   rustup target add i686-linux-android
-  cargo +nightly build -C panic=abort -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --target i686-linux-android --release
+  cargo +nightly build -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --target i686-linux-android --release
   mv "target/i686-linux-android/release/libisar.so" "libisar_android_x86.so"
 elif [ "$1" = "x64" ]; then
   rustup target add x86_64-linux-android
-  cargo +nightly build -C panic=abort -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --target x86_64-linux-android --release
+  cargo +nightly build -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --target x86_64-linux-android --release
   mv "target/x86_64-linux-android/release/libisar.so" "libisar_android_x64.so"
 elif [ "$1" = "armv7" ]; then
   rustup target add armv7-linux-androideabi
@@ -38,7 +38,7 @@ elif [ "$1" = "armv7" ]; then
   mv "target/armv7-linux-androideabi/release/libisar.so" "libisar_android_armv7.so"
 else
   rustup target add aarch64-linux-android
-  cargo +nightly build -C panic=abort -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --target aarch64-linux-android --release
+  cargo +nightly build -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --target aarch64-linux-android --release
   mv "target/aarch64-linux-android/release/libisar.so" "libisar_android_arm64.so"
 fi
 
