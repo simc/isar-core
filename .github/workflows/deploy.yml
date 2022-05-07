@@ -65,6 +65,7 @@ jobs:
       if: matrix.artifact_name != 'libisar_android_armv7.so'
     - uses: actions-rs/toolchain@v1
       with:
+        toolchain: stable
         override: true
       if: matrix.artifact_name == 'libisar_android_armv7.so'
     - name: Build
