@@ -10,9 +10,16 @@ use isar_core::schema::Schema;
 use std::os::raw::c_char;
 use std::sync::Arc;
 
+include!(concat!(env!("OUT_DIR"), "/version.rs"));
+
 struct IsarInstanceSend(*mut *const IsarInstance);
 
 unsafe impl Send for IsarInstanceSend {}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_version() -> i64 {
+    ISAR_VERSION as i64
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_create_instance(

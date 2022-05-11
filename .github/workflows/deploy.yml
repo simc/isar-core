@@ -59,15 +59,10 @@ jobs:
         submodules: true
     - uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly
-        override: true
-        components: rust-src
-      if: matrix.artifact_name != 'libisar_android_armv7.so'
-    - uses: actions-rs/toolchain@v1
-      with:
         toolchain: stable
         override: true
-      if: matrix.artifact_name == 'libisar_android_armv7.so'
+    - name: Set env
+      run: echo "ISAR_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
     - name: Build
       working-directory: dart-ffi
       run: bash tools/${{ matrix.script }}
