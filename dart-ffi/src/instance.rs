@@ -61,16 +61,15 @@ pub unsafe extern "C" fn isar_create_instance_async(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_close_instance(
-    isar: *const IsarInstance,
-    delete_from_disk: bool,
-) -> bool {
+pub unsafe extern "C" fn isar_close_instance(isar: *const IsarInstance) -> bool {
     let isar = Arc::from_raw(isar);
-    if delete_from_disk {
-        isar.close_and_delete()
-    } else {
-        isar.close()
-    }
+    isar.close()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_close_delete_instance(isar: *const IsarInstance) -> bool {
+    let isar = Arc::from_raw(isar);
+    isar.close_and_delete()
 }
 
 #[no_mangle]
