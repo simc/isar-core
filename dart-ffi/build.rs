@@ -19,7 +19,7 @@ fn main() {
 
         let mut version = 0;
         for (i, v) in components.iter().rev().enumerate() {
-            version += 10usize.pow(i as u32) * (*v as usize);
+            version += 100usize.pow(i as u32) * (*v as usize);
         }
         version
     });
