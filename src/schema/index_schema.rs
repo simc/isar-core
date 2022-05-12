@@ -35,14 +35,21 @@ pub struct IndexSchema {
     pub(crate) name: String,
     pub(crate) properties: Vec<IndexPropertySchema>,
     pub(crate) unique: bool,
+    pub(crate) replace: bool,
 }
 
 impl IndexSchema {
-    pub fn new(name: &str, properties: Vec<IndexPropertySchema>, unique: bool) -> IndexSchema {
+    pub fn new(
+        name: &str,
+        properties: Vec<IndexPropertySchema>,
+        unique: bool,
+        replace: bool,
+    ) -> IndexSchema {
         IndexSchema {
             name: name.to_string(),
             properties,
             unique,
+            replace,
         }
     }
 
@@ -55,6 +62,6 @@ impl IndexSchema {
                 IndexProperty::new(*property, p.index_type, p.case_sensitive)
             })
             .collect_vec();
-        IsarIndex::new(db, index_properties, self.unique)
+        IsarIndex::new(db, index_properties, self.unique, self.replace)
     }
 }

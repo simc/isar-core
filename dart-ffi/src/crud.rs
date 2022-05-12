@@ -86,7 +86,6 @@ pub unsafe extern "C" fn isar_put(
     collection: &'static mut IsarCollection,
     txn: &mut IsarDartTxn,
     object: &'static mut RawObject,
-    replace_on_conflict: bool,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
         let id = if object.get_id() != i64::MIN {
@@ -94,7 +93,7 @@ pub unsafe extern "C" fn isar_put(
         } else {
             None
         };
-        let id = collection.put(txn, id, object.get_object(), replace_on_conflict)?;
+        let id = collection.put(txn, id, object.get_object())?;
         object.set_id(id);
         Ok(())
     })
@@ -105,7 +104,6 @@ pub unsafe extern "C" fn isar_put_all(
     collection: &'static IsarCollection,
     txn: &mut IsarDartTxn,
     objects: &'static mut RawObjectSet,
-    replace_on_conflict: bool,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
         for object in objects.get_objects() {
@@ -114,7 +112,7 @@ pub unsafe extern "C" fn isar_put_all(
             } else {
                 None
             };
-            let id = collection.put(txn, id, object.get_object(), replace_on_conflict)?;
+            let id = collection.put(txn, id, object.get_object())?;
             object.set_id(id)
         }
         Ok(())
@@ -212,12 +210,11 @@ pub unsafe extern "C" fn isar_json_import(
     id_name: *const c_char,
     json_bytes: *const u8,
     json_length: u32,
-    replace_on_conflict: bool,
 ) -> i64 {
     let id_name = from_c_str(id_name).unwrap();
     let bytes = std::slice::from_raw_parts(json_bytes, json_length as usize);
     let json: Value = serde_json::from_slice(bytes).unwrap();
     isar_try_txn!(txn, move |txn| {
-        collection.import_json(txn, id_name, json, replace_on_conflict)
+        collection.import_json(txn, id_name, json)
     })
 }
