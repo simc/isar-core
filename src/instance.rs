@@ -37,7 +37,7 @@ pub struct IsarInstance {
 impl IsarInstance {
     pub fn open(
         name: &str,
-        dir: &str,
+        dir: Option<&str>,
         relaxed_durability: bool,
         schema: Schema,
     ) -> Result<Arc<Self>> {
@@ -50,11 +50,17 @@ impl IsarInstance {
                 Err(IsarError::SchemaMismatch {})
             }
         } else {
-            let new_instance =
-                Self::open_internal(name, dir, instance_id, relaxed_durability, schema)?;
-            let new_instance = Arc::new(new_instance);
-            lock.insert(instance_id, new_instance.clone());
-            Ok(new_instance)
+            if let Some(dir) = dir {
+                let new_instance =
+                    Self::open_internal(name, dir, instance_id, relaxed_durability, schema)?;
+                let new_instance = Arc::new(new_instance);
+                lock.insert(instance_id, new_instance.clone());
+                Ok(new_instance)
+            } else {
+                Err(IsarError::IllegalArg {
+                    message: "There is no open instance. Please provide a valid directory to open one.".to_string()
+                })
+            }
         }
     }
 

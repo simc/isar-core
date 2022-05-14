@@ -31,7 +31,7 @@ pub unsafe extern "C" fn isar_create_instance(
 ) -> i64 {
     let open = || -> Result<()> {
         let name = from_c_str(name).unwrap().unwrap();
-        let path = from_c_str(path).unwrap().unwrap();
+        let path = from_c_str(path).unwrap();
         let schema_json = from_c_str(schema_json).unwrap().unwrap();
         let schema = Schema::from_json(schema_json.as_bytes())?;
 
