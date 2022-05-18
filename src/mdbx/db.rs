@@ -65,7 +65,7 @@ impl Db {
                 txn.txn,
                 self.dbi,
                 stat_ptr,
-                size_of::<ffi::MDBX_stat>() as u64,
+                size_of::<ffi::MDBX_stat>() as ffi::size_t,
             );
         }
         let size = (stat.ms_branch_pages + stat.ms_leaf_pages + stat.ms_overflow_pages)
