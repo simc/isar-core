@@ -138,6 +138,10 @@ impl IsarLink {
         Ok(())
     }
 
+    pub fn get_size(&self, txn: &mut IsarTxn) -> Result<u64> {
+        Ok(txn.db_stat(self.db)?.1)
+    }
+
     pub fn clear(&self, txn: &mut IsarTxn) -> Result<()> {
         txn.clear_db(self.db)?;
         txn.clear_db(self.bl_db)

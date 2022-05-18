@@ -2,6 +2,7 @@ use crate::error::Result;
 use crate::mdbx::mdbx_result;
 use crate::mdbx::txn::Txn;
 use std::ffi::CString;
+use std::mem::size_of;
 use std::ptr;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -46,6 +47,30 @@ impl Db {
         }
 
         Ok(Self { dbi, dup })
+    }
+
+    pub fn stat(&self, txn: &Txn) -> Result<(u64, u64)> {
+        let mut stat = ffi::MDBX_stat {
+            ms_psize: 0,
+            ms_depth: 0,
+            ms_branch_pages: 0,
+            ms_leaf_pages: 0,
+            ms_overflow_pages: 0,
+            ms_entries: 0,
+            ms_mod_txnid: 0,
+        };
+        let stat_ptr = &mut stat as *mut ffi::MDBX_stat;
+        unsafe {
+            ffi::mdbx_dbi_stat(
+                txn.txn,
+                self.dbi,
+                stat_ptr,
+                size_of::<ffi::MDBX_stat>() as u64,
+            );
+        }
+        let size = (stat.ms_branch_pages + stat.ms_leaf_pages + stat.ms_overflow_pages)
+            * stat.ms_psize as u64;
+        Ok((stat.ms_entries, size))
     }
 
     pub fn clear(&self, txn: &Txn) -> Result<()> {

@@ -301,6 +301,33 @@ impl IsarCollection {
         Ok(())
     }
 
+    pub fn count(&self, txn: &mut IsarTxn) -> Result<u64> {
+        Ok(txn.db_stat(self.db)?.0)
+    }
+
+    pub fn get_size(
+        &self,
+        txn: &mut IsarTxn,
+        include_indexes: bool,
+        include_links: bool,
+    ) -> Result<u64> {
+        let mut size = txn.db_stat(self.db)?.1;
+
+        if include_indexes {
+            for (_, index) in &self.indexes {
+                size += index.get_size(txn)?;
+            }
+        }
+
+        if include_links {
+            for (_, link) in &self.links {
+                size += link.get_size(txn)?;
+            }
+        }
+
+        Ok(size)
+    }
+
     pub fn import_json(&self, txn: &mut IsarTxn, id_name: Option<&str>, json: Value) -> Result<()> {
         txn.write(self.instance_id, |cursors, mut change_set| {
             let array = json.as_array().ok_or(IsarError::InvalidJson {})?;

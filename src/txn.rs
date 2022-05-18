@@ -82,6 +82,10 @@ impl<'env> IsarTxn<'env> {
         }
     }
 
+    pub(crate) fn db_stat(&mut self, db: Db) -> Result<(u64, u64)> {
+        db.stat(&self.txn)
+    }
+
     pub(crate) fn clear_db(&mut self, db: Db) -> Result<()> {
         if !self.write {
             return Err(IsarError::WriteTxnRequired {});

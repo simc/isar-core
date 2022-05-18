@@ -218,3 +218,29 @@ pub unsafe extern "C" fn isar_json_import(
         collection.import_json(txn, id_name, json)
     })
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_count(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    count: &'static mut i64,
+) -> i64 {
+    isar_try_txn!(txn, move |txn| {
+        *count = collection.count(txn)? as i64;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_get_size(
+    collection: &'static IsarCollection,
+    txn: &mut IsarDartTxn,
+    include_indexes: bool,
+    include_links: bool,
+    size: &'static mut i64,
+) -> i64 {
+    isar_try_txn!(txn, move |txn| {
+        *size = collection.get_size(txn, include_indexes, include_links)? as i64;
+        Ok(())
+    })
+}
