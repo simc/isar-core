@@ -181,20 +181,36 @@ impl TestObj {
 
     pub fn default_indexes() -> Vec<IndexSchema> {
         vec![
-            IndexSchema::new("byte", vec![Self::byte_index()], false),
-            IndexSchema::new("int", vec![Self::int_index()], false),
-            IndexSchema::new("long", vec![Self::long_index()], false),
-            IndexSchema::new("float", vec![Self::float_index()], false),
-            IndexSchema::new("double", vec![Self::double_index()], false),
-            IndexSchema::new("string", vec![Self::string_index(false, true)], false),
-            IndexSchema::new("byteList", vec![Self::byte_list_index(false)], false),
-            IndexSchema::new("intList", vec![Self::int_list_index(false)], false),
-            IndexSchema::new("longList", vec![Self::long_list_index(false)], false),
-            IndexSchema::new("floatList", vec![Self::float_list_index(false)], false),
-            IndexSchema::new("doubleList", vec![Self::double_list_index(false)], false),
+            IndexSchema::new("byte", vec![Self::byte_index()], false, false),
+            IndexSchema::new("int", vec![Self::int_index()], false, false),
+            IndexSchema::new("long", vec![Self::long_index()], false, false),
+            IndexSchema::new("float", vec![Self::float_index()], false, false),
+            IndexSchema::new("double", vec![Self::double_index()], false, false),
+            IndexSchema::new(
+                "string",
+                vec![Self::string_index(false, true)],
+                false,
+                false,
+            ),
+            IndexSchema::new("byteList", vec![Self::byte_list_index(false)], false, false),
+            IndexSchema::new("intList", vec![Self::int_list_index(false)], false, false),
+            IndexSchema::new("longList", vec![Self::long_list_index(false)], false, false),
+            IndexSchema::new(
+                "floatList",
+                vec![Self::float_list_index(false)],
+                false,
+                false,
+            ),
+            IndexSchema::new(
+                "doubleList",
+                vec![Self::double_list_index(false)],
+                false,
+                false,
+            ),
             IndexSchema::new(
                 "stringList",
                 vec![Self::string_list_index(false, true, true)],
+                false,
                 false,
             ),
         ]
@@ -239,7 +255,7 @@ impl TestObj {
 
     pub fn save(&self, txn: &mut IsarTxn, col: &IsarCollection) {
         let bytes = self.to_bytes(col);
-        col.put(txn, Some(self.id), IsarObject::from_bytes(&bytes), false)
+        col.put(txn, Some(self.id), IsarObject::from_bytes(&bytes))
             .unwrap();
     }
 

@@ -102,7 +102,7 @@ fn test_open_instance_added_index() {
     txn.commit().unwrap();
     isar.close();
 
-    let byte_index = IndexSchema::new("byte", vec![TestObj::byte_index()], true);
+    let byte_index = IndexSchema::new("byte", vec![TestObj::byte_index()], true, true);
     let schema = TestObj::schema("obj", &[byte_index], &[]);
     isar!(path, isar, col => schema);
     txn!(isar, txn);
