@@ -260,7 +260,7 @@ impl<'txn> Cursor<'txn> {
     ) -> Result<bool> {
         if let Some((_, val)) = self.move_to(key)? {
             if !callback(self, val)? {
-                return Ok(true);
+                return Ok(false);
             }
         } else {
             return Ok(true);

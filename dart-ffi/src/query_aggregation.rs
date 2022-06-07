@@ -1,4 +1,4 @@
-use crate::txn::IsarDartTxn;
+use crate::txn::CIsarTxn;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::error::Result;
@@ -149,7 +149,7 @@ unsafe impl Send for AggregationResultSend {}
 pub unsafe extern "C" fn isar_q_aggregate(
     collection: &IsarCollection,
     query: &'static Query,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     operation: u8,
     property_id: u32,
     result: *mut *const AggregationResult,

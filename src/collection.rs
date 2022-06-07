@@ -164,10 +164,6 @@ impl IsarCollection {
             (id, IdKey::new(id))
         };
 
-        /*if !self.object_info.verify_object(object) {
-            return Err(IsarError::InvalidObject {});
-        }*/
-
         for (_, index) in &self.indexes {
             index.create_for_object(cursors, &id_key, object, |id_key| {
                 self.delete_internal(cursors, true, change_set.as_deref_mut(), id_key)?;

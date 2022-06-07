@@ -35,6 +35,7 @@ pub struct IndexSchema {
     pub(crate) name: String,
     pub(crate) properties: Vec<IndexPropertySchema>,
     pub(crate) unique: bool,
+    #[serde(default)]
     pub(crate) replace: bool,
 }
 

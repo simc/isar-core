@@ -1,11 +1,11 @@
-use crate::txn::IsarDartTxn;
+use crate::txn::CIsarTxn;
 use isar_core::collection::IsarCollection;
 use isar_core::error::Result;
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_link(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     link_id: u32,
     id: i64,
     target_id: i64,
@@ -19,7 +19,7 @@ pub unsafe extern "C" fn isar_link(
 #[no_mangle]
 pub unsafe extern "C" fn isar_link_unlink(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     link_id: u32,
     id: i64,
     target_id: i64,
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn isar_link_unlink(
 #[no_mangle]
 pub unsafe extern "C" fn isar_link_unlink_all(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     link_id: u32,
     id: i64,
 ) -> i64 {
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn isar_link_unlink_all(
 #[no_mangle]
 pub unsafe extern "C" fn isar_link_update_all(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     link_id: u32,
     id: i64,
     ids: *const i64,

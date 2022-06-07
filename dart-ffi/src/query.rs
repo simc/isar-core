@@ -1,5 +1,5 @@
-use super::raw_object_set::{RawObject, RawObjectSet};
-use crate::txn::IsarDartTxn;
+use super::c_object_set::{CObject, CObjectSet};
+use crate::txn::CIsarTxn;
 use crate::{from_c_str, UintSend};
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
@@ -135,15 +135,15 @@ pub unsafe extern "C" fn isar_q_free(query: *mut Query) {
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_find(
     query: &'static Query,
-    txn: &mut IsarDartTxn,
-    result: &'static mut RawObjectSet,
+    txn: &mut CIsarTxn,
+    result: &'static mut CObjectSet,
     limit: u32,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
         let mut objects = vec![];
         let mut count = 0;
         query.find_while(txn, |id, object| {
-            let mut raw_obj = RawObject::new();
+            let mut raw_obj = CObject::new();
             raw_obj.set_id(id);
             raw_obj.set_object(Some(object));
             objects.push(raw_obj);
@@ -160,7 +160,7 @@ pub unsafe extern "C" fn isar_q_find(
 pub unsafe extern "C" fn isar_q_delete(
     query: &'static Query,
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     limit: u32,
     count: &'static mut u32,
 ) -> i64 {
@@ -190,7 +190,7 @@ unsafe impl Send for JsonLen {}
 pub unsafe extern "C" fn isar_q_export_json(
     query: &'static Query,
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     id_name: *const c_char,
     json_bytes: *mut *mut u8,
     json_length: *mut u32,

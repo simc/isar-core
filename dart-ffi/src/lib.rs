@@ -9,6 +9,7 @@ use unicode_segmentation::UnicodeSegmentation;
 #[macro_use]
 mod error;
 
+pub mod c_object_set;
 pub mod crud;
 mod dart;
 pub mod filter;
@@ -17,7 +18,6 @@ pub mod instance;
 pub mod link;
 pub mod query;
 pub mod query_aggregation;
-pub mod raw_object_set;
 pub mod txn;
 pub mod watchers;
 

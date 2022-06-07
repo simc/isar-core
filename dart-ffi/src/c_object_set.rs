@@ -1,18 +1,19 @@
+use isar_core::collection::IsarCollection;
 use isar_core::object::isar_object::IsarObject;
 use std::{ptr, slice};
 
 #[repr(C)]
-pub struct RawObject {
+pub struct CObject {
     id: i64,
     buffer: *mut u8,
     buffer_length: u32,
 }
 
-unsafe impl Send for RawObject {}
+unsafe impl Send for CObject {}
 
-impl RawObject {
+impl CObject {
     pub fn new() -> Self {
-        RawObject {
+        CObject {
             id: i64::MIN,
             buffer: std::ptr::null_mut(),
             buffer_length: 0,
@@ -48,15 +49,15 @@ impl RawObject {
 }
 
 #[repr(C)]
-pub struct RawObjectSet {
-    objects: *mut RawObject,
+pub struct CObjectSet {
+    objects: *mut CObject,
     length: u32,
 }
 
-unsafe impl Send for RawObjectSet {}
+unsafe impl Send for CObjectSet {}
 
-impl RawObjectSet {
-    pub fn fill_from_vec(&mut self, objects: Vec<RawObject>) {
+impl CObjectSet {
+    pub fn fill_from_vec(&mut self, objects: Vec<CObject>) {
         let mut objects = objects.into_boxed_slice();
         self.objects = objects.as_mut_ptr();
         self.length = objects.len() as u32;
@@ -64,7 +65,7 @@ impl RawObjectSet {
     }
 
     #[allow(clippy::mut_from_ref)]
-    pub unsafe fn get_objects(&self) -> &mut [RawObject] {
+    pub unsafe fn get_objects(&self) -> &mut [CObject] {
         std::slice::from_raw_parts_mut(self.objects, self.length as usize)
     }
 
@@ -74,8 +75,58 @@ impl RawObjectSet {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_free_raw_obj_list(ros: &mut RawObjectSet) {
+pub unsafe extern "C" fn isar_free_c_object_set(ros: &mut CObjectSet) {
     Vec::from_raw_parts(ros.objects, ros.length as usize, ros.length as usize);
     ros.objects = ptr::null_mut();
     ros.length = 0;
 }
+
+#[repr(C)]
+pub struct CObjectCollectionSet<'a> {
+    objects: *mut CObject,
+    collections: *const &'a IsarCollection,
+    length: u32,
+}
+
+impl<'a> CObjectCollectionSet<'a> {
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn get_objects(&self) -> &mut [CObject] {
+        std::slice::from_raw_parts_mut(self.objects, self.length as usize)
+    }
+
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn get_collections(&self) -> &[&'a IsarCollection] {
+        std::slice::from_raw_parts(self.collections, self.length as usize)
+    }
+}
+
+#[repr(C)]
+pub struct CLink {
+    pub source_id: i64,
+    pub target_id: i64,
+    pub link_id: u32,
+    pub new_target: bool,
+}
+
+#[repr(C)]
+pub struct CLinkSet {
+    links: *mut CLink,
+    length: u32,
+}
+
+impl CLinkSet {
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn get_links(&self) -> &mut [CLink] {
+        std::slice::from_raw_parts_mut(self.links, self.length as usize)
+    }
+}
+
+#[repr(C)]
+pub struct CObjectLinkSet<'a> {
+    pub objects: CObjectSet,
+    pub linked_objects: CObjectCollectionSet<'a>,
+    pub added_links: CLinkSet,
+    pub removed_links: CLinkSet,
+}
+
+unsafe impl Send for CObjectLinkSet<'_> {}

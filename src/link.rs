@@ -1,5 +1,4 @@
 use crate::cursor::IsarCursors;
-use crate::error::IsarError::DbCorrupted;
 use crate::error::{IsarError, Result};
 use crate::id_key::IdKey;
 use crate::mdbx::cursor::Cursor;
@@ -110,7 +109,7 @@ impl IsarLink {
                 backlink_cursor.delete_current()?;
                 Ok(true)
             } else {
-                Err(DbCorrupted {
+                Err(IsarError::DbCorrupted {
                     message: "Backlink does not exist".to_string(),
                 })
             }
@@ -130,7 +129,7 @@ impl IsarLink {
                 backlink_cursor.delete_current()?;
                 Ok(true)
             } else {
-                Err(DbCorrupted {
+                Err(IsarError::DbCorrupted {
                     message: "Backlink does not exist".to_string(),
                 })
             }

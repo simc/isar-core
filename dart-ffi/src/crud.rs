@@ -1,5 +1,5 @@
-use crate::raw_object_set::{RawObject, RawObjectSet};
-use crate::txn::IsarDartTxn;
+use crate::c_object_set::{CObject, CObjectLinkSet, CObjectSet};
+use crate::txn::CIsarTxn;
 use crate::{from_c_str, BoolSend, UintSend};
 use isar_core::collection::IsarCollection;
 use isar_core::index::index_key::IndexKey;
@@ -9,8 +9,8 @@ use std::os::raw::c_char;
 #[no_mangle]
 pub unsafe extern "C" fn isar_get(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
-    object: &'static mut RawObject,
+    txn: &mut CIsarTxn,
+    object: &'static mut CObject,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
         let id = object.get_id();
@@ -23,10 +23,10 @@ pub unsafe extern "C" fn isar_get(
 #[no_mangle]
 pub unsafe extern "C" fn isar_get_by_index(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     index_id: u32,
     key: *mut IndexKey,
-    object: &'static mut RawObject,
+    object: &'static mut CObject,
 ) -> i64 {
     let key = *Box::from_raw(key);
     isar_try_txn!(txn, move |txn| {
@@ -44,8 +44,8 @@ pub unsafe extern "C" fn isar_get_by_index(
 #[no_mangle]
 pub unsafe extern "C" fn isar_get_all(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
-    objects: &'static mut RawObjectSet,
+    txn: &mut CIsarTxn,
+    objects: &'static mut CObjectSet,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
         for object in objects.get_objects() {
@@ -60,10 +60,10 @@ pub unsafe extern "C" fn isar_get_all(
 #[no_mangle]
 pub unsafe extern "C" fn isar_get_all_by_index(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     index_id: u32,
     keys: *const *mut IndexKey,
-    objects: &'static mut RawObjectSet,
+    objects: &'static mut CObjectSet,
 ) -> i64 {
     let slice = std::slice::from_raw_parts(keys, objects.get_length());
     let keys: Vec<IndexKey> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
@@ -84,8 +84,8 @@ pub unsafe extern "C" fn isar_get_all_by_index(
 #[no_mangle]
 pub unsafe extern "C" fn isar_put(
     collection: &'static mut IsarCollection,
-    txn: &mut IsarDartTxn,
-    object: &'static mut RawObject,
+    txn: &mut CIsarTxn,
+    object: &'static mut CObject,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
         let id = if object.get_id() != i64::MIN {
@@ -102,19 +102,47 @@ pub unsafe extern "C" fn isar_put(
 #[no_mangle]
 pub unsafe extern "C" fn isar_put_all(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
-    objects: &'static mut RawObjectSet,
+    txn: &mut CIsarTxn,
+    objects_links: &'static mut CObjectLinkSet<'static>,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
-        for object in objects.get_objects() {
+        let objects = objects_links.objects.get_objects();
+        for object in objects.iter_mut() {
             let id = if object.get_id() != i64::MIN {
                 Some(object.get_id())
             } else {
                 None
             };
             let id = collection.put(txn, id, object.get_object())?;
-            object.set_id(id)
+            object.set_id(id);
         }
+
+        let linked_objects = objects_links.linked_objects.get_objects();
+        let linked_object_cols = objects_links.linked_objects.get_collections();
+        for (object, collection) in linked_objects.iter_mut().zip(linked_object_cols) {
+            let id = if object.get_id() != i64::MIN {
+                Some(object.get_id())
+            } else {
+                None
+            };
+            let id = collection.put(txn, id, object.get_object())?;
+            object.set_id(id);
+        }
+
+        for link in objects_links.added_links.get_links() {
+            let source_id = objects[link.source_id as usize].get_id();
+            let target_id = if link.new_target {
+                objects[link.target_id as usize].get_id()
+            } else {
+                link.target_id
+            };
+            collection.link(txn, link.link_id as usize, source_id, target_id)?;
+        }
+
+        for link in objects_links.removed_links.get_links() {
+            collection.unlink(txn, link.link_id as usize, link.source_id, link.target_id)?;
+        }
+
         Ok(())
     })
 }
@@ -122,7 +150,7 @@ pub unsafe extern "C" fn isar_put_all(
 #[no_mangle]
 pub unsafe extern "C" fn isar_delete(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     id: i64,
     deleted: &'static mut bool,
 ) -> i64 {
@@ -136,7 +164,7 @@ pub unsafe extern "C" fn isar_delete(
 #[no_mangle]
 pub unsafe extern "C" fn isar_delete_by_index(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     index_id: u32,
     key: *mut IndexKey,
     deleted: &'static mut bool,
@@ -152,7 +180,7 @@ pub unsafe extern "C" fn isar_delete_by_index(
 #[no_mangle]
 pub unsafe extern "C" fn isar_delete_all(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     ids: *const i64,
     ids_length: u32,
     count: &'static mut u32,
@@ -174,7 +202,7 @@ pub unsafe extern "C" fn isar_delete_all(
 #[no_mangle]
 pub unsafe extern "C" fn isar_delete_all_by_index(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     index_id: u32,
     keys: *const *mut IndexKey,
     keys_length: u32,
@@ -198,7 +226,7 @@ pub unsafe extern "C" fn isar_delete_all_by_index(
 #[no_mangle]
 pub unsafe extern "C" fn isar_clear(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| collection.clear(txn))
 }
@@ -206,7 +234,7 @@ pub unsafe extern "C" fn isar_clear(
 #[no_mangle]
 pub unsafe extern "C" fn isar_json_import(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     id_name: *const c_char,
     json_bytes: *const u8,
     json_length: u32,
@@ -222,7 +250,7 @@ pub unsafe extern "C" fn isar_json_import(
 #[no_mangle]
 pub unsafe extern "C" fn isar_count(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     count: &'static mut i64,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
@@ -234,7 +262,7 @@ pub unsafe extern "C" fn isar_count(
 #[no_mangle]
 pub unsafe extern "C" fn isar_get_size(
     collection: &'static IsarCollection,
-    txn: &mut IsarDartTxn,
+    txn: &mut CIsarTxn,
     include_indexes: bool,
     include_links: bool,
     size: &'static mut i64,
