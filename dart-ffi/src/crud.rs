@@ -118,21 +118,18 @@ pub unsafe extern "C" fn isar_put_all(
         }
 
         for link in objects_links.reset_links.get_links() {
-            collection.unlink_all(txn, link.link_id as usize, link.source_id_index)?;
+            let source_id = objects[link.source_index as usize].get_id();
+            collection.unlink_all(txn, link.link_id as usize, source_id)?;
         }
 
         for link in objects_links.added_links.get_links() {
-            let source_id = objects[link.source_id_index as usize].get_id();
+            let source_id = objects[link.source_index as usize].get_id();
             collection.link(txn, link.link_id as usize, source_id, link.target_id)?;
         }
 
         for link in objects_links.removed_links.get_links() {
-            collection.unlink(
-                txn,
-                link.link_id as usize,
-                link.source_id_index,
-                link.target_id,
-            )?;
+            let source_id = objects[link.source_index as usize].get_id();
+            collection.unlink(txn, link.link_id as usize, source_id, link.target_id)?;
         }
 
         Ok(())

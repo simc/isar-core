@@ -82,7 +82,7 @@ pub unsafe extern "C" fn isar_free_c_object_set(ros: &mut CObjectSet) {
 
 #[repr(C)]
 pub struct CLink {
-    pub source_id_index: i64,
+    pub source_index: i64,
     pub target_id: i64,
     pub link_id: u32,
 }
