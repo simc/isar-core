@@ -105,6 +105,7 @@ pub struct CObjectLinkSet {
     pub objects: CObjectSet,
     pub added_links: CLinkSet,
     pub removed_links: CLinkSet,
+    pub reset_links: CLinkSet,
 }
 
 unsafe impl Send for CObjectLinkSet {}

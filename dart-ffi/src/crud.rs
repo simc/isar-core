@@ -117,6 +117,10 @@ pub unsafe extern "C" fn isar_put_all(
             object.set_id(id);
         }
 
+        for link in objects_links.reset_links.get_links() {
+            collection.unlink_all(txn, link.link_id as usize, link.source_id_index)?;
+        }
+
         for link in objects_links.added_links.get_links() {
             let source_id = objects[link.source_id_index as usize].get_id();
             collection.link(txn, link.link_id as usize, source_id, link.target_id)?;
