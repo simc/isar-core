@@ -10,7 +10,7 @@ else
 fi
 
 NDK="$ANDROID_HOME/ndk/21.4.7075529"
-if ![ -d "$NDK" ]; then
+if [ ! -d "$NDK" ]; then
     NDK=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-"$ANDROID_SDK_ROOT/ndk"}}
 fi
 COMPILER_DIR="$NDK/toolchains/llvm/prebuilt/$NDK_HOST_TAG/bin"
