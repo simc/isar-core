@@ -103,7 +103,7 @@ pub unsafe extern "C" fn isar_put(
 pub unsafe extern "C" fn isar_put_all(
     collection: &'static IsarCollection,
     txn: &mut CIsarTxn,
-    objects_links: &'static mut CObjectLinkSet<'static>,
+    objects_links: &'static mut CObjectLinkSet,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
         let objects = objects_links.objects.get_objects();
@@ -117,30 +117,18 @@ pub unsafe extern "C" fn isar_put_all(
             object.set_id(id);
         }
 
-        let linked_objects = objects_links.linked_objects.get_objects();
-        let linked_object_cols = objects_links.linked_objects.get_collections();
-        for (object, collection) in linked_objects.iter_mut().zip(linked_object_cols) {
-            let id = if object.get_id() != i64::MIN {
-                Some(object.get_id())
-            } else {
-                None
-            };
-            let id = collection.put(txn, id, object.get_object())?;
-            object.set_id(id);
-        }
-
         for link in objects_links.added_links.get_links() {
-            let source_id = objects[link.source_id as usize].get_id();
-            let target_id = if link.new_target {
-                objects[link.target_id as usize].get_id()
-            } else {
-                link.target_id
-            };
-            collection.link(txn, link.link_id as usize, source_id, target_id)?;
+            let source_id = objects[link.source_id_index as usize].get_id();
+            collection.link(txn, link.link_id as usize, source_id, link.target_id)?;
         }
 
         for link in objects_links.removed_links.get_links() {
-            collection.unlink(txn, link.link_id as usize, link.source_id, link.target_id)?;
+            collection.unlink(
+                txn,
+                link.link_id as usize,
+                link.source_id_index,
+                link.target_id,
+            )?;
         }
 
         Ok(())

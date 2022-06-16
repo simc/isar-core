@@ -1,4 +1,3 @@
-use isar_core::collection::IsarCollection;
 use isar_core::object::isar_object::IsarObject;
 use std::{ptr, slice};
 
@@ -82,30 +81,10 @@ pub unsafe extern "C" fn isar_free_c_object_set(ros: &mut CObjectSet) {
 }
 
 #[repr(C)]
-pub struct CObjectCollectionSet<'a> {
-    objects: *mut CObject,
-    collections: *const &'a IsarCollection,
-    length: u32,
-}
-
-impl<'a> CObjectCollectionSet<'a> {
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn get_objects(&self) -> &mut [CObject] {
-        std::slice::from_raw_parts_mut(self.objects, self.length as usize)
-    }
-
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn get_collections(&self) -> &[&'a IsarCollection] {
-        std::slice::from_raw_parts(self.collections, self.length as usize)
-    }
-}
-
-#[repr(C)]
 pub struct CLink {
-    pub source_id: i64,
+    pub source_id_index: i64,
     pub target_id: i64,
     pub link_id: u32,
-    pub new_target: bool,
 }
 
 #[repr(C)]
@@ -122,11 +101,10 @@ impl CLinkSet {
 }
 
 #[repr(C)]
-pub struct CObjectLinkSet<'a> {
+pub struct CObjectLinkSet {
     pub objects: CObjectSet,
-    pub linked_objects: CObjectCollectionSet<'a>,
     pub added_links: CLinkSet,
     pub removed_links: CLinkSet,
 }
 
-unsafe impl Send for CObjectLinkSet<'_> {}
+unsafe impl Send for CObjectLinkSet {}
