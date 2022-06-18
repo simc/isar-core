@@ -61,7 +61,7 @@ impl Env {
     }
 
     pub fn txn(&self, write: bool) -> Result<Txn> {
-        let flags = if write { 0 } else { ffi::MDBX_RDONLY };
+        let flags = if write { 0 } else { ffi::MDBX_TXN_RDONLY };
         let mut txn: *mut ffi::MDBX_txn = ptr::null_mut();
         unsafe {
             mdbx_result(ffi::mdbx_txn_begin_ex(
