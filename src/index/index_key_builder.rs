@@ -20,9 +20,7 @@ impl<'a> IndexKeyBuilder<'a> {
         mut callback: impl FnMut(&IndexKey) -> Result<bool>,
     ) -> Result<bool> {
         let first = self.properties.first().unwrap();
-        if first.property.data_type.get_element_type().is_none()
-            || first.index_type == IndexType::Hash
-        {
+        if !first.is_multi_entry() {
             let key = self.create_primitive_key(object);
             callback(&key)?;
             Ok(true)
@@ -32,7 +30,7 @@ impl<'a> IndexKeyBuilder<'a> {
         }
     }
 
-    fn create_primitive_key(&self, object: IsarObject) -> IndexKey {
+    pub fn create_primitive_key(&self, object: IsarObject) -> IndexKey {
         let mut key = IndexKey::new();
         for index_property in self.properties {
             let property = index_property.property;

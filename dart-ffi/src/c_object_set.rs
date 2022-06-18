@@ -79,33 +79,3 @@ pub unsafe extern "C" fn isar_free_c_object_set(ros: &mut CObjectSet) {
     ros.objects = ptr::null_mut();
     ros.length = 0;
 }
-
-#[repr(C)]
-pub struct CLink {
-    pub source_index: i64,
-    pub target_id: i64,
-    pub link_id: u32,
-}
-
-#[repr(C)]
-pub struct CLinkSet {
-    links: *mut CLink,
-    length: u32,
-}
-
-impl CLinkSet {
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn get_links(&self) -> &mut [CLink] {
-        std::slice::from_raw_parts_mut(self.links, self.length as usize)
-    }
-}
-
-#[repr(C)]
-pub struct CObjectLinkSet {
-    pub objects: CObjectSet,
-    pub added_links: CLinkSet,
-    pub removed_links: CLinkSet,
-    pub reset_links: CLinkSet,
-}
-
-unsafe impl Send for CObjectLinkSet {}

@@ -1,7 +1,8 @@
 use crate::cursor::IsarCursors;
-use crate::error::{IsarError, Result};
+use crate::error::{illegal_arg, IsarError, Result};
 use crate::id_key::IdKey;
 use crate::index::index_key::IndexKey;
+use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::index::IsarIndex;
 use crate::link::IsarLink;
 use crate::mdbx::db::Db;
@@ -144,6 +145,26 @@ impl IsarCollection {
     pub fn put(&self, txn: &mut IsarTxn, id: Option<i64>, object: IsarObject) -> Result<i64> {
         txn.write(self.instance_id, |cursors, change_set| {
             self.put_internal(cursors, change_set, id, object)
+        })
+    }
+
+    pub fn put_by_index(
+        &self,
+        txn: &mut IsarTxn,
+        index_id: usize,
+        object: IsarObject,
+    ) -> Result<i64> {
+        let index = self.get_index_by_id(index_id)?;
+        if index.multi_entry {
+            illegal_arg("Cannot put by a multi-entry index")?;
+        }
+        let key_builder = IndexKeyBuilder::new(&index.properties);
+        txn.write(self.instance_id, |cursors, change_set| {
+            let key = key_builder.create_primitive_key(object);
+            let id_key = index.get_id(cursors, &key)?;
+            let id = id_key.map(|i| i.get_id());
+            let new_id = self.put_internal(cursors, change_set, id, object)?;
+            Ok(new_id)
         })
     }
 

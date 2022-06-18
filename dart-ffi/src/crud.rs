@@ -1,4 +1,4 @@
-use crate::c_object_set::{CObject, CObjectLinkSet, CObjectSet};
+use crate::c_object_set::{CObject, CObjectSet};
 use crate::txn::CIsarTxn;
 use crate::{from_c_str, BoolSend, UintSend};
 use isar_core::collection::IsarCollection;
@@ -100,38 +100,51 @@ pub unsafe extern "C" fn isar_put(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_put_by_index(
+    collection: &'static mut IsarCollection,
+    txn: &mut CIsarTxn,
+    index_id: u32,
+    object: &'static mut CObject,
+) -> i64 {
+    isar_try_txn!(txn, move |txn| {
+        let id = collection.put_by_index(txn, index_id as usize, object.get_object())?;
+        object.set_id(id);
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_put_all(
     collection: &'static IsarCollection,
     txn: &mut CIsarTxn,
-    objects_links: &'static mut CObjectLinkSet,
+    objects: &'static mut CObjectSet,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
-        let objects = objects_links.objects.get_objects();
-        for object in objects.iter_mut() {
+        for object in objects.get_objects() {
             let id = if object.get_id() != i64::MIN {
                 Some(object.get_id())
             } else {
                 None
             };
             let id = collection.put(txn, id, object.get_object())?;
-            object.set_id(id);
+            object.set_id(id)
         }
+        Ok(())
+    })
+}
 
-        for link in objects_links.reset_links.get_links() {
-            let source_id = objects[link.source_index as usize].get_id();
-            collection.unlink_all(txn, link.link_id as usize, source_id)?;
+#[no_mangle]
+pub unsafe extern "C" fn isar_put_all_by_index(
+    collection: &'static IsarCollection,
+    txn: &mut CIsarTxn,
+    index_id: u32,
+    objects: &'static mut CObjectSet,
+) -> i64 {
+    isar_try_txn!(txn, move |txn| {
+        for object in objects.get_objects() {
+            let id = collection.put_by_index(txn, index_id as usize, object.get_object())?;
+            object.set_id(id)
         }
-
-        for link in objects_links.added_links.get_links() {
-            let source_id = objects[link.source_index as usize].get_id();
-            collection.link(txn, link.link_id as usize, source_id, link.target_id)?;
-        }
-
-        for link in objects_links.removed_links.get_links() {
-            let source_id = objects[link.source_index as usize].get_id();
-            collection.unlink(txn, link.link_id as usize, source_id, link.target_id)?;
-        }
-
         Ok(())
     })
 }
