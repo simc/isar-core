@@ -103,6 +103,9 @@ impl IndexKey {
             if let Some(added) = self.bytes[i].checked_add(1) {
                 self.bytes[i] = added;
                 increased = true;
+                for i2 in (i + 1)..self.bytes.len() {
+                    self.bytes[i2] = 0;
+                }
                 break;
             }
         }
@@ -115,6 +118,9 @@ impl IndexKey {
             if let Some(subtracted) = self.bytes[i].checked_sub(1) {
                 self.bytes[i] = subtracted;
                 decreased = true;
+                for i2 in (i + 1)..self.bytes.len() {
+                    self.bytes[i2] = 255;
+                }
                 break;
             }
         }

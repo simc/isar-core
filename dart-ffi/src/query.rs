@@ -30,21 +30,28 @@ pub unsafe extern "C" fn isar_qb_add_id_where_clause(
 pub unsafe extern "C" fn isar_qb_add_index_where_clause(
     builder: &mut QueryBuilder,
     index_id: u32,
-    start_key: *mut IndexKey,
-    include_start: bool,
-    end_key: *mut IndexKey,
-    include_end: bool,
+    lower_key: *mut IndexKey,
+    include_lower: bool,
+    upper_key: *mut IndexKey,
+    include_upper: bool,
+    sort_asc: bool,
     skip_duplicates: bool,
 ) -> i64 {
-    let start_key = *Box::from_raw(start_key);
-    let end_key = *Box::from_raw(end_key);
+    let lower_key = *Box::from_raw(lower_key);
+    let upper_key = *Box::from_raw(upper_key);
+    let sort = if sort_asc {
+        Sort::Ascending
+    } else {
+        Sort::Descending
+    };
     isar_try! {
         builder.add_index_where_clause(
             index_id as usize,
-            start_key,
-            include_start,
-            end_key,
-            include_end,
+            lower_key,
+            include_lower,
+            upper_key,
+            include_upper,
+            sort,
             skip_duplicates,
         )?;
     }
