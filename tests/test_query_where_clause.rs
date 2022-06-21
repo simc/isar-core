@@ -3,6 +3,7 @@ mod common;
 use std::vec;
 
 use isar_core::index::index_key::IndexKey;
+use isar_core::query::Sort;
 use itertools::Itertools;
 
 use crate::common::test_obj::TestObj;
@@ -68,6 +69,7 @@ fn test_single_index_where_clause() {
             incl_lower,
             upper.clone(),
             incl_upper,
+            Sort::Ascending,
             false,
         )
         .unwrap();
@@ -77,10 +79,11 @@ fn test_single_index_where_clause() {
         let mut qb = col.new_query_builder();
         qb.add_index_where_clause(
             0,
-            upper.clone(),
-            incl_upper,
             lower.clone(),
             incl_lower,
+            upper.clone(),
+            incl_upper,
+            Sort::Descending,
             false,
         )
         .unwrap();
