@@ -15,9 +15,10 @@ pub unsafe extern "C" fn isar_filter_static(filter: *mut *const Filter, value: b
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_filter_and_or(
+pub unsafe extern "C" fn isar_filter_and_or_xor(
     filter: *mut *const Filter,
     and: bool,
+    exclusive: bool,
     conditions: *mut *mut Filter,
     length: u32,
 ) {
@@ -27,6 +28,8 @@ pub unsafe extern "C" fn isar_filter_and_or(
         .collect();
     let and_or = if and {
         Filter::and(filters)
+    } else if exclusive {
+        Filter::xor(filters)
     } else {
         Filter::or(filters)
     };

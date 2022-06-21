@@ -190,6 +190,12 @@ impl Filter {
         Filter(filter_cond)
     }
 
+    pub fn xor(filters: Vec<Filter>) -> Filter {
+        let filters = filters.into_iter().map(|f| f.0).collect_vec();
+        let filter_cond = FilterCond::Xor(XorCond { filters });
+        Filter(filter_cond)
+    }
+
     #[allow(clippy::should_implement_trait)]
     pub fn not(filter: Filter) -> Filter {
         let filter_cond = FilterCond::Not(NotCond {
@@ -249,6 +255,7 @@ enum FilterCond {
     Null(NullCond),
     And(AndCond),
     Or(OrCond),
+    Xor(XorCond),
     Not(NotCond),
     Static(StaticCond),
     Link(LinkCond),
@@ -622,6 +629,32 @@ impl Condition for OrCond {
             }
         }
         Ok(false)
+    }
+}
+
+#[derive(Clone)]
+struct XorCond {
+    filters: Vec<FilterCond>,
+}
+
+impl Condition for XorCond {
+    fn evaluate(
+        &self,
+        id: &IdKey,
+        object: IsarObject,
+        cursors: Option<&IsarCursors>,
+    ) -> Result<bool> {
+        let mut any = false;
+        for filter in &self.filters {
+            if filter.evaluate(id, object, cursors)? {
+                if any {
+                    return Ok(false);
+                } else {
+                    any = true;
+                }
+            }
+        }
+        Ok(any)
     }
 }
 

@@ -73,11 +73,6 @@ impl<'a> QueryBuilder<'a> {
             return Ok(());
         }
 
-        // to also include index entries where upper is a prefix
-        while upper.len() <= lower.len() {
-            upper.add_byte(255);
-        }
-
         let wc = IndexWhereClause::new(
             self.collection.db,
             index.clone(),
