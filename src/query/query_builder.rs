@@ -58,21 +58,13 @@ impl<'a> QueryBuilder<'a> {
     pub fn add_index_where_clause(
         &mut self,
         index_id: usize,
-        mut lower: IndexKey,
-        include_lower: bool,
-        mut upper: IndexKey,
-        include_upper: bool,
+        lower: IndexKey,
+        upper: IndexKey,
         sort: Sort,
         skip_duplicates: bool,
     ) -> Result<()> {
-        let index = self.collection.get_index_by_id(index_id)?;
-
         self.init_where_clauses();
-
-        if (!include_lower && !lower.increase()) || (!include_upper && !upper.decrease()) {
-            return Ok(());
-        }
-
+        let index = self.collection.get_index_by_id(index_id)?;
         let wc = IndexWhereClause::new(
             self.collection.db,
             index.clone(),

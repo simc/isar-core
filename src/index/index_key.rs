@@ -97,7 +97,7 @@ impl IndexKey {
         self.bytes.truncate(len);
     }
 
-    pub(crate) fn increase(&mut self) -> bool {
+    pub fn increase(&mut self) -> bool {
         let mut increased = false;
         for i in (0..self.bytes.len()).rev() {
             if let Some(added) = self.bytes[i].checked_add(1) {
@@ -112,7 +112,7 @@ impl IndexKey {
         increased
     }
 
-    pub(crate) fn decrease(&mut self) -> bool {
+    pub fn decrease(&mut self) -> bool {
         let mut decreased = false;
         for i in (0..self.bytes.len()).rev() {
             if let Some(subtracted) = self.bytes[i].checked_sub(1) {

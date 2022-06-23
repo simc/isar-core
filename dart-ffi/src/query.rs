@@ -31,9 +31,7 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
     builder: &mut QueryBuilder,
     index_id: u32,
     lower_key: *mut IndexKey,
-    include_lower: bool,
     upper_key: *mut IndexKey,
-    include_upper: bool,
     sort_asc: bool,
     skip_duplicates: bool,
 ) -> i64 {
@@ -48,9 +46,7 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
         builder.add_index_where_clause(
             index_id as usize,
             lower_key,
-            include_lower,
             upper_key,
-            include_upper,
             sort,
             skip_duplicates,
         )?;

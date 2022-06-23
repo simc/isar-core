@@ -12,6 +12,16 @@ pub unsafe extern "C" fn isar_key_create(key: *mut *const IndexKey) {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_key_increase(key: &mut IndexKey) -> bool {
+    key.increase()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_key_decrease(key: &mut IndexKey) -> bool {
+    key.decrease()
+}
+
+#[no_mangle]
 pub extern "C" fn isar_key_add_byte(key: &mut IndexKey, value: u8) {
     key.add_byte(value);
 }
