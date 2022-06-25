@@ -1,4 +1,5 @@
 use std::env::current_exe;
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -27,5 +28,8 @@ pub fn get_app_dir() -> Option<String> {
             dir.push(&app_id);
         }
     }
+
+    create_dir_all(&dir).ok()?;
+
     Some(dir.to_str()?.to_string())
 }
