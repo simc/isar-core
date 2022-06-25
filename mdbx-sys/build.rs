@@ -74,10 +74,18 @@ fn main() {
     let mut mdbx = PathBuf::from(&env::var("CARGO_MANIFEST_DIR").unwrap());
     mdbx.push("libmdbx");
     mdbx.push("dist");
+
+    // Remove CharToOemBuffA
     let core_path = mdbx.join("mdbx.c");
     let core = fs::read_to_string(core_path.as_path()).unwrap();
     let core = core.replace("CharToOemBuffA(buf, buf, size)", "false");
     fs::write(core_path.as_path(), core).unwrap();
+
+    // Replace MDBX_LOCK_SUFFIX
+    let header_path = mdbx.join("mdbx.h");
+    let header = fs::read_to_string(header_path.as_path()).unwrap();
+    let header = header.replace("-lck", ".lock");
+    fs::write(header_path.as_path(), header).unwrap();
 
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 

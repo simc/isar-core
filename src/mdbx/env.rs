@@ -25,8 +25,11 @@ impl Env {
                 max_dbs,
             ))?;
 
-            let mut flags =
-                ffi::MDBX_NOTLS | ffi::MDBX_EXCLUSIVE | ffi::MDBX_NOMEMINIT | ffi::MDBX_COALESCE;
+            let mut flags = ffi::MDBX_NOTLS
+                | ffi::MDBX_EXCLUSIVE
+                | ffi::MDBX_NOMEMINIT
+                | ffi::MDBX_COALESCE
+                | ffi::MDBX_NOSUBDIR;
             if relaxed_durability {
                 flags |= ffi::MDBX_NOMETASYNC;
             }

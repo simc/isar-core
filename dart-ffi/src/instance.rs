@@ -61,6 +61,9 @@ pub unsafe extern "C" fn isar_create_instance_async(
     let schema_json = CharsSend(schema_json);
     run_async(move || {
         let isar = isar;
+        let name = name;
+        let path = path;
+        let schema_json = schema_json;
         let result =
             isar_create_instance(isar.0, name.0, path.0, relaxed_durability, schema_json.0);
         dart_post_int(port, result);

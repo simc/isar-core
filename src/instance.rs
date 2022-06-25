@@ -13,10 +13,10 @@ use crossbeam_channel::{unbounded, Sender};
 use intmap::IntMap;
 use once_cell::sync::Lazy;
 use rand::random;
-use std::fs::{create_dir_all, remove_dir_all};
-use std::mem;
+use std::fs::remove_file;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
+use std::{fs, mem};
 use xxhash_rust::xxh3::xxh3_64;
 
 static INSTANCES: Lazy<RwLock<IntMap<Arc<IsarInstance>>>> =
@@ -58,9 +58,34 @@ impl IsarInstance {
                 Ok(new_instance)
             } else {
                 Err(IsarError::IllegalArg {
-                    message: "There is no open instance. Please provide a valid directory to open one.".to_string()
+                    message:
+                        "There is no open instance. Please provide a valid directory to open one."
+                            .to_string(),
                 })
             }
+        }
+    }
+
+    fn get_db_path(name: &str, dir: &str) -> String {
+        let mut file_name = name.to_string();
+        file_name.push_str(".isar");
+
+        let mut path_buf = PathBuf::from(dir);
+        path_buf.push(file_name);
+        path_buf.as_path().to_str().unwrap().to_string()
+    }
+
+    fn move_old_database(name: &str, dir: &str, new_path: &str) {
+        let mut old_path_buf = PathBuf::from(dir);
+        old_path_buf.push(name);
+        old_path_buf.push("mdbx.dat");
+        let old_path = old_path_buf.as_path();
+
+        let result = fs::rename(old_path, new_path);
+
+        // Also try to migrate the previous default isar name
+        if name == "default" && result.is_err() {
+            Self::move_old_database("isar", dir, new_path)
         }
     }
 
@@ -71,17 +96,12 @@ impl IsarInstance {
         relaxed_durability: bool,
         mut schema: Schema,
     ) -> Result<Self> {
-        let schema_hash = schema.get_hash();
+        let db_file = Self::get_db_path(name, dir);
 
-        let mut path_buf = PathBuf::from(dir);
-        path_buf.push(name);
-        let path = path_buf.as_path().to_str().unwrap();
-        if create_dir_all(path).is_err() {
-            return Err(IsarError::PathError {});
-        }
+        Self::move_old_database(name, dir, &db_file);
 
         let db_count = schema.count_dbs() as u64 + 3;
-        let env = Env::create(path, db_count, relaxed_durability)
+        let env = Env::create(&db_file, db_count, relaxed_durability)
             .map_err(|e| IsarError::EnvError { error: Box::new(e) })?;
 
         let txn = env.txn(true)?;
@@ -100,7 +120,7 @@ impl IsarInstance {
             dir: dir.to_string(),
             collections,
             instance_id,
-            schema_hash,
+            schema_hash: schema.get_hash(),
             watchers: Mutex::new(IsarWatchers::new(rx)),
             watcher_modifier_sender: tx,
         })
@@ -200,10 +220,11 @@ impl IsarInstance {
                 lock.remove(self.instance_id);
 
                 if delete_from_disk {
-                    let mut path_buf = PathBuf::from(&self.dir);
-                    path_buf.push(&self.name);
+                    let mut path = Self::get_db_path(&self.name, &self.dir);
                     mem::drop(self);
-                    let _ = remove_dir_all(path_buf);
+                    let _ = remove_file(&path);
+                    path.push_str(".lock");
+                    let _ = remove_file(&path);
                 }
                 return true;
             }
