@@ -9,14 +9,15 @@ use crate::watch::change_set::ChangeSet;
 use crate::watch::isar_watchers::{IsarWatchers, WatcherModifier};
 use crate::watch::watcher::WatcherCallback;
 use crate::watch::WatchHandle;
+use app_dir::get_app_dir;
 use crossbeam_channel::{unbounded, Sender};
 use intmap::IntMap;
 use once_cell::sync::Lazy;
 use rand::random;
+use std::fs;
 use std::fs::remove_file;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
-use std::{fs, mem};
 use xxhash_rust::xxh3::xxh3_64;
 
 static INSTANCES: Lazy<RwLock<IntMap<Arc<IsarInstance>>>> =
@@ -50,19 +51,24 @@ impl IsarInstance {
                 Err(IsarError::SchemaMismatch {})
             }
         } else {
-            if let Some(dir) = dir {
-                let new_instance =
-                    Self::open_internal(name, dir, instance_id, relaxed_durability, schema)?;
-                let new_instance = Arc::new(new_instance);
-                lock.insert(instance_id, new_instance.clone());
-                Ok(new_instance)
-            } else {
-                Err(IsarError::IllegalArg {
-                    message:
-                        "There is no open instance. Please provide a valid directory to open one."
-                            .to_string(),
-                })
-            }
+            let dir = Self::get_directory(dir)?;
+            let new_instance =
+                Self::open_internal(name, &dir, instance_id, relaxed_durability, schema)?;
+            let new_instance = Arc::new(new_instance);
+            lock.insert(instance_id, new_instance.clone());
+            Ok(new_instance)
+        }
+    }
+
+    fn get_directory(dir: Option<&str>) -> Result<String> {
+        if let Some(dir) = dir {
+            Ok(dir.to_string())
+        } else if let Some(dir) = get_app_dir() {
+            Ok(dir)
+        } else {
+            Err(IsarError::IllegalArg {
+                message: "A valid default directory could not be found.".to_string(),
+            })
         }
     }
 
@@ -221,7 +227,7 @@ impl IsarInstance {
 
                 if delete_from_disk {
                     let mut path = Self::get_db_path(&self.name, &self.dir);
-                    mem::drop(self);
+                    drop(self);
                     let _ = remove_file(&path);
                     path.push_str(".lock");
                     let _ = remove_file(&path);

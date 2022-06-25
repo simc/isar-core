@@ -7,6 +7,7 @@ use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
 use isar_core::instance::IsarInstance;
 use isar_core::schema::Schema;
+use std::ffi::CString;
 use std::os::raw::c_char;
 use std::sync::Arc;
 
@@ -22,7 +23,7 @@ pub unsafe extern "C" fn isar_version() -> i64 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_create_instance(
+pub unsafe extern "C" fn isar_instance_create(
     isar: *mut *const IsarInstance,
     name: *const c_char,
     path: *const c_char,
@@ -47,7 +48,7 @@ pub unsafe extern "C" fn isar_create_instance(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_create_instance_async(
+pub unsafe extern "C" fn isar_instance_create_async(
     isar: *mut *const IsarInstance,
     name: *const c_char,
     path: *const c_char,
@@ -65,25 +66,28 @@ pub unsafe extern "C" fn isar_create_instance_async(
         let path = path;
         let schema_json = schema_json;
         let result =
-            isar_create_instance(isar.0, name.0, path.0, relaxed_durability, schema_json.0);
+            isar_instance_create(isar.0, name.0, path.0, relaxed_durability, schema_json.0);
         dart_post_int(port, result);
     });
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_close_instance(isar: *const IsarInstance) -> bool {
+pub unsafe extern "C" fn isar_instance_close(isar: *const IsarInstance, delete: bool) -> bool {
     let isar = Arc::from_raw(isar);
-    isar.close()
+    if delete {
+        isar.close_and_delete()
+    } else {
+        isar.close()
+    }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_close_delete_instance(isar: *const IsarInstance) -> bool {
-    let isar = Arc::from_raw(isar);
-    isar.close_and_delete()
+pub unsafe extern "C" fn isar_instance_get_path(isar: &'static IsarInstance) -> *mut c_char {
+    CString::new(isar.dir.as_str()).unwrap().into_raw()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_get_collection<'a>(
+pub unsafe extern "C" fn isar_instance_get_collection<'a>(
     isar: &'a IsarInstance,
     collection: *mut &'a IsarCollection,
     index: u32,
@@ -99,7 +103,7 @@ pub unsafe extern "C" fn isar_get_collection<'a>(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_get_static_size_and_offsets(
+pub unsafe extern "C" fn isar_collection_get_static_size_and_offsets(
     collection: &IsarCollection,
     offsets: *mut u32,
 ) -> u32 {

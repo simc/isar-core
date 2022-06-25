@@ -26,6 +26,7 @@ macro_rules! isar (
     ($path:expr, $isar:ident,) => {
         let schema = isar_core::schema::Schema::new(vec![]).unwrap();
         let path = $path.to_string();
+        std::fs::create_dir_all(&path).unwrap();
         let name = xxhash_rust::xxh3::xxh3_64(path.as_bytes()).to_string();
         let $isar = isar_core::instance::IsarInstance::open(&name, Some(&path), false, schema).unwrap();
     };
@@ -34,6 +35,7 @@ macro_rules! isar (
         let col_schemas = vec![$($schema.clone()),*];
         let schema = isar_core::schema::Schema::new(col_schemas).unwrap();
         let path = $path.to_string();
+        std::fs::create_dir_all(&path).unwrap();
         let name = xxhash_rust::xxh3::xxh3_64(path.as_bytes()).to_string();
         let $isar = isar_core::instance::IsarInstance::open(&name, Some(&path), false, schema).unwrap();
         isar!(col $isar, 0, $($col),+)

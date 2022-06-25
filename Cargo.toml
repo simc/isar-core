@@ -5,6 +5,7 @@ authors = ["Simon Leier <simonleier@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+app-dir = { path = "app-dir" }
 rand = "0.8.5"
 itertools = "0.10.3"
 enum_dispatch = "0.3.8"

@@ -2,6 +2,7 @@
 
 use isar_core::error::{illegal_arg, Result};
 use std::ffi::CStr;
+use std::ffi::CString;
 use std::mem;
 use std::os::raw::c_char;
 use unicode_segmentation::UnicodeSegmentation;
@@ -68,4 +69,9 @@ pub unsafe extern "C" fn isar_find_word_boundaries(
 pub unsafe extern "C" fn isar_free_word_boundaries(boundaries: *mut u32, word_count: u32) {
     let len = (word_count * 2) as usize;
     Vec::from_raw_parts(boundaries, len, len);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_free_string(string: *mut c_char) {
+    let _ = CString::from_raw(string);
 }

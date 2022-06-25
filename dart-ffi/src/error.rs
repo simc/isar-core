@@ -66,8 +66,3 @@ pub unsafe extern "C" fn isar_get_error(err_code: i64) -> *mut c_char {
         std::ptr::null_mut()
     }
 }
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_free_error(error: *mut c_char) {
-    let _ = CString::from_raw(error);
-}
