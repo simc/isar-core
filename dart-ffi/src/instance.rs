@@ -2,6 +2,7 @@ use crate::dart::{dart_post_int, DartPort};
 use crate::error::DartErrCode;
 use crate::from_c_str;
 use crate::txn::run_async;
+use crate::txn::CIsarTxn;
 use crate::CharsSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
