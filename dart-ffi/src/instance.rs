@@ -105,10 +105,21 @@ pub unsafe extern "C" fn isar_instance_get_collection<'a>(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_collection_get_static_size_and_offsets(
-    collection: &IsarCollection,
-    offsets: *mut u32,
-) -> u32 {
+pub unsafe extern "C" fn isar_instance_get_size(
+    instance: &'static IsarInstance,
+    txn: &mut CIsarTxn,
+    include_indexes: bool,
+    include_links: bool,
+    size: &'static mut i64,
+) -> i64 {
+    isar_try_txn!(txn, move |txn| {
+        *size = instance.get_size(txn, include_indexes, include_links)? as i64;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_get_offsets(collection: &IsarCollection, offsets: *mut u32) -> u32 {
     let properties = &collection.properties;
     let offsets = std::slice::from_raw_parts_mut(offsets, properties.len());
     for (i, (_, p)) in properties.iter().enumerate() {

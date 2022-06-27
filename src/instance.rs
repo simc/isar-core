@@ -151,6 +151,21 @@ impl IsarInstance {
         IsarTxn::new(self.instance_id, txn, write, change_set)
     }
 
+    pub fn get_size(
+        &self,
+        txn: &mut IsarTxn,
+        include_indexes: bool,
+        include_links: bool,
+    ) -> Result<u64> {
+        let mut size = 0;
+
+        for col in &self.collections {
+            size += col.get_size(txn, include_indexes, include_links)?;
+        }
+
+        Ok(size)
+    }
+
     fn new_watcher(&self, start: WatcherModifier, stop: WatcherModifier) -> WatchHandle {
         self.watcher_modifier_sender.try_send(start).unwrap();
 
