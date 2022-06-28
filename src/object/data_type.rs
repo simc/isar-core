@@ -9,6 +9,7 @@ pub enum DataType {
     Long,
     Double,
     String,
+    Object,
     #[serde(alias = "BoolList")]
     ByteList,
     IntList,
@@ -16,6 +17,7 @@ pub enum DataType {
     LongList,
     DoubleList,
     StringList,
+    ObjectList,
 }
 
 impl DataType {
@@ -33,8 +35,8 @@ impl DataType {
     pub fn get_static_size(&self) -> usize {
         match *self {
             DataType::Byte => 1,
-            DataType::Int | DataType::Float => 4,
-            _ => 8,
+            DataType::Long | DataType::Double => 8,
+            _ => 4,
         }
     }
 
@@ -50,6 +52,7 @@ impl DataType {
             DataType::LongList => Some(DataType::Long),
             DataType::DoubleList => Some(DataType::Double),
             DataType::StringList => Some(DataType::String),
+            DataType::ObjectList => Some(DataType::Object),
             _ => None,
         }
     }

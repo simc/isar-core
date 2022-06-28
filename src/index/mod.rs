@@ -13,7 +13,7 @@ use std::collections::HashSet;
 pub mod index_key;
 pub(crate) mod index_key_builder;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct IndexProperty {
     pub property: Property,
     pub index_type: IndexType,
@@ -30,7 +30,7 @@ impl IndexProperty {
     }
 
     pub fn get_string_with_case(&self, object: IsarObject) -> Option<String> {
-        object.read_string(self.property).map(|str| {
+        object.read_string(self.property.offset).map(|str| {
             if self.case_sensitive {
                 str.to_string()
             } else {
@@ -46,6 +46,7 @@ impl IndexProperty {
 
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct IsarIndex {
+    pub name: String,
     pub properties: Vec<IndexProperty>,
     pub unique: bool,
     pub replace: bool,
@@ -56,9 +57,16 @@ pub(crate) struct IsarIndex {
 impl IsarIndex {
     pub const MAX_STRING_INDEX_SIZE: usize = 1024;
 
-    pub fn new(db: Db, properties: Vec<IndexProperty>, unique: bool, replace: bool) -> Self {
+    pub fn new(
+        name: String,
+        db: Db,
+        properties: Vec<IndexProperty>,
+        unique: bool,
+        replace: bool,
+    ) -> Self {
         let multi_entry = properties.first().unwrap().is_multi_entry();
         IsarIndex {
+            name,
             properties,
             unique,
             replace,

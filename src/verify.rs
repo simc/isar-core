@@ -50,7 +50,7 @@ pub fn verify_isar(
         let mut link_entries: HashMap<String, HashSet<(Vec<u8>, Vec<u8>)>> = col
             .links
             .iter()
-            .map(|(n, _)| (n.clone(), HashSet::new()))
+            .map(|link| (link.name.clone(), HashSet::new()))
             .collect();
 
         for entry in objects {
@@ -59,7 +59,7 @@ pub fn verify_isar(
             assert!(inserted);
 
             let object = IsarObject::from_bytes(&entry.bytes);
-            for (i, (_, index)) in col.indexes.iter().enumerate() {
+            for (i, index) in col.indexes.iter().enumerate() {
                 let key_builder = IndexKeyBuilder::new(&index.properties);
                 key_builder
                     .create_keys(object, |key| {
@@ -82,14 +82,14 @@ pub fn verify_isar(
         txn.read(col.instance_id, |cur| {
             assert_eq!(col.debug_dump(cur), entries);
 
-            for (i, (_, index)) in col.indexes.iter().enumerate() {
+            for (i, index) in col.indexes.iter().enumerate() {
                 assert_eq!(index.debug_dump(cur), index_entries[i]);
             }
 
-            for (name, link) in &col.links {
-                assert_eq!(link.debug_dump(cur), link_entries[name]);
+            for link in &col.links {
+                assert_eq!(link.debug_dump(cur), link_entries[&link.name]);
 
-                let bl_entries: HashSet<(Vec<u8>, Vec<u8>)> = link_entries[name]
+                let bl_entries: HashSet<(Vec<u8>, Vec<u8>)> = link_entries[&link.name]
                     .iter()
                     .map(|(source, target)| (target.clone(), source.clone()))
                     .collect();
@@ -107,13 +107,13 @@ fn verify_db_names(txn: &mut IsarTxn, cols: &[&IsarCollection]) {
     db_names.insert("_info".to_string());
     for col in cols {
         db_names.insert(col.name.clone());
-        for (name, _) in &col.indexes {
-            db_names.insert(format!("_i_{}_{}", col.name, name));
+        for index in &col.indexes {
+            db_names.insert(format!("_i_{}_{}", col.name, index.name));
         }
 
-        for (name, _) in &col.links {
-            db_names.insert(format!("_l_{}_{}", col.name, name));
-            db_names.insert(format!("_b_{}_{}", col.name, name));
+        for link in &col.links {
+            db_names.insert(format!("_l_{}_{}", col.name, link.name));
+            db_names.insert(format!("_b_{}_{}", col.name, link.name));
         }
     }
 

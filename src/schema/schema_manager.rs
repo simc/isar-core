@@ -171,26 +171,31 @@ impl<'a> SchemaManger<'a> {
     ) -> Result<IsarCollection> {
         let db = self.open_collection_db(col_schema)?;
         let mut properties = col_schema.get_properties();
-        properties.sort_by(|(a, _), (b, _)| a.cmp(b));
+        properties.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut indexes = vec![];
         for index_schema in &col_schema.indexes {
             let db = self.open_index_db(col_schema, index_schema)?;
             let index = index_schema.as_index(db, &properties);
-            indexes.push((index_schema.name.clone(), index));
+            indexes.push(index);
         }
-        indexes.sort_by(|(a, _), (b, _)| a.cmp(b));
+        indexes.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut links = vec![];
         for link_schema in &col_schema.links {
             let (link_db, backlink_db) = self.open_link_dbs(col_schema, link_schema)?;
             let target_col_schema = schema.get_collection(&link_schema.target_col).unwrap();
             let target_db = self.open_collection_db(target_col_schema)?;
-            let link = IsarLink::new(link_db, backlink_db, db, target_db);
-            links.push((link_schema.name.clone(), link));
+            let link = IsarLink::new(
+                link_schema.name.clone(),
+                link_db,
+                backlink_db,
+                db,
+                target_db,
+            );
+            links.push(link);
         }
-        // sort backlinks by name
-        links.sort_by(|(a, _), (b, _)| a.cmp(b));
+        links.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut backlinks = vec![];
         for other_col_schema in &schema.collections {
@@ -198,16 +203,17 @@ impl<'a> SchemaManger<'a> {
                 if link_schema.target_col == col_schema.name {
                     let other_col_db = self.open_collection_db(other_col_schema)?;
                     let (link_db, bl_db) = self.open_link_dbs(other_col_schema, link_schema)?;
-                    let backlink = IsarLink::new(bl_db, link_db, db, other_col_db);
-                    backlinks.push((&other_col_schema.name, &link_schema.name, backlink));
+                    let backlink =
+                        IsarLink::new(link_schema.name.clone(), bl_db, link_db, db, other_col_db);
+                    backlinks.push((&other_col_schema.name, backlink));
                 }
             }
         }
         // sort backlinks by collection then by link name
         let backlinks = backlinks
             .into_iter()
-            .sorted_by(|(col1, l1, _), (col2, l2, _)| col1.cmp(col2).then(l1.cmp(l2)))
-            .map(|(_, _, link)| link)
+            .sorted_by(|(col1, l1), (col2, l2)| col1.cmp(col2).then(l1.name.cmp(&l2.name)))
+            .map(|(_, link)| link)
             .collect_vec();
 
         Ok(IsarCollection::new(

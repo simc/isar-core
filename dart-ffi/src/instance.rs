@@ -123,9 +123,9 @@ pub unsafe extern "C" fn isar_instance_get_size(
 pub unsafe extern "C" fn isar_get_offsets(collection: &IsarCollection, offsets: *mut u32) -> u32 {
     let properties = &collection.properties;
     let offsets = std::slice::from_raw_parts_mut(offsets, properties.len());
-    for (i, (_, p)) in properties.iter().enumerate() {
+    for (i, p) in properties.iter().enumerate() {
         offsets[i] = p.offset as u32;
     }
-    let property = properties.iter().max_by_key(|(_, p)| p.offset);
-    property.map_or(2, |(_, p)| p.offset + p.data_type.get_static_size()) as u32
+    let property = properties.iter().max_by_key(|p| p.offset);
+    property.map_or(2, |p| p.offset + p.data_type.get_static_size()) as u32
 }

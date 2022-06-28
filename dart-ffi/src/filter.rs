@@ -69,29 +69,29 @@ pub unsafe extern "C" fn isar_filter_null(
 ) -> i64 {
     let property = collection.properties.get(property_id as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let query_filter = if !property.data_type.is_scalar() && any_null {
                 match property.data_type {
                     DataType::ByteList => {
-                        Filter::byte(*property, IsarObject::NULL_BYTE, IsarObject::NULL_BYTE)?
+                        Filter::byte(property, IsarObject::NULL_BYTE, IsarObject::NULL_BYTE)?
                     },
                     DataType::IntList => {
-                        Filter::int(*property, IsarObject::NULL_INT, IsarObject::NULL_INT)?
+                        Filter::int(property, IsarObject::NULL_INT, IsarObject::NULL_INT)?
                     },
                     DataType::FloatList => {
-                        Filter::float(*property, IsarObject::NULL_FLOAT, IsarObject::NULL_FLOAT)?
+                        Filter::float(property, IsarObject::NULL_FLOAT, IsarObject::NULL_FLOAT)?
                     },
                     DataType::LongList => {
-                        Filter::long(*property, IsarObject::NULL_LONG, IsarObject::NULL_LONG)?
+                        Filter::long(property, IsarObject::NULL_LONG, IsarObject::NULL_LONG)?
                     },
                     DataType::DoubleList => {
-                        Filter::double(*property, IsarObject::NULL_DOUBLE, IsarObject::NULL_DOUBLE)?
+                        Filter::double(property, IsarObject::NULL_DOUBLE, IsarObject::NULL_DOUBLE)?
                     },
-                    DataType::StringList => Filter::string(*property, None, None, false)?,
+                    DataType::StringList => Filter::string(property, None, None, false)?,
                     _ => unreachable!()
                 }
             } else {
-                 Filter::null(*property)
+                 Filter::null(property)
             };
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
@@ -116,7 +116,7 @@ macro_rules! num_filter {
         };
 
         if let (Some(lower), Some(upper)) = (lower, upper) {
-            Filter::$filter(*$property, lower, upper)?
+            Filter::$filter($property, lower, upper)?
         } else {
             Filter::stat(false)
         }
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn isar_filter_byte(
 ) -> i64 {
     let property = collection.properties.get(property_id as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let query_filter = num_filter!(byte, property, lower, include_lower, upper, include_upper);
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn isar_filter_long(
 ) -> i64 {
     let property = collection.properties.get(property_id as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let query_filter = if property.data_type == DataType::Int || property.data_type == DataType::IntList {
                 let lower = lower.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
                 let upper = upper.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
@@ -213,15 +213,15 @@ pub unsafe extern "C" fn isar_filter_double(
 ) -> i64 {
     let property = collection.properties.get(property_id as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let query_filter = if upper.is_nan() {
                 Filter::stat(false)
             } else if property.data_type == DataType::Float || property.data_type == DataType::FloatList {
                 let lower = lower as f32;
                 let upper = upper as f32;
-                Filter::float(*property, lower, upper)?
+                Filter::float(property, lower, upper)?
             } else {
-                Filter::double(*property, lower, upper)?
+                Filter::double(property, lower, upper)?
             };
             let ptr = Box::into_raw(Box::new(query_filter));
             filter.write(ptr);
@@ -285,7 +285,7 @@ pub unsafe extern "C" fn isar_filter_string(
 ) -> i64 {
     let property = collection.properties.get(property_id as usize);
     isar_try! {
-        if let Some((_, property)) = property {
+        if let Some(property) = property {
             let lower_bytes = Filter::string_to_bytes(from_c_str(lower)?, case_sensitive);
             let lower = get_lower_str(lower_bytes, include_lower);
 
@@ -293,7 +293,7 @@ pub unsafe extern "C" fn isar_filter_string(
             let upper = get_upper_str(upper_bytes, include_upper);
 
             let query_filter = if let Some(upper) = upper {
-                Filter::byte_string(*property, lower, upper, case_sensitive)?
+                Filter::byte_string(property, lower, upper, case_sensitive)?
             } else {
                 Filter::stat(false)
             };
@@ -318,9 +318,9 @@ macro_rules! filter_string_ffi {
         ) -> i64 {
             let property = collection.properties.get(property_id as usize);
             isar_try! {
-                if let Some((_, property)) = property {
+                if let Some(property) = property {
                     let str = from_c_str(value)?.unwrap();
-                    let query_filter = isar_core::query::filter::Filter::$filter_name(*property, str, case_sensitive)?;
+                    let query_filter = isar_core::query::filter::Filter::$filter_name(property, str, case_sensitive)?;
                     let ptr = Box::into_raw(Box::new(query_filter));
                     filter.write(ptr);
                 } else {

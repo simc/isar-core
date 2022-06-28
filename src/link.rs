@@ -8,8 +8,9 @@ use crate::object::isar_object::IsarObject;
 use crate::txn::IsarTxn;
 use std::collections::HashSet;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub(crate) struct IsarLink {
+    pub(crate) name: String,
     db: Db,
     bl_db: Db,
     source_db: Db,
@@ -17,8 +18,9 @@ pub(crate) struct IsarLink {
 }
 
 impl IsarLink {
-    pub fn new(db: Db, bl_db: Db, source_db: Db, target_db: Db) -> IsarLink {
+    pub fn new(name: String, db: Db, bl_db: Db, source_db: Db, target_db: Db) -> IsarLink {
         IsarLink {
+            name,
             db,
             bl_db,
             source_db,

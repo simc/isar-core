@@ -135,7 +135,7 @@ impl<'txn> Query {
     fn hash_properties(object: IsarObject, properties: &[(Property, bool)]) -> u64 {
         let mut hash = 0;
         for (property, case_sensitive) in properties {
-            hash = object.hash_property(*property, *case_sensitive, hash);
+            hash = object.hash_property(property, *case_sensitive, hash);
         }
         hash
     }
@@ -191,7 +191,7 @@ impl<'txn> Query {
 
         results.sort_unstable_by(|(_, o1), (_, o2)| {
             for (p, sort) in &self.sort {
-                let ord = o1.compare_property(o2, *p);
+                let ord = o1.compare_property(o2, p);
                 if ord != Ordering::Equal {
                     return if *sort == Sort::Ascending {
                         ord
@@ -311,8 +311,12 @@ impl<'txn> Query {
     ) -> Result<Value> {
         let mut items = vec![];
         self.find_while(txn, |id, object| {
-            let mut json =
-                JsonEncodeDecode::encode(collection, object, primitive_null, byte_as_bool);
+            let mut json = JsonEncodeDecode::encode(
+                &collection.properties,
+                object,
+                primitive_null,
+                byte_as_bool,
+            );
             if let Some(id_name) = id_name {
                 json.insert(id_name.to_string(), Value::from(id));
             }

@@ -54,15 +54,21 @@ impl IndexSchema {
         }
     }
 
-    pub(crate) fn as_index(&self, db: Db, properties: &[(String, Property)]) -> IsarIndex {
+    pub(crate) fn as_index(&self, db: Db, properties: &[Property]) -> IsarIndex {
         let index_properties = self
             .properties
             .iter()
-            .map(|p| {
-                let (_, property) = properties.iter().find(|(n, _)| &p.name == n).unwrap();
-                IndexProperty::new(*property, p.index_type, p.case_sensitive)
+            .map(|ip| {
+                let property = properties.iter().find(|p| ip.name == *p.name).unwrap();
+                IndexProperty::new(property.clone(), ip.index_type, ip.case_sensitive)
             })
             .collect_vec();
-        IsarIndex::new(db, index_properties, self.unique, self.replace)
+        IsarIndex::new(
+            self.name.clone(),
+            db,
+            index_properties,
+            self.unique,
+            self.replace,
+        )
     }
 }

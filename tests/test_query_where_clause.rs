@@ -2,10 +2,6 @@ mod common;
 
 use std::vec;
 
-use isar_core::index::index_key::IndexKey;
-use isar_core::query::Sort;
-use itertools::Itertools;
-
 use crate::common::test_obj::TestObj;
 use crate::common::util::assert_find;
 

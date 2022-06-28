@@ -19,14 +19,14 @@ use std::collections::HashSet;
 
 pub struct IsarCollection {
     pub name: String,
-    pub properties: Vec<(String, Property)>,
-    props: Vec<Property>,
+    pub properties: Vec<Property>,
 
     pub(crate) instance_id: u64,
     pub(crate) db: Db,
-    pub(crate) indexes: Vec<(String, IsarIndex)>,
-    pub(crate) links: Vec<(String, IsarLink)>, // links from this collection
-    backlinks: Vec<IsarLink>,                  // links to this collection
+
+    pub(crate) indexes: Vec<IsarIndex>,
+    pub(crate) links: Vec<IsarLink>, // links from this collection
+    backlinks: Vec<IsarLink>,        // links to this collection
 
     auto_increment: Cell<i64>,
 }
@@ -40,18 +40,16 @@ impl IsarCollection {
         db: Db,
         instance_id: u64,
         name: String,
-        properties: Vec<(String, Property)>,
-        indexes: Vec<(String, IsarIndex)>,
-        links: Vec<(String, IsarLink)>,
+        properties: Vec<Property>,
+        indexes: Vec<IsarIndex>,
+        links: Vec<IsarLink>,
         backlinks: Vec<IsarLink>,
     ) -> Self {
-        let props = properties.iter().map(|(_, p)| *p).collect();
         IsarCollection {
             instance_id,
             db,
             name,
             properties,
-            props,
             indexes,
             links,
             backlinks,
@@ -60,7 +58,7 @@ impl IsarCollection {
     }
 
     pub fn new_object_builder(&self, buffer: Option<Vec<u8>>) -> ObjectBuilder {
-        ObjectBuilder::new(&self.props, buffer)
+        ObjectBuilder::new(&self.properties, buffer)
     }
 
     pub fn new_query_builder(&self) -> QueryBuilder {
@@ -112,10 +110,7 @@ impl IsarCollection {
     }
 
     pub(crate) fn get_index_by_id(&self, index_id: usize) -> Result<&IsarIndex> {
-        self.indexes
-            .get(index_id)
-            .map(|(_, i)| i)
-            .ok_or(IsarError::UnknownIndex {})
+        self.indexes.get(index_id).ok_or(IsarError::UnknownIndex {})
     }
 
     pub fn get_by_index<'txn>(
@@ -185,7 +180,7 @@ impl IsarCollection {
             (id, IdKey::new(id))
         };
 
-        for (_, index) in &self.indexes {
+        for index in &self.indexes {
             index.create_for_object(cursors, &id_key, object, |id_key| {
                 self.delete_internal(cursors, true, change_set.as_deref_mut(), id_key)?;
                 Ok(())
@@ -234,11 +229,11 @@ impl IsarCollection {
         let mut cursor = cursors.get_cursor(self.db)?;
         if let Some((_, object)) = cursor.move_to(id_key.as_bytes())? {
             let object = IsarObject::from_bytes(object);
-            for (_, index) in &self.indexes {
+            for index in &self.indexes {
                 index.delete_for_object(cursors, id_key, object)?;
             }
             if delete_links {
-                for (_, link) in &self.links {
+                for link in &self.links {
                     link.delete_all_for_object(cursors, id_key)?;
                 }
                 for link in &self.backlinks {
@@ -256,11 +251,11 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn get_link_backlink(&self, link_id: usize) -> Result<IsarLink> {
+    pub(crate) fn get_link_backlink(&self, link_id: usize) -> Result<&IsarLink> {
         if link_id < self.links.len() {
-            self.links.get(link_id).map(|(_, l)| *l)
+            self.links.get(link_id)
         } else {
-            self.backlinks.get(link_id - self.links.len()).copied()
+            self.backlinks.get(link_id - self.links.len())
         }
         .ok_or(IsarError::IllegalArg {
             message: "IsarLink does not exist".to_string(),
@@ -303,10 +298,10 @@ impl IsarCollection {
     }
 
     pub fn clear(&self, txn: &mut IsarTxn) -> Result<()> {
-        for (_, index) in &self.indexes {
+        for index in &self.indexes {
             index.clear(txn)?;
         }
-        for (_, link) in &self.links {
+        for link in &self.links {
             link.clear(txn)?;
         }
         for link in &self.backlinks {
@@ -331,13 +326,13 @@ impl IsarCollection {
         let mut size = txn.db_stat(self.db)?.1;
 
         if include_indexes {
-            for (_, index) in &self.indexes {
+            for index in &self.indexes {
                 size += index.get_size(txn)?;
             }
         }
 
         if include_links {
-            for (_, link) in &self.links {
+            for link in &self.links {
                 size += link.get_size(txn)?;
             }
         }
@@ -360,7 +355,7 @@ impl IsarCollection {
                 } else {
                     None
                 };
-                let ob = JsonEncodeDecode::decode(self, value, ob_result_cache)?;
+                let ob = JsonEncodeDecode::decode(&self.properties, value, ob_result_cache)?;
                 let object = ob.finish();
                 self.put_internal(cursors, change_set.as_deref_mut(), id, object)?;
                 ob_result_cache = Some(ob.recycle());
@@ -369,7 +364,7 @@ impl IsarCollection {
         })
     }
 
-    fn register_link_change(&self, change_set: Option<&mut ChangeSet>, link: IsarLink) {
+    fn register_link_change(&self, change_set: Option<&mut ChangeSet>, link: &IsarLink) {
         if let Some(change_set) = change_set {
             change_set.register_change(self.get_runtime_id(), None, None);
             change_set.register_change(link.get_target_col_runtime_id(), None, None);
@@ -382,7 +377,7 @@ impl IsarCollection {
             let id_key = IdKey::from_bytes(key);
             let object = IsarObject::from_bytes(object);
             for index_id in indexes {
-                let (_, index) = self.indexes.get(*index_id).unwrap();
+                let index = self.indexes.get(*index_id).unwrap();
                 index.create_for_object(cursors, &id_key, object, |id_key| {
                     let deleted = self.delete_internal(cursors, true, None, id_key)?;
                     if deleted {

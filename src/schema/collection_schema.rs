@@ -53,26 +53,47 @@ impl CollectionSchema {
     pub(crate) fn verify(&self, collections: &[CollectionSchema]) -> Result<()> {
         Self::verify_name(&self.name)?;
 
+        let verify_target_col_exists = |col: &str| -> Result<()> {
+            if !collections.iter().any(|c| c.name == col) {
+                schema_error("Link target collection does not exist.")?;
+            }
+            Ok(())
+        };
+
         for property in &self.properties {
             Self::verify_name(&property.name)?;
+
+            if property.data_type == DataType::Object || property.data_type == DataType::ObjectList
+            {
+                if let Some(target_col) = &property.target_col {
+                    verify_target_col_exists(target_col)?;
+                } else {
+                    schema_error("Object property must have an target collection.")?;
+                }
+            } else {
+                if property.target_col.is_some() {
+                    schema_error("Target collection can only be set for object properties.")?;
+                }
+            }
         }
 
         for link in &self.links {
             Self::verify_name(&link.name)?;
+            verify_target_col_exists(&link.target_col)?;
         }
 
-        let property_names = self.properties.iter().map(|p| p.name.as_str());
-        if property_names.unique().count() != self.properties.len() {
+        let property_names = self.properties.iter().unique_by(|p| p.name.as_str());
+        if property_names.count() != self.properties.len() {
             schema_error("Duplicate property name")?;
         }
 
-        let index_names = self.indexes.iter().map(|i| i.name.as_str());
-        if index_names.unique().count() != self.indexes.len() {
+        let index_names = self.indexes.iter().unique_by(|i| i.name.as_str());
+        if index_names.count() != self.indexes.len() {
             schema_error("Duplicate index name")?;
         }
 
-        let link_names = self.links.iter().map(|l| l.name.as_str());
-        if link_names.unique().count() != self.links.len() {
+        let link_names = self.links.iter().unique_by(|l| l.name.as_str());
+        if link_names.count() != self.links.len() {
             schema_error("Duplicate link name")?;
         }
 
@@ -96,6 +117,12 @@ impl CollectionSchema {
                     schema_error("IsarIndex property does not exist")?;
                 }
                 let property = property.unwrap();
+
+                if property.data_type == DataType::Object
+                    || property.data_type == DataType::ObjectList
+                {
+                    schema_error("Object and ObjectList cannot be indexed.")?;
+                }
 
                 if property.data_type == DataType::Float
                     || property.data_type == DataType::Double
@@ -144,14 +171,6 @@ impl CollectionSchema {
             }
         }
 
-        for link in &self.links {
-            Self::verify_name(&link.name)?;
-
-            if !collections.iter().any(|c| c.name == link.target_col) {
-                schema_error("Link target collection does not exist.")?;
-            }
-        }
-
         Ok(())
     }
 
@@ -164,6 +183,15 @@ impl CollectionSchema {
                     return Err(IsarError::SchemaError {
                         message: format!(
                             "Property \"{}\" already exists but has a different type",
+                            property.name
+                        ),
+                    });
+                }
+
+                if property.target_col != existing_property.target_col {
+                    return Err(IsarError::SchemaError {
+                        message: format!(
+                            "Property \"{}\" already exists but has a different target collection",
                             property.name
                         ),
                     });
@@ -182,13 +210,13 @@ impl CollectionSchema {
         Ok(())
     }
 
-    pub(crate) fn get_properties(&self) -> Vec<(String, Property)> {
+    pub(crate) fn get_properties(&self) -> Vec<Property> {
         let mut properties = vec![];
         let mut offset = 2;
         for property_schema in &self.properties {
             if !self.hidden_properties.contains(&property_schema.name) {
-                let property = Property::new(property_schema.data_type, offset);
-                properties.push((property_schema.name.clone(), property));
+                let property = property_schema.as_property(offset);
+                properties.push(property);
             }
             offset += property_schema.data_type.get_static_size();
         }

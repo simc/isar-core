@@ -42,7 +42,7 @@ fn aggregate(
     query: &Query,
     txn: &mut IsarTxn,
     op: AggregationOp,
-    property: Option<Property>,
+    property: Option<&Property>,
 ) -> Result<AggregationResult> {
     let mut count = 0usize;
 
@@ -67,7 +67,7 @@ fn aggregate(
         }
 
         let property = property.unwrap();
-        if obj.is_null(property) {
+        if obj.is_null(property.offset, property.data_type) {
             return true;
         }
 
@@ -76,9 +76,9 @@ fn aggregate(
             AggregationOp::Min | AggregationOp::Max => match property.data_type {
                 DataType::Int | DataType::Long => {
                     let value = if property.data_type == DataType::Int {
-                        obj.read_int(property) as i64
+                        obj.read_int(property.offset) as i64
                     } else {
-                        obj.read_long(property)
+                        obj.read_long(property.offset)
                     };
                     if value.cmp(&long_value) == min_max_cmp {
                         long_value = value;
@@ -86,9 +86,9 @@ fn aggregate(
                 }
                 DataType::Float | DataType::Double => {
                     let value = if property.data_type == DataType::Float {
-                        obj.read_float(property) as f64
+                        obj.read_float(property.offset) as f64
                     } else {
-                        obj.read_double(property)
+                        obj.read_double(property.offset)
                     };
                     if value > double_value && min_max_cmp == Ordering::Greater {
                         double_value = value;
@@ -100,11 +100,13 @@ fn aggregate(
             },
             AggregationOp::Sum | AggregationOp::Average => match property.data_type {
                 DataType::Int => {
-                    long_value = long_value.saturating_add(obj.read_int(property) as i64)
+                    long_value = long_value.saturating_add(obj.read_int(property.offset) as i64)
                 }
-                DataType::Long => long_value = long_value.saturating_add(obj.read_long(property)),
-                DataType::Float => double_value += obj.read_float(property) as f64,
-                DataType::Double => double_value += obj.read_double(property),
+                DataType::Long => {
+                    long_value = long_value.saturating_add(obj.read_long(property.offset))
+                }
+                DataType::Float => double_value += obj.read_float(property.offset) as f64,
+                DataType::Double => double_value += obj.read_double(property.offset),
                 _ => unreachable!(),
             },
             _ => unreachable!(),
@@ -147,7 +149,7 @@ unsafe impl Send for AggregationResultSend {}
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_q_aggregate(
-    collection: &IsarCollection,
+    collection: &'static IsarCollection,
     query: &'static Query,
     txn: &mut CIsarTxn,
     operation: u8,
@@ -155,10 +157,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
     result: *mut *const AggregationResult,
 ) -> i64 {
     let op = AggregationOp::from_u8(operation);
-    let property = collection
-        .properties
-        .get(property_id as usize)
-        .map(|(_, p)| *p);
+    let property = collection.properties.get(property_id as usize);
     let result = AggregationResultSend(result);
     isar_try_txn!(txn, move |txn| {
         let result = result;

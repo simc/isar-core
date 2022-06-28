@@ -64,12 +64,8 @@ impl TestObj {
         Self::new(id, 0, 0, 0.0, 0.0, None, None, None, None, None, None, None)
     }
 
-    pub fn get_prop(col: &IsarCollection, prop: DataType) -> Property {
-        col.properties
-            .iter()
-            .find(|(_, p)| p.data_type == prop)
-            .unwrap()
-            .1
+    pub fn get_prop(col: &IsarCollection, prop: DataType) -> &Property {
+        col.properties.iter().find(|p| p.data_type == prop).unwrap()
     }
 
     pub fn byte_index() -> IndexPropertySchema {
@@ -163,18 +159,18 @@ impl TestObj {
 
     pub fn schema(name: &str, indexes: &[IndexSchema], links: &[LinkSchema]) -> CollectionSchema {
         let properties = vec![
-            PropertySchema::new("byte", DataType::Byte),
-            PropertySchema::new("int", DataType::Int),
-            PropertySchema::new("long", DataType::Long),
-            PropertySchema::new("float", DataType::Float),
-            PropertySchema::new("double", DataType::Double),
-            PropertySchema::new("string", DataType::String),
-            PropertySchema::new("byteList", DataType::ByteList),
-            PropertySchema::new("intList", DataType::IntList),
-            PropertySchema::new("longList", DataType::LongList),
-            PropertySchema::new("floatList", DataType::FloatList),
-            PropertySchema::new("doubleList", DataType::DoubleList),
-            PropertySchema::new("stringList", DataType::StringList),
+            PropertySchema::new("byte", DataType::Byte, None),
+            PropertySchema::new("int", DataType::Int, None),
+            PropertySchema::new("long", DataType::Long, None),
+            PropertySchema::new("float", DataType::Float, None),
+            PropertySchema::new("double", DataType::Double, None),
+            PropertySchema::new("string", DataType::String, None),
+            PropertySchema::new("byteList", DataType::ByteList, None),
+            PropertySchema::new("intList", DataType::IntList, None),
+            PropertySchema::new("longList", DataType::LongList, None),
+            PropertySchema::new("floatList", DataType::FloatList, None),
+            PropertySchema::new("doubleList", DataType::DoubleList, None),
+            PropertySchema::new("stringList", DataType::StringList, None),
         ];
         CollectionSchema::new(name, properties, indexes.to_vec(), links.to_vec())
     }
@@ -223,7 +219,7 @@ impl TestObj {
 
     pub fn to_bytes(&self, col: &IsarCollection) -> Vec<u8> {
         let mut builder = col.new_object_builder(None);
-        for (_, prop) in &col.properties {
+        for prop in &col.properties {
             match prop.data_type {
                 DataType::Byte => builder.write_byte(self.byte),
                 DataType::Int => builder.write_int(self.int),
@@ -231,6 +227,7 @@ impl TestObj {
                 DataType::Long => builder.write_long(self.id),
                 DataType::Double => builder.write_double(self.double),
                 DataType::String => builder.write_string(self.string.as_deref()),
+                DataType::Object => unimplemented!(),
                 DataType::ByteList => builder.write_byte_list(self.byte_list.as_deref()),
                 DataType::IntList => builder.write_int_list(self.int_list.as_deref()),
                 DataType::FloatList => builder.write_float_list(self.float_list.as_deref()),
@@ -243,6 +240,7 @@ impl TestObj {
                         .map(|l| l.iter().map(|e| e.as_deref()).collect_vec());
                     builder.write_string_list(string_list.as_deref());
                 }
+                DataType::ObjectList => unimplemented!(),
             }
         }
         builder.finish().as_bytes().to_vec()
@@ -261,23 +259,23 @@ impl TestObj {
 
     pub fn from_object(col: &IsarCollection, item: IsarObject) -> Self {
         TestObj {
-            byte: item.read_byte(TestObj::get_prop(col, DataType::Byte)),
-            int: item.read_int(TestObj::get_prop(col, DataType::Int)),
-            id: item.read_long(TestObj::get_prop(col, DataType::Long)),
-            float: item.read_float(TestObj::get_prop(col, DataType::Float)),
-            double: item.read_double(TestObj::get_prop(col, DataType::Double)),
+            byte: item.read_byte(TestObj::get_prop(col, DataType::Byte).offset),
+            int: item.read_int(TestObj::get_prop(col, DataType::Int).offset),
+            id: item.read_long(TestObj::get_prop(col, DataType::Long).offset),
+            float: item.read_float(TestObj::get_prop(col, DataType::Float).offset),
+            double: item.read_double(TestObj::get_prop(col, DataType::Double).offset),
             string: item
-                .read_string(TestObj::get_prop(col, DataType::String))
+                .read_string(TestObj::get_prop(col, DataType::String).offset)
                 .map(|s| s.to_string()),
             byte_list: item
-                .read_byte_list(TestObj::get_prop(col, DataType::ByteList))
+                .read_byte_list(TestObj::get_prop(col, DataType::ByteList).offset)
                 .map(|l| l.to_vec()),
-            int_list: item.read_int_list(TestObj::get_prop(col, DataType::IntList)),
-            long_list: item.read_long_list(TestObj::get_prop(col, DataType::LongList)),
-            float_list: item.read_float_list(TestObj::get_prop(col, DataType::FloatList)),
-            double_list: item.read_double_list(TestObj::get_prop(col, DataType::DoubleList)),
+            int_list: item.read_int_list(TestObj::get_prop(col, DataType::IntList).offset),
+            long_list: item.read_long_list(TestObj::get_prop(col, DataType::LongList).offset),
+            float_list: item.read_float_list(TestObj::get_prop(col, DataType::FloatList).offset),
+            double_list: item.read_double_list(TestObj::get_prop(col, DataType::DoubleList).offset),
             string_list: item
-                .read_string_list(TestObj::get_prop(col, DataType::StringList))
+                .read_string_list(TestObj::get_prop(col, DataType::StringList).offset)
                 .map(|l| l.iter().map(|s| s.map(|s| s.to_string())).collect_vec()),
         }
     }

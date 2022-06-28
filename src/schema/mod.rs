@@ -18,8 +18,9 @@ pub struct Schema {
 
 impl Schema {
     pub fn new(collections: Vec<CollectionSchema>) -> Result<Schema> {
-        if collections.iter().unique_by(|c| &c.name).count() != collections.len() {
-            return schema_error("Duplicate collections");
+        let collection_names = collections.iter().unique_by(|c| &c.name);
+        if collection_names.count() != collections.len() {
+            schema_error("Duplicate collection name")?;
         }
         for col in &collections {
             col.verify(&collections)?;

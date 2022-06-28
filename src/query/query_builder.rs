@@ -94,7 +94,7 @@ impl<'a> QueryBuilder<'a> {
         }
 
         self.init_where_clauses();
-        let wc = LinkWhereClause::new(link, id)?;
+        let wc = LinkWhereClause::new(link.clone(), id)?;
         self.where_clauses
             .as_mut()
             .unwrap()
@@ -106,17 +106,17 @@ impl<'a> QueryBuilder<'a> {
         self.filter = Some(filter);
     }
 
-    pub fn add_sort(&mut self, property: Property, sort: Sort) -> Result<()> {
+    pub fn add_sort(&mut self, property: &Property, sort: Sort) -> Result<()> {
         if property.data_type.is_scalar() {
-            self.sort.push((property, sort));
+            self.sort.push((property.clone(), sort));
             Ok(())
         } else {
             illegal_arg("Only scalar types may be used for sorting.")
         }
     }
 
-    pub fn add_distinct(&mut self, property: Property, case_sensitive: bool) {
-        self.distinct.push((property, case_sensitive));
+    pub fn add_distinct(&mut self, property: &Property, case_sensitive: bool) {
+        self.distinct.push((property.clone(), case_sensitive));
     }
 
     pub fn set_offset(&mut self, offset: usize) {

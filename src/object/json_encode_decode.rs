@@ -1,64 +1,65 @@
-use crate::collection::IsarCollection;
 use crate::error::{IsarError, Result};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::object::object_builder::ObjectBuilder;
 use serde_json::{json, Map, Value};
 
+use super::isar_object::Property;
+
 pub(crate) struct JsonEncodeDecode {}
 
 impl<'a> JsonEncodeDecode {
     pub fn encode(
-        collection: &IsarCollection,
+        properties: &[Property],
         object: IsarObject,
         primitive_null: bool,
         byte_as_bool: bool,
     ) -> Map<String, Value> {
         let mut object_map = Map::new();
 
-        for (property_name, property) in &collection.properties {
-            let property = *property;
-            let value =
-                if primitive_null && object.is_null(property) {
-                    Value::Null
-                } else {
-                    match property.data_type {
-                        DataType::Byte => {
-                            if byte_as_bool {
-                                json!(object.read_bool(property))
-                            } else {
-                                json!(object.read_byte(property))
-                            }
+        for property in properties {
+            let value = if primitive_null && object.is_null(property.offset, property.data_type) {
+                Value::Null
+            } else {
+                match property.data_type {
+                    DataType::Byte => {
+                        if byte_as_bool {
+                            json!(object.read_bool(property.offset))
+                        } else {
+                            json!(object.read_byte(property.offset))
                         }
-                        DataType::Int => json!(object.read_int(property)),
-                        DataType::Float => json!(object.read_float(property)),
-                        DataType::Long => json!(object.read_long(property)),
-                        DataType::Double => json!(object.read_double(property)),
-                        DataType::String => json!(object.read_string(property)),
-                        DataType::ByteList => json!(object.read_byte_list(property)),
-                        DataType::IntList => json!(object.read_int_list(property)),
-                        DataType::FloatList => json!(object.read_float_list(property)),
-                        DataType::LongList => json!(object.read_long_list(property)),
-                        DataType::DoubleList => json!(object.read_double_list(property)),
-                        DataType::StringList => json!(object.read_string_list(property)),
                     }
-                };
-            object_map.insert(property_name.clone(), value);
+                    DataType::Int => json!(object.read_int(property.offset)),
+                    DataType::Float => json!(object.read_float(property.offset)),
+                    DataType::Long => json!(object.read_long(property.offset)),
+                    DataType::Double => json!(object.read_double(property.offset)),
+                    DataType::String => json!(object.read_string(property.offset)),
+                    DataType::Object => unimplemented!(),
+                    DataType::ByteList => json!(object.read_byte_list(property.offset)),
+                    DataType::IntList => json!(object.read_int_list(property.offset)),
+                    DataType::FloatList => json!(object.read_float_list(property.offset)),
+                    DataType::LongList => json!(object.read_long_list(property.offset)),
+                    DataType::DoubleList => json!(object.read_double_list(property.offset)),
+                    DataType::StringList => json!(object.read_string_list(property.offset)),
+                    DataType::ObjectList => unimplemented!(),
+                }
+            };
+            object_map.insert(property.name.clone(), value);
         }
 
         object_map
     }
 
     pub fn decode(
-        collection: &'a IsarCollection,
+        properties: &'a [Property],
         json: &Value,
         buffer: Option<Vec<u8>>,
     ) -> Result<ObjectBuilder<'a>> {
-        let mut ob = collection.new_object_builder(buffer);
+        let mut ob = ObjectBuilder::new(properties, buffer);
         let object = json.as_object().ok_or(IsarError::InvalidJson {})?;
 
-        for (property_name, property) in &collection.properties {
-            if let Some(value) = object.get(property_name) {
+        for property in properties {
+            if let Some(value) = object.get(&property.name) {
                 match property.data_type {
                     DataType::Byte => ob.write_byte(Self::value_to_byte(value)?),
                     DataType::Int => ob.write_int(Self::value_to_int(value)?),
@@ -66,6 +67,7 @@ impl<'a> JsonEncodeDecode {
                     DataType::Long => ob.write_long(Self::value_to_long(value)?),
                     DataType::Double => ob.write_double(Self::value_to_double(value)?),
                     DataType::String => ob.write_string(Self::value_to_string(value)?),
+                    DataType::Object => unimplemented!(),
                     DataType::ByteList => {
                         let list = Self::value_to_array(value, Self::value_to_byte)?;
                         ob.write_byte_list(list.as_deref());
@@ -97,6 +99,7 @@ impl<'a> JsonEncodeDecode {
                             return Err(IsarError::InvalidJson {});
                         }
                     }
+                    DataType::ObjectList => unimplemented!(),
                 }
             } else {
                 ob.write_null();

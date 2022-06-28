@@ -17,7 +17,7 @@ macro_rules! primitive_create {
             if $property.data_type == DataType::$data_type {
                 Ok(Filter(
                     FilterCond::[<$data_type Between>]([<$data_type BetweenCond>] {
-                        $property,
+                        offset: $property.offset,
                         $lower,
                         $upper,
                     })
@@ -25,7 +25,7 @@ macro_rules! primitive_create {
             } else if $property.data_type == DataType::[<$data_type List>] {
                 Ok(Filter(
                     FilterCond::[<Any $data_type Between>]([<Any $data_type BetweenCond>] {
-                        $property,
+                        offset: $property.offset,
                         $lower,
                         $upper,
                     })
@@ -49,13 +49,13 @@ macro_rules! string_filter_create {
                 };
                 let filter_cond = if $property.data_type == DataType::String {
                     Ok(FilterCond::[<String $name>]([<String $name Cond>] {
-                        $property,
+                        offset: $property.offset,
                         value,
                         $case_sensitive,
                     }))
                 } else if $property.data_type == DataType::StringList {
                     Ok(FilterCond::[<AnyString $name>]([<AnyString $name Cond>] {
-                        $property,
+                        offset: $property.offset,
                         value,
                         $case_sensitive,
                     }))
@@ -77,23 +77,23 @@ impl Filter {
         Ok(Filter(filter_cond))
     }
 
-    pub fn byte(property: Property, lower: u8, upper: u8) -> Result<Filter> {
+    pub fn byte(property: &Property, lower: u8, upper: u8) -> Result<Filter> {
         primitive_create!(Byte, property, lower, upper)
     }
 
-    pub fn int(property: Property, lower: i32, upper: i32) -> Result<Filter> {
+    pub fn int(property: &Property, lower: i32, upper: i32) -> Result<Filter> {
         primitive_create!(Int, property, lower, upper)
     }
 
-    pub fn long(property: Property, lower: i64, upper: i64) -> Result<Filter> {
+    pub fn long(property: &Property, lower: i64, upper: i64) -> Result<Filter> {
         primitive_create!(Long, property, lower, upper)
     }
 
-    pub fn float(property: Property, lower: f32, upper: f32) -> Result<Filter> {
+    pub fn float(property: &Property, lower: f32, upper: f32) -> Result<Filter> {
         primitive_create!(Float, property, lower, upper)
     }
 
-    pub fn double(property: Property, lower: f64, upper: f64) -> Result<Filter> {
+    pub fn double(property: &Property, lower: f64, upper: f64) -> Result<Filter> {
         primitive_create!(Double, property, lower, upper)
     }
 
@@ -106,7 +106,7 @@ impl Filter {
     }
 
     pub fn string(
-        property: Property,
+        property: &Property,
         lower: Option<&str>,
         upper: Option<&str>,
         case_sensitive: bool,
@@ -120,21 +120,21 @@ impl Filter {
     }
 
     pub fn byte_string(
-        property: Property,
+        property: &Property,
         lower: Option<Vec<u8>>,
         upper: Option<Vec<u8>>,
         case_sensitive: bool,
     ) -> Result<Filter> {
         let filter_cond = if property.data_type == DataType::String {
             Ok(FilterCond::StringBetween(StringBetweenCond {
-                property,
+                offset: property.offset,
                 lower,
                 upper,
                 case_sensitive,
             }))
         } else if property.data_type == DataType::StringList {
             Ok(FilterCond::AnyStringBetween(AnyStringBetweenCond {
-                property,
+                offset: property.offset,
                 lower,
                 upper,
                 case_sensitive,
@@ -146,7 +146,7 @@ impl Filter {
     }
 
     pub fn string_starts_with(
-        property: Property,
+        property: &Property,
         value: &str,
         case_sensitive: bool,
     ) -> Result<Filter> {
@@ -154,7 +154,7 @@ impl Filter {
     }
 
     pub fn string_ends_with(
-        property: Property,
+        property: &Property,
         value: &str,
         case_sensitive: bool,
     ) -> Result<Filter> {
@@ -162,19 +162,26 @@ impl Filter {
     }
 
     pub fn string_contains(
-        property: Property,
+        property: &Property,
         value: &str,
         case_sensitive: bool,
     ) -> Result<Filter> {
         string_filter_create!(Contains, property, value, case_sensitive)
     }
 
-    pub fn string_matches(property: Property, value: &str, case_sensitive: bool) -> Result<Filter> {
+    pub fn string_matches(
+        property: &Property,
+        value: &str,
+        case_sensitive: bool,
+    ) -> Result<Filter> {
         string_filter_create!(Matches, property, value, case_sensitive)
     }
 
-    pub fn null(property: Property) -> Filter {
-        let filter_cond = FilterCond::Null(NullCond { property });
+    pub fn null(property: &Property) -> Filter {
+        let filter_cond = FilterCond::Null(NullCond {
+            offset: property.offset,
+            data_type: property.data_type,
+        });
         Filter(filter_cond)
     }
 
@@ -291,7 +298,7 @@ macro_rules! filter_between_struct {
         struct $name {
             upper: $type,
             lower: $type,
-            property: Property,
+            offset: usize,
         }
     };
 }
@@ -306,7 +313,7 @@ macro_rules! primitive_filter_between {
                 object: IsarObject,
                 _: Option<&IsarCursors>,
             ) -> Result<bool> {
-                let val = object.$prop_accessor(self.property);
+                let val = object.$prop_accessor(self.offset);
                 Ok(self.lower <= val && self.upper >= val)
             }
         }
@@ -330,7 +337,7 @@ macro_rules! primitive_filter_between_list {
                 object: IsarObject,
                 _: Option<&IsarCursors>,
             ) -> Result<bool> {
-                let vals = object.$prop_accessor(self.property);
+                let vals = object.$prop_accessor(self.offset);
                 if let Some(vals) = vals {
                     for val in vals {
                         if self.lower <= val && self.upper >= val {
@@ -348,7 +355,7 @@ filter_between_struct!(AnyByteBetweenCond, Byte, u8);
 
 impl Condition for AnyByteBetweenCond {
     fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
-        let vals = object.read_byte_list(self.property);
+        let vals = object.read_byte_list(self.offset);
         if let Some(vals) = vals {
             for val in vals {
                 if self.lower <= *val && self.upper >= *val {
@@ -370,7 +377,7 @@ macro_rules! float_filter_between {
     ($name:ident, $prop_accessor:ident) => {
         impl Condition for $name {
             fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
-                let val = object.$prop_accessor(self.property);
+                let val = object.$prop_accessor(self.offset);
                 Ok(float_filter_between!(eval val, self.lower, self.upper))
             }
         }
@@ -392,7 +399,7 @@ macro_rules! float_filter_between_list {
     ($name:ident, $prop_accessor:ident) => {
         impl Condition for $name {
             fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
-                let vals = object.$prop_accessor(self.property);
+                let vals = object.$prop_accessor(self.offset);
                 if let Some(vals) = vals {
                     for val in vals {
                         if float_filter_between!(eval val, self.lower, self.upper) {
@@ -413,7 +420,7 @@ float_filter_between_list!(AnyDoubleBetweenCond, read_double_list);
 
 #[derive(Clone)]
 struct StringBetweenCond {
-    property: Property,
+    offset: usize,
     lower: Option<Vec<u8>>,
     upper: Option<Vec<u8>>,
     case_sensitive: bool,
@@ -421,7 +428,7 @@ struct StringBetweenCond {
 
 #[derive(Clone)]
 struct AnyStringBetweenCond {
-    property: Property,
+    offset: usize,
     lower: Option<Vec<u8>>,
     upper: Option<Vec<u8>>,
     case_sensitive: bool,
@@ -463,7 +470,7 @@ fn string_between(
 
 impl Condition for StringBetweenCond {
     fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
-        let value = object.read_string(self.property);
+        let value = object.read_string(self.offset);
         let result = string_between(
             value,
             self.lower.as_deref(),
@@ -476,7 +483,7 @@ impl Condition for StringBetweenCond {
 
 impl Condition for AnyStringBetweenCond {
     fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
-        let list = object.read_string_list(self.property);
+        let list = object.read_string_list(self.offset);
         if let Some(list) = list {
             for value in list {
                 let result = string_between(
@@ -500,7 +507,7 @@ macro_rules! string_filter_struct {
         paste! {
             #[derive(Clone)]
             struct [<$name Cond>] {
-                property: Property,
+                offset: usize,
                 value: String,
                 case_sensitive: bool,
             }
@@ -515,7 +522,7 @@ macro_rules! string_filter {
             string_filter_struct!($name);
             impl Condition for [<$name Cond>] {
                 fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
-                    let other_str = object.read_string(self.property);
+                    let other_str = object.read_string(self.offset);
                     let result = string_filter!(eval $name, self, other_str);
                     Ok(result)
                 }
@@ -524,7 +531,7 @@ macro_rules! string_filter {
             string_filter_struct!([<Any $name>]);
             impl Condition for [<Any $name Cond>] {
                 fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
-                    let list = object.read_string_list(self.property);
+                    let list = object.read_string_list(self.offset);
                     if let Some(list) = list {
                         for value in list {
                             if string_filter!(eval $name, self, value) {
@@ -576,7 +583,8 @@ string_filter!(StringMatches);
 
 #[derive(Clone)]
 struct NullCond {
-    property: Property,
+    offset: usize,
+    data_type: DataType,
 }
 
 impl Condition for NullCond {
@@ -586,7 +594,7 @@ impl Condition for NullCond {
         object: IsarObject,
         _cursors: Option<&IsarCursors>,
     ) -> Result<bool> {
-        Ok(object.is_null(self.property))
+        Ok(object.is_null(self.offset, self.data_type))
     }
 }
 
@@ -718,7 +726,7 @@ impl LinkCond {
         link_id: usize,
         filter: FilterCond,
     ) -> Result<FilterCond> {
-        let link = collection.get_link_backlink(link_id)?;
+        let link = collection.get_link_backlink(link_id)?.clone();
         Ok(FilterCond::Link(LinkCond {
             link,
             filter: Box::new(filter),

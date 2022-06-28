@@ -33,21 +33,22 @@ impl<'a> IndexKeyBuilder<'a> {
     pub fn create_primitive_key(&self, object: IsarObject) -> IndexKey {
         let mut key = IndexKey::new();
         for index_property in self.properties {
-            let property = index_property.property;
+            let property = &index_property.property;
 
             if index_property.index_type == IndexType::Hash {
                 let hash = object.hash_property(property, index_property.case_sensitive, 0);
                 key.add_hash(hash);
             } else {
                 match property.data_type {
-                    DataType::Byte => key.add_byte(object.read_byte(property)),
-                    DataType::Int => key.add_int(object.read_int(property)),
-                    DataType::Float => key.add_float(object.read_float(property)),
-                    DataType::Long => key.add_long(object.read_long(property)),
-                    DataType::Double => key.add_double(object.read_double(property)),
-                    DataType::String => {
-                        key.add_string(object.read_string(property), index_property.case_sensitive)
-                    }
+                    DataType::Byte => key.add_byte(object.read_byte(property.offset)),
+                    DataType::Int => key.add_int(object.read_int(property.offset)),
+                    DataType::Float => key.add_float(object.read_float(property.offset)),
+                    DataType::Long => key.add_long(object.read_long(property.offset)),
+                    DataType::Double => key.add_double(object.read_double(property.offset)),
+                    DataType::String => key.add_string(
+                        object.read_string(property.offset),
+                        index_property.case_sensitive,
+                    ),
                     _ => unreachable!(),
                 }
             }
@@ -61,13 +62,13 @@ impl<'a> IndexKeyBuilder<'a> {
         mut callback: impl FnMut(&IndexKey) -> Result<bool>,
     ) -> Result<bool> {
         let mut key = IndexKey::new();
-        let property = index_property.property;
-        if object.is_null(property) {
+        let property = &index_property.property;
+        if object.is_null(property.offset, property.data_type) {
             return Ok(true);
         }
         match property.data_type {
             DataType::ByteList => {
-                for value in object.read_byte_list(property).unwrap() {
+                for value in object.read_byte_list(property.offset).unwrap() {
                     key.truncate(0);
                     key.add_byte(*value);
                     if !callback(&key)? {
@@ -76,7 +77,7 @@ impl<'a> IndexKeyBuilder<'a> {
                 }
             }
             DataType::IntList => {
-                for value in object.read_int_list(property).unwrap() {
+                for value in object.read_int_list(property.offset).unwrap() {
                     key.truncate(0);
                     key.add_int(value);
                     if !callback(&key)? {
@@ -85,7 +86,7 @@ impl<'a> IndexKeyBuilder<'a> {
                 }
             }
             DataType::LongList => {
-                for value in object.read_long_list(property).unwrap() {
+                for value in object.read_long_list(property.offset).unwrap() {
                     key.truncate(0);
                     key.add_long(value);
                     if !callback(&key)? {
@@ -94,7 +95,7 @@ impl<'a> IndexKeyBuilder<'a> {
                 }
             }
             DataType::FloatList => {
-                for value in object.read_float_list(property).unwrap() {
+                for value in object.read_float_list(property.offset).unwrap() {
                     key.truncate(0);
                     key.add_float(value);
                     if !callback(&key)? {
@@ -103,7 +104,7 @@ impl<'a> IndexKeyBuilder<'a> {
                 }
             }
             DataType::DoubleList => {
-                for value in object.read_double_list(property).unwrap() {
+                for value in object.read_double_list(property.offset).unwrap() {
                     key.truncate(0);
                     key.add_double(value);
                     if !callback(&key)? {
@@ -112,7 +113,7 @@ impl<'a> IndexKeyBuilder<'a> {
                 }
             }
             DataType::StringList => {
-                for value in object.read_string_list(property).unwrap() {
+                for value in object.read_string_list(property.offset).unwrap() {
                     key.truncate(0);
                     if index_property.index_type == IndexType::HashElements {
                         let hash = IsarObject::hash_string(value, index_property.case_sensitive, 0);
