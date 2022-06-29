@@ -1,25 +1,22 @@
-use jni::objects::{JObject, JString, JValue};
+use jni::objects::{JClass, JString};
+use jni::JNIEnv;
+use once_cell::sync::OnceCell;
+
+static PATH: OnceCell<String> = OnceCell::new();
+
+#[no_mangle]
+pub extern "system" fn Java_dev_isar_isar_1flutter_1libs_IsarInitializer_initializePath(
+    env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) {
+    let java_str = env.get_string(path).unwrap();
+    let str = java_str.to_str().unwrap();
+    PATH.set(str.to_string()).unwrap();
+}
 
 pub fn get_dir() -> Option<String> {
-    let android_context = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(android_context.vm().cast()).ok()? };
-    let env = vm.attach_current_thread().ok()?;
-    let context = JObject::from(android_context.context().cast());
-    let dir = env
-        .call_method(*context, "getFilesDir", "()Ljava/io/File;", &[])
-        .ok()?;
-    if let JValue::Object(dir) = dir {
-        let path = env
-            .call_method(dir, "getPath", "()Ljava/lang/String;", &[])
-            .ok()?;
-        if let JValue::Object(path) = path {
-            let j_str = JString::from(path);
-            let java_str = env.get_string(j_str).ok()?;
-            let str = java_str.to_str().ok()?;
-            return Some(str.to_string());
-        }
-    }
-    None
+    PATH.get().map(|s| s.to_string())
 }
 
 pub fn get_app_id() -> Option<String> {
