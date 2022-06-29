@@ -9,7 +9,6 @@ use crate::watch::change_set::ChangeSet;
 use crate::watch::isar_watchers::{IsarWatchers, WatcherModifier};
 use crate::watch::watcher::WatcherCallback;
 use crate::watch::WatchHandle;
-use app_dir::get_app_dir;
 use crossbeam_channel::{unbounded, Sender};
 use intmap::IntMap;
 use once_cell::sync::Lazy;
@@ -51,24 +50,17 @@ impl IsarInstance {
                 Err(IsarError::SchemaMismatch {})
             }
         } else {
-            let dir = Self::get_directory(dir)?;
-            let new_instance =
-                Self::open_internal(name, &dir, instance_id, relaxed_durability, schema)?;
-            let new_instance = Arc::new(new_instance);
-            lock.insert(instance_id, new_instance.clone());
-            Ok(new_instance)
-        }
-    }
-
-    fn get_directory(dir: Option<&str>) -> Result<String> {
-        if let Some(dir) = dir {
-            Ok(dir.to_string())
-        } else if let Some(dir) = get_app_dir() {
-            Ok(dir)
-        } else {
-            Err(IsarError::IllegalArg {
-                message: "A valid default directory could not be found.".to_string(),
-            })
+            if let Some(dir) = dir {
+                let new_instance =
+                    Self::open_internal(name, dir, instance_id, relaxed_durability, schema)?;
+                let new_instance = Arc::new(new_instance);
+                lock.insert(instance_id, new_instance.clone());
+                Ok(new_instance)
+            } else {
+                Err(IsarError::IllegalArg {
+                    message: "Please provide a valid directory.".to_string(),
+                })
+            }
         }
     }
 
