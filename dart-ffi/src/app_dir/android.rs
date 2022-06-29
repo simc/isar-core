@@ -11,8 +11,8 @@ pub extern "C" fn Java_dev_isar_isar_1flutter_1libs_IsarInitializer_initializePa
     path: JString,
 ) {
     let java_str = env.get_string(path).unwrap();
-    let str = java_str.to_str().unwrap();
-    PATH.set(path.to_string()).unwrap();
+    let path = java_str.to_str().unwrap();
+    let _ = PATH.set(path.to_string());
 }
 
 pub fn get_dir() -> Option<String> {
