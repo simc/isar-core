@@ -46,8 +46,9 @@ pub struct IsarObject<'a> {
 
 impl<'a> IsarObject<'a> {
     pub const NULL_BYTE: u8 = 0;
-    pub const FALSE_BYTE: u8 = 1;
-    pub const TRUE_BYTE: u8 = 2;
+    pub const NULL_BOOL: u8 = 0;
+    pub const FALSE_BOOL: u8 = 1;
+    pub const TRUE_BOOL: u8 = 2;
     pub const NULL_INT: i32 = i32::MIN;
     pub const NULL_LONG: i64 = i64::MIN;
     pub const NULL_FLOAT: f32 = f32::NAN;
@@ -74,12 +75,22 @@ impl<'a> IsarObject<'a> {
 
     pub fn is_null(&self, offset: usize, data_type: DataType) -> bool {
         match data_type {
-            DataType::Byte => self.read_byte(offset) == Self::NULL_BYTE,
+            DataType::Byte => false,
+            DataType::Bool => self.read_bool(offset).is_none(),
             DataType::Int => self.read_int(offset) == Self::NULL_INT,
             DataType::Long => self.read_long(offset) == Self::NULL_LONG,
             DataType::Float => self.read_float(offset).is_nan(),
             DataType::Double => self.read_double(offset).is_nan(),
             _ => self.get_offset_size(offset).is_none(),
+        }
+    }
+
+    #[inline]
+    pub fn byte_to_bool(value: u8) -> Option<bool> {
+        if value == Self::NULL_BOOL {
+            None
+        } else {
+            Some(value == Self::TRUE_BOOL)
         }
     }
 
@@ -91,8 +102,13 @@ impl<'a> IsarObject<'a> {
         }
     }
 
-    pub fn read_bool(&self, offset: usize) -> bool {
-        self.read_byte(offset) == Self::TRUE_BYTE
+    pub fn read_bool(&self, offset: usize) -> Option<bool> {
+        let value = if self.contains_property(offset) {
+            self.bytes[offset]
+        } else {
+            Self::NULL_BOOL
+        };
+        Self::byte_to_bool(value)
     }
 
     #[inline]
@@ -166,6 +182,15 @@ impl<'a> IsarObject<'a> {
         Some(&self.bytes[offset..offset + size])
     }
 
+    pub fn read_bool_list(&self, offset: usize) -> Option<Vec<Option<bool>>> {
+        let (offset, size) = self.get_offset_size(offset)?;
+        let list = (offset..offset + size)
+            .into_iter()
+            .map(|offset| Self::byte_to_bool(self.bytes[offset]))
+            .collect();
+        Some(list)
+    }
+
     pub fn read_int_list(&self, offset: usize) -> Option<Vec<i32>> {
         let (offset, size) = self.get_offset_size(offset)?;
         let list = (offset..offset + size)
@@ -174,6 +199,20 @@ impl<'a> IsarObject<'a> {
             .map(|offset| LittleEndian::read_i32(&self.bytes[offset..]))
             .collect();
         Some(list)
+    }
+
+    pub fn read_int_or_null_list(&self, offset: usize) -> Option<Vec<Option<i32>>> {
+        self.read_int_list(offset).map(|list| {
+            list.into_iter()
+                .map(|value| {
+                    if value != Self::NULL_INT {
+                        Some(value)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
     }
 
     pub fn read_float_list(&self, offset: usize) -> Option<Vec<f32>> {
@@ -186,6 +225,14 @@ impl<'a> IsarObject<'a> {
         Some(list)
     }
 
+    pub fn read_float_or_null_list(&self, offset: usize) -> Option<Vec<Option<f32>>> {
+        self.read_float_list(offset).map(|list| {
+            list.into_iter()
+                .map(|value| if !value.is_nan() { Some(value) } else { None })
+                .collect()
+        })
+    }
+
     pub fn read_long_list(&self, offset: usize) -> Option<Vec<i64>> {
         let (offset, size) = self.get_offset_size(offset)?;
         let list = (offset..offset + size)
@@ -196,6 +243,20 @@ impl<'a> IsarObject<'a> {
         Some(list)
     }
 
+    pub fn read_long_or_null_list(&self, offset: usize) -> Option<Vec<Option<i64>>> {
+        self.read_long_list(offset).map(|list| {
+            list.into_iter()
+                .map(|value| {
+                    if value != Self::NULL_LONG {
+                        Some(value)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+    }
+
     pub fn read_double_list(&self, offset: usize) -> Option<Vec<f64>> {
         let (offset, size) = self.get_offset_size(offset)?;
         let list = (offset..offset + size)
@@ -204,6 +265,14 @@ impl<'a> IsarObject<'a> {
             .map(|offset| LittleEndian::read_f64(&self.bytes[offset..]))
             .collect();
         Some(list)
+    }
+
+    pub fn read_double_or_null_list(&self, offset: usize) -> Option<Vec<Option<f64>>> {
+        self.read_double_list(offset).map(|list| {
+            list.into_iter()
+                .map(|value| if !value.is_nan() { Some(value) } else { None })
+                .collect()
+        })
     }
 
     pub fn read_string_list(&self, offset: usize) -> Option<Vec<Option<&'a str>>> {
@@ -425,15 +494,34 @@ mod tests {
     #[test]
     fn test_read_non_contained_property() {
         let data_types = vec![
-            Byte, Int, Float, Long, Double, String, ByteList, IntList, FloatList, LongList,
-            DoubleList, StringList,
+            Bool, Byte, Int, Float, Long, Double, String, BoolList, ByteList, IntList, FloatList,
+            LongList, DoubleList, StringList,
         ];
         for data_type in data_types {
             builder!(_b, p, data_type);
             let empty = vec![0, 0];
             let object = IsarObject::from_bytes(&empty);
-            assert!(object.is_null(p.offset, p.data_type));
+            let should_be_null = data_type != Byte;
+            assert_eq!(object.is_null(p.offset, p.data_type), should_be_null);
         }
+    }
+
+    #[test]
+    fn test_read_bool() {
+        builder!(b, p, Bool);
+        b.write_null();
+        assert_eq!(b.finish().read_bool(p.offset), None);
+        assert!(b.finish().is_null(p.offset, p.data_type));
+
+        builder!(b, p, Bool);
+        b.write_bool(Some(true));
+        assert_eq!(b.finish().read_bool(p.offset), Some(true));
+        assert!(!b.finish().is_null(p.offset, p.data_type));
+
+        builder!(b, p, Bool);
+        b.write_bool(Some(false));
+        assert_eq!(b.finish().read_bool(p.offset), Some(false));
+        assert!(!b.finish().is_null(p.offset, p.data_type));
     }
 
     #[test]
@@ -441,7 +529,7 @@ mod tests {
         builder!(b, p, Byte);
         b.write_null();
         assert_eq!(b.finish().read_byte(p.offset), IsarObject::NULL_BYTE);
-        assert!(b.finish().is_null(p.offset, p.data_type));
+        assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, Byte);
         b.write_byte(123);

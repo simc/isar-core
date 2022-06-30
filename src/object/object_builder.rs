@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::object::isar_object::Property;
@@ -47,6 +49,7 @@ impl<'a> ObjectBuilder<'a> {
     pub fn write_null(&mut self) {
         let property = self.next_property(true);
         match property.data_type {
+            DataType::Bool => self.write_bool(None),
             DataType::Byte => self.write_byte(IsarObject::NULL_BYTE),
             DataType::Int => self.write_int(IsarObject::NULL_INT),
             DataType::Float => self.write_float(IsarObject::NULL_FLOAT),
@@ -54,6 +57,7 @@ impl<'a> ObjectBuilder<'a> {
             DataType::Double => self.write_double(IsarObject::NULL_DOUBLE),
             DataType::String => self.write_string(None),
             DataType::Object => self.write_object(None),
+            DataType::BoolList => self.write_bool_list(None),
             DataType::ByteList => self.write_byte_list(None),
             DataType::IntList => self.write_int_list(None),
             DataType::FloatList => self.write_float_list(None),
@@ -61,6 +65,18 @@ impl<'a> ObjectBuilder<'a> {
             DataType::DoubleList => self.write_double_list(None),
             DataType::StringList => self.write_string_list(None),
             DataType::ObjectList => self.write_object_list(None),
+        }
+    }
+
+    pub fn bool_to_byte(value: Option<bool>) -> u8 {
+        if let Some(value) = value {
+            if value {
+                IsarObject::TRUE_BOOL
+            } else {
+                IsarObject::FALSE_BOOL
+            }
+        } else {
+            IsarObject::NULL_BOOL
         }
     }
 
@@ -72,13 +88,13 @@ impl<'a> ObjectBuilder<'a> {
         self.write_at(offset, &[value]);
     }
 
-    pub fn write_bool(&mut self, value: bool) {
-        let byte = if value {
-            IsarObject::TRUE_BYTE
-        } else {
-            IsarObject::FALSE_BYTE
-        };
-        self.write_byte(byte);
+    pub fn write_bool(&mut self, value: Option<bool>) {
+        let property = self.next_property(false);
+        let offset = property.offset;
+
+        assert_eq!(property.data_type, DataType::Bool);
+        let value = Self::bool_to_byte(value);
+        self.write_at(offset, &[value]);
     }
 
     pub fn write_int(&mut self, value: i32) {
@@ -122,6 +138,15 @@ impl<'a> ObjectBuilder<'a> {
         let offset = property.offset;
         assert_eq!(property.data_type, DataType::Object);
         self.write_list(offset, value.as_ref().map(|o| o.as_bytes()));
+    }
+
+    pub fn write_bool_list(&mut self, value: Option<&[Option<bool>]>) {
+        let property = self.next_property(false);
+        let offset = property.offset;
+
+        assert_eq!(property.data_type, DataType::BoolList);
+        let list = value.map(|list| list.iter().map(|b| Self::bool_to_byte(*b)).collect_vec());
+        self.write_list(offset, list.as_deref());
     }
 
     pub fn write_byte_list(&mut self, value: Option<&[u8]>) {
@@ -241,6 +266,10 @@ mod tests {
 
     #[test]
     pub fn test_write_null() {
+        builder!(b, Bool);
+        b.write_null();
+        assert_eq!(b.finish().as_bytes(), &[4, 0, 255, 0]);
+
         builder!(b, Byte);
         b.write_null();
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, 0]);
@@ -283,6 +312,28 @@ mod tests {
     }
 
     #[test]
+    pub fn test_write_bool() {
+        builder!(b, Bool);
+        b.write_bool(Some(true));
+        assert_eq!(b.finish().as_bytes(), &[4, 0, 255, IsarObject::TRUE_BOOL]);
+
+        builder!(b, Bool);
+        b.write_bool(Some(false));
+        assert_eq!(b.finish().as_bytes(), &[4, 0, 255, IsarObject::FALSE_BOOL]);
+
+        builder!(b, Bool);
+        b.write_bool(None);
+        assert_eq!(b.finish().as_bytes(), &[4, 0, 255, IsarObject::NULL_BOOL]);
+    }
+
+    #[test]
+    #[should_panic]
+    pub fn test_write_bool_wrong_type() {
+        builder!(b, Byte);
+        b.write_bool(None);
+    }
+
+    #[test]
     pub fn test_write_byte() {
         builder!(b, Byte);
         b.write_byte(0);
@@ -300,19 +351,8 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_byte_wrong_type() {
-        builder!(b, String);
+        builder!(b, Bool);
         b.write_byte(123);
-    }
-
-    #[test]
-    pub fn test_write_bool() {
-        builder!(b, Byte);
-        b.write_bool(true);
-        assert_eq!(b.finish().as_bytes(), &[4, 0, 255, IsarObject::TRUE_BYTE]);
-
-        builder!(b, Byte);
-        b.write_bool(false);
-        assert_eq!(b.finish().as_bytes(), &[4, 0, 255, IsarObject::FALSE_BYTE]);
     }
 
     #[test]

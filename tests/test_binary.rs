@@ -1,0 +1,305 @@
+use std::{collections::HashMap, fs};
+
+use isar_core::object::isar_object::Property;
+use isar_core::object::json_encode_decode::JsonEncodeDecode;
+use isar_core::object::{data_type::DataType, isar_object::IsarObject};
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use serde_json::{from_str, json, Value};
+
+#[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
+pub struct BinaryTest {
+    pub types: Vec<DataType>,
+    pub values: Vec<Value>,
+    pub bytes: Vec<u8>,
+}
+
+impl BinaryTest {
+    fn create(data: &[(DataType, Value)]) -> Self {
+        let (types, values): (Vec<_>, Vec<_>) = data.iter().cloned().unzip();
+        let properties = Self::create_properties(&types);
+        let json = Self::create_temp_json(&properties, &values);
+        let object = JsonEncodeDecode::decode(&properties, &json, None).unwrap();
+        BinaryTest {
+            types,
+            values,
+            bytes: object.finish().as_bytes().to_vec(),
+        }
+    }
+
+    fn create_properties(types: &[DataType]) -> Vec<Property> {
+        let mut offset = 2;
+        types
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let p = Property::new(format!("{}", i), *t, offset, None);
+                offset += t.get_static_size();
+                p
+            })
+            .collect()
+    }
+
+    fn create_temp_json(properties: &[Property], values: &[Value]) -> Value {
+        let map: HashMap<String, Value> = properties
+            .iter()
+            .zip(values.iter())
+            .map(|(p, v)| (p.name.clone(), v.clone()))
+            .collect();
+        json!(map)
+    }
+}
+
+fn generate_binary_golden() -> Vec<BinaryTest> {
+    let bool_blocks = (DataType::Bool, vec![json!(null), json!(true), json!(false)]);
+    let byte_blocks = (DataType::Byte, vec![json!(0), json!(123), json!(255)]);
+    let int_blocks = (
+        DataType::Int,
+        vec![
+            json!(null),
+            json!(i32::MIN + 1),
+            json!(0i32),
+            json!(i32::MAX),
+        ],
+    );
+    let float_blocks = (
+        DataType::Float,
+        vec![
+            json!(null),
+            json!(f32::NEG_INFINITY),
+            json!(f32::MIN),
+            json!(0f32),
+            json!(f32::MAX),
+            json!(f32::INFINITY),
+        ],
+    );
+    let long_blocks = (
+        DataType::Long,
+        vec![
+            json!(null),
+            json!(i64::MIN + 1),
+            json!(0i64),
+            json!(i64::MAX),
+        ],
+    );
+    let double_blocks = (
+        DataType::Double,
+        vec![
+            json!(null),
+            json!(f64::NEG_INFINITY),
+            json!(f64::MIN),
+            json!(0f64),
+            json!(f64::MAX),
+            json!(f64::INFINITY),
+        ],
+    );
+    let string_blocks = (
+        DataType::String,
+        vec![
+            json!(null),
+            json!(""),
+            json!("a"),
+            json!("רוצח עז קטנה"),
+            json!("👱👱🏻👱🏼👱🏽👱🏾👱🏿👨‍❤️‍💋‍👨👩‍👩‍👧‍👦🏳️‍⚧️🇵🇷"),
+            json!("Z̤͔ͧ̑̓ä͖̭̈̇lͮ̒ͫǧ̗͚̚o̙̔ͮ̇͐̇"),
+        ],
+    );
+    let bool_list_blocks = (
+        DataType::BoolList,
+        vec![
+            json!(null),
+            json!([]),
+            json!([null]),
+            json!([null, null, null]),
+            json!([true]),
+            json!([false]),
+            json!([true, null, false, null]),
+        ],
+    );
+    let byte_list_blocks = (
+        DataType::ByteList,
+        vec![json!([]), json!([255]), json!([0]), json!([255, 0, 0, 255])],
+    );
+    let int_list_blocks = (
+        DataType::IntList,
+        vec![
+            json!(null),
+            json!([]),
+            json!([null]),
+            json!([null, null, null]),
+            json!([12345i32]),
+            json!([null, i32::MIN + 1, null, i32::MAX]),
+        ],
+    );
+    let float_list_blocks = (
+        DataType::FloatList,
+        vec![
+            json!(null),
+            json!([]),
+            json!([null]),
+            json!([null, null, null]),
+            json!([std::f32::consts::PI]),
+            json!([null, f32::NEG_INFINITY, f32::MAX, null]),
+        ],
+    );
+    let long_list_blocks = (
+        DataType::LongList,
+        vec![
+            json!(null),
+            json!([]),
+            json!([null]),
+            json!([null, null, null]),
+            json!([-324234643i64]),
+            json!([null, i64::MIN + 1, null, null, i64::MAX]),
+        ],
+    );
+    let double_list_blocks = (
+        DataType::DoubleList,
+        vec![
+            json!(null),
+            json!([]),
+            json!([null]),
+            json!([null, null, null]),
+            json!([std::f64::consts::PI]),
+            json!([null, f64::NEG_INFINITY, f64::MAX, null, null]),
+        ],
+    );
+    let string_list_blocks = (
+        DataType::StringList,
+        vec![
+            json!(null),
+            json!([]),
+            json!([null]),
+            json!([null, null]),
+            json!([null, null, null]),
+            json!([""]),
+            json!(["", ""]),
+            json!(["", "", ""]),
+            json!(["", null]),
+            json!([null, ""]),
+            json!(["", null, null]),
+            json!([null, "", null]),
+            json!([null, null, ""]),
+            json!([null, "", ""]),
+            json!(["", null, ""]),
+            json!(["", "", null]),
+            json!(["a"]),
+            json!(["a", "ab"]),
+            json!(["a", "ab", "abc"]),
+            json!([null, "a"]),
+            json!(["a", null]),
+            json!([null, "a"]),
+            json!(["a", null, null]),
+            json!([null, "a", null]),
+            json!([null, null, "a"]),
+            json!([null, "a", "bbb"]),
+            json!(["a", null, "bbb"]),
+            json!(["a", "bbb", null]),
+        ],
+    );
+
+    let mut combinations = vec![];
+
+    let static_blocks = normalize(&[
+        bool_blocks,
+        byte_blocks,
+        int_blocks,
+        float_blocks,
+        long_blocks,
+        double_blocks,
+    ]);
+
+    for case1 in &static_blocks {
+        combinations.push(vec![case1.clone()]);
+        for case2 in &static_blocks {
+            combinations.push(vec![case1.clone(), case2.clone()]);
+            for case3 in &static_blocks {
+                combinations.push(vec![case1.clone(), case2.clone(), case3.clone()]);
+            }
+        }
+    }
+
+    let dynamic_blocks = normalize(&[
+        string_blocks,
+        bool_list_blocks,
+        byte_list_blocks,
+        int_list_blocks,
+        float_list_blocks,
+        long_list_blocks,
+        double_list_blocks,
+    ]);
+
+    for case1 in &dynamic_blocks {
+        combinations.push(vec![case1.clone()]);
+        for case2 in &dynamic_blocks {
+            combinations.push(vec![case1.clone(), case2.clone()]);
+            for case3 in &dynamic_blocks {
+                combinations.push(vec![case1.clone(), case2.clone(), case3.clone()]);
+            }
+        }
+    }
+
+    let string_list_blocks = normalize(&[string_list_blocks]);
+    for case1 in &string_list_blocks {
+        combinations.push(vec![case1.clone()]);
+        for case2 in &string_list_blocks {
+            combinations.push(vec![case1.clone(), case2.clone()]);
+            for case3 in &string_list_blocks {
+                combinations.push(vec![case1.clone(), case2.clone(), case3.clone()]);
+            }
+        }
+    }
+
+    combinations
+        .into_iter()
+        .map(|cases| BinaryTest::create(&cases))
+        .collect()
+}
+
+fn normalize(blocks: &[(DataType, Vec<Value>)]) -> Vec<(DataType, Value)> {
+    blocks
+        .into_iter()
+        .flat_map(|(t, blocks)| blocks.into_iter().map(move |b| (*t, b.clone())))
+        .collect_vec()
+}
+
+#[allow(dead_code)]
+fn overwrite_binary_golden() {
+    let tests = generate_binary_golden();
+    let json = json!(tests);
+    fs::write("tests/binary_golden.json", json.to_string()).unwrap();
+}
+
+#[test]
+fn test_binary_serialize() {
+    let golden_str = fs::read_to_string("tests/binary_golden.json").unwrap();
+    let golden = from_str::<Vec<BinaryTest>>(&golden_str).unwrap();
+    for test in golden.iter() {
+        let properties = BinaryTest::create_properties(&test.types);
+        let golden_json = BinaryTest::create_temp_json(&properties, &test.values);
+        let builder = JsonEncodeDecode::decode(&properties, &golden_json, None).unwrap();
+        let object = builder.finish();
+        let bytes = object.as_bytes();
+        if bytes != test.bytes {
+            println!("{:?}", test);
+            assert_eq!(bytes, test.bytes);
+        }
+    }
+}
+
+#[test]
+fn test_binary_parse() {
+    let golden_str = fs::read_to_string("tests/binary_golden.json").unwrap();
+    let golden = from_str::<Vec<BinaryTest>>(&golden_str).unwrap();
+    for test in golden.iter() {
+        let properties = BinaryTest::create_properties(&test.types);
+        let golden_json = BinaryTest::create_temp_json(&properties, &test.values);
+        let object = IsarObject::from_bytes(&test.bytes);
+        let generated_map = JsonEncodeDecode::encode(&properties, object, true);
+        let generated_json = json!(generated_map);
+        if generated_json != golden_json {
+            println!("{:?}", test);
+            assert_eq!(generated_json, golden_json);
+        }
+    }
+}

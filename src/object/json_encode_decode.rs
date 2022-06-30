@@ -6,14 +6,13 @@ use serde_json::{json, Map, Value};
 
 use super::isar_object::Property;
 
-pub(crate) struct JsonEncodeDecode {}
+pub struct JsonEncodeDecode {}
 
 impl<'a> JsonEncodeDecode {
     pub fn encode(
         properties: &[Property],
         object: IsarObject,
         primitive_null: bool,
-        byte_as_bool: bool,
     ) -> Map<String, Value> {
         let mut object_map = Map::new();
 
@@ -22,12 +21,11 @@ impl<'a> JsonEncodeDecode {
                 Value::Null
             } else {
                 match property.data_type {
+                    DataType::Bool => {
+                        json!(object.read_bool(property.offset))
+                    }
                     DataType::Byte => {
-                        if byte_as_bool {
-                            json!(object.read_bool(property.offset))
-                        } else {
-                            json!(object.read_byte(property.offset))
-                        }
+                        json!(object.read_byte(property.offset))
                     }
                     DataType::Int => json!(object.read_int(property.offset)),
                     DataType::Float => json!(object.read_float(property.offset)),
@@ -35,11 +33,36 @@ impl<'a> JsonEncodeDecode {
                     DataType::Double => json!(object.read_double(property.offset)),
                     DataType::String => json!(object.read_string(property.offset)),
                     DataType::Object => unimplemented!(),
-                    DataType::ByteList => json!(object.read_byte_list(property.offset)),
-                    DataType::IntList => json!(object.read_int_list(property.offset)),
-                    DataType::FloatList => json!(object.read_float_list(property.offset)),
-                    DataType::LongList => json!(object.read_long_list(property.offset)),
-                    DataType::DoubleList => json!(object.read_double_list(property.offset)),
+                    DataType::BoolList => json!(object.read_bool_list(property.offset).unwrap()),
+                    DataType::ByteList => json!(object.read_byte_list(property.offset).unwrap()),
+                    DataType::IntList => {
+                        if primitive_null {
+                            json!(object.read_int_or_null_list(property.offset))
+                        } else {
+                            json!(object.read_int_list(property.offset))
+                        }
+                    }
+                    DataType::FloatList => {
+                        if primitive_null {
+                            json!(object.read_float_or_null_list(property.offset))
+                        } else {
+                            json!(object.read_float_list(property.offset))
+                        }
+                    }
+                    DataType::LongList => {
+                        if primitive_null {
+                            json!(object.read_long_or_null_list(property.offset))
+                        } else {
+                            json!(object.read_long_list(property.offset))
+                        }
+                    }
+                    DataType::DoubleList => {
+                        if primitive_null {
+                            json!(object.read_double_or_null_list(property.offset))
+                        } else {
+                            json!(object.read_double_list(property.offset))
+                        }
+                    }
                     DataType::StringList => json!(object.read_string_list(property.offset)),
                     DataType::ObjectList => unimplemented!(),
                 }
@@ -61,6 +84,7 @@ impl<'a> JsonEncodeDecode {
         for property in properties {
             if let Some(value) = object.get(&property.name) {
                 match property.data_type {
+                    DataType::Bool => ob.write_bool(Self::value_to_bool(value)?),
                     DataType::Byte => ob.write_byte(Self::value_to_byte(value)?),
                     DataType::Int => ob.write_int(Self::value_to_int(value)?),
                     DataType::Float => ob.write_float(Self::value_to_float(value)?),
@@ -68,6 +92,10 @@ impl<'a> JsonEncodeDecode {
                     DataType::Double => ob.write_double(Self::value_to_double(value)?),
                     DataType::String => ob.write_string(Self::value_to_string(value)?),
                     DataType::Object => unimplemented!(),
+                    DataType::BoolList => {
+                        let list = Self::value_to_array(value, Self::value_to_bool)?;
+                        ob.write_bool_list(list.as_deref());
+                    }
                     DataType::ByteList => {
                         let list = Self::value_to_array(value, Self::value_to_byte)?;
                         ob.write_byte_list(list.as_deref());
@@ -109,20 +137,20 @@ impl<'a> JsonEncodeDecode {
         Ok(ob)
     }
 
-    fn value_to_byte(value: &Value) -> Result<u8> {
+    fn value_to_bool(value: &Value) -> Result<Option<bool>> {
         if value.is_null() {
-            return Ok(IsarObject::NULL_BYTE);
-        } else if let Some(value) = value.as_i64() {
+            return Ok(None);
+        } else if let Some(value) = value.as_bool() {
+            return Ok(Some(value));
+        };
+        Err(IsarError::InvalidJson {})
+    }
+
+    fn value_to_byte(value: &Value) -> Result<u8> {
+        if let Some(value) = value.as_i64() {
             if value >= 0 && value <= u8::MAX as i64 {
                 return Ok(value as u8);
             }
-        } else if let Some(value) = value.as_bool() {
-            let byte = if value {
-                IsarObject::TRUE_BYTE
-            } else {
-                IsarObject::FALSE_BYTE
-            };
-            return Ok(byte);
         }
         Err(IsarError::InvalidJson {})
     }

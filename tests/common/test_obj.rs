@@ -15,11 +15,13 @@ use itertools::Itertools;
 #[derive(PartialEq, Debug)]
 pub struct TestObj {
     pub id: i64,
+    pub bool: Option<bool>,
     pub byte: u8,
     pub int: i32,
     pub float: f32,
     pub double: f64,
     pub string: Option<String>,
+    pub bool_list: Option<Vec<Option<bool>>>,
     pub byte_list: Option<Vec<u8>>,
     pub int_list: Option<Vec<i32>>,
     pub long_list: Option<Vec<i64>>,
@@ -32,11 +34,13 @@ impl TestObj {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: i64,
+        bool: Option<bool>,
         byte: u8,
         int: i32,
         float: f32,
         double: f64,
         string: Option<&str>,
+        bool_list: Option<&[Option<bool>]>,
         byte_list: Option<&[u8]>,
         int_list: Option<&[i32]>,
         long_list: Option<&[i64]>,
@@ -46,11 +50,13 @@ impl TestObj {
     ) -> Self {
         TestObj {
             id,
+            bool,
             byte,
             int,
             float,
             double,
             string: string.map(|s| s.to_string()),
+            bool_list: bool_list.map(|l| l.to_vec()),
             byte_list: byte_list.map(|l| l.to_vec()),
             int_list: int_list.map(|l| l.to_vec()),
             long_list: long_list.map(|l| l.to_vec()),
@@ -61,11 +67,17 @@ impl TestObj {
     }
 
     pub fn default(id: i64) -> Self {
-        Self::new(id, 0, 0, 0.0, 0.0, None, None, None, None, None, None, None)
+        Self::new(
+            id, None, 0, 0, 0.0, 0.0, None, None, None, None, None, None, None, None,
+        )
     }
 
     pub fn get_prop(col: &IsarCollection, prop: DataType) -> &Property {
         col.properties.iter().find(|p| p.data_type == prop).unwrap()
+    }
+
+    pub fn bool_index() -> IndexPropertySchema {
+        IndexPropertySchema::new("bool", IndexType::Value, false)
     }
 
     pub fn byte_index() -> IndexPropertySchema {
@@ -159,12 +171,14 @@ impl TestObj {
 
     pub fn schema(name: &str, indexes: &[IndexSchema], links: &[LinkSchema]) -> CollectionSchema {
         let properties = vec![
+            PropertySchema::new("bool", DataType::Bool, None),
             PropertySchema::new("byte", DataType::Byte, None),
             PropertySchema::new("int", DataType::Int, None),
             PropertySchema::new("long", DataType::Long, None),
             PropertySchema::new("float", DataType::Float, None),
             PropertySchema::new("double", DataType::Double, None),
             PropertySchema::new("string", DataType::String, None),
+            PropertySchema::new("boolList", DataType::BoolList, None),
             PropertySchema::new("byteList", DataType::ByteList, None),
             PropertySchema::new("intList", DataType::IntList, None),
             PropertySchema::new("longList", DataType::LongList, None),
@@ -221,6 +235,7 @@ impl TestObj {
         let mut builder = col.new_object_builder(None);
         for prop in &col.properties {
             match prop.data_type {
+                DataType::Bool => builder.write_bool(self.bool),
                 DataType::Byte => builder.write_byte(self.byte),
                 DataType::Int => builder.write_int(self.int),
                 DataType::Float => builder.write_float(self.float),
@@ -228,6 +243,7 @@ impl TestObj {
                 DataType::Double => builder.write_double(self.double),
                 DataType::String => builder.write_string(self.string.as_deref()),
                 DataType::Object => unimplemented!(),
+                DataType::BoolList => builder.write_bool_list(self.bool_list.as_deref()),
                 DataType::ByteList => builder.write_byte_list(self.byte_list.as_deref()),
                 DataType::IntList => builder.write_int_list(self.int_list.as_deref()),
                 DataType::FloatList => builder.write_float_list(self.float_list.as_deref()),
@@ -259,6 +275,7 @@ impl TestObj {
 
     pub fn from_object(col: &IsarCollection, item: IsarObject) -> Self {
         TestObj {
+            bool: item.read_bool(TestObj::get_prop(col, DataType::Bool).offset),
             byte: item.read_byte(TestObj::get_prop(col, DataType::Byte).offset),
             int: item.read_int(TestObj::get_prop(col, DataType::Int).offset),
             id: item.read_long(TestObj::get_prop(col, DataType::Long).offset),
@@ -267,6 +284,7 @@ impl TestObj {
             string: item
                 .read_string(TestObj::get_prop(col, DataType::String).offset)
                 .map(|s| s.to_string()),
+            bool_list: item.read_bool_list(TestObj::get_prop(col, DataType::BoolList).offset),
             byte_list: item
                 .read_byte_list(TestObj::get_prop(col, DataType::ByteList).offset)
                 .map(|l| l.to_vec()),

@@ -307,16 +307,10 @@ impl<'txn> Query {
         collection: &IsarCollection,
         id_name: Option<&str>,
         primitive_null: bool,
-        byte_as_bool: bool,
     ) -> Result<Value> {
         let mut items = vec![];
         self.find_while(txn, |id, object| {
-            let mut json = JsonEncodeDecode::encode(
-                &collection.properties,
-                object,
-                primitive_null,
-                byte_as_bool,
-            );
+            let mut json = JsonEncodeDecode::encode(&collection.properties, object, primitive_null);
             if let Some(id_name) = id_name {
                 json.insert(id_name.to_string(), Value::from(id));
             }

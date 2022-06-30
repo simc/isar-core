@@ -25,6 +25,10 @@ snafu = "0.7.0"
 cfg-if = "1"
 float_next_after = "0.1"
 
+[dev-dependencies.serde_json]
+version = "*"
+features = ["float_roundtrip"]
+
 [profile.release]
 lto = true
 codegen-units = 1

@@ -40,7 +40,10 @@ impl<'a> IndexKeyBuilder<'a> {
                 key.add_hash(hash);
             } else {
                 match property.data_type {
-                    DataType::Byte => key.add_byte(object.read_byte(property.offset)),
+                    DataType::Bool | DataType::Byte => {
+                        assert_eq!(IsarObject::NULL_BOOL, IsarObject::NULL_BYTE);
+                        key.add_byte(object.read_byte(property.offset))
+                    }
                     DataType::Int => key.add_int(object.read_int(property.offset)),
                     DataType::Float => key.add_float(object.read_float(property.offset)),
                     DataType::Long => key.add_long(object.read_long(property.offset)),
@@ -67,7 +70,7 @@ impl<'a> IndexKeyBuilder<'a> {
             return Ok(true);
         }
         match property.data_type {
-            DataType::ByteList => {
+            DataType::BoolList | DataType::ByteList => {
                 for value in object.read_byte_list(property.offset).unwrap() {
                     key.truncate(0);
                     key.add_byte(*value);

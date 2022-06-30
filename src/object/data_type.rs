@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub enum DataType {
-    #[serde(alias = "Bool")]
+    Bool,
     Byte,
     Int,
     Float,
@@ -10,7 +10,7 @@ pub enum DataType {
     Double,
     String,
     Object,
-    #[serde(alias = "BoolList")]
+    BoolList,
     ByteList,
     IntList,
     FloatList,
@@ -24,7 +24,12 @@ impl DataType {
     pub fn is_static(&self) -> bool {
         matches!(
             &self,
-            DataType::Int | DataType::Long | DataType::Float | DataType::Double | DataType::Byte
+            DataType::Bool
+                | DataType::Byte
+                | DataType::Int
+                | DataType::Long
+                | DataType::Float
+                | DataType::Double
         )
     }
 
@@ -34,7 +39,7 @@ impl DataType {
 
     pub fn get_static_size(&self) -> usize {
         match *self {
-            DataType::Byte => 1,
+            DataType::Bool | DataType::Byte => 1,
             DataType::Long | DataType::Double => 8,
             _ => 4,
         }
@@ -46,6 +51,7 @@ impl DataType {
 
     pub fn get_element_type(&self) -> Option<DataType> {
         match self {
+            DataType::BoolList => Some(DataType::Bool),
             DataType::ByteList => Some(DataType::Byte),
             DataType::IntList => Some(DataType::Int),
             DataType::FloatList => Some(DataType::Float),
