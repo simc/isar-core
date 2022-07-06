@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Serialize, Deserialize, Clone, Debug, Eq, Hash)]
 pub struct PropertySchema {
-    pub(crate) name: String,
+    pub(crate) name: Option<String>,
     #[serde(rename = "type")]
     pub(crate) data_type: DataType,
     #[serde(default)]
@@ -12,20 +12,29 @@ pub struct PropertySchema {
 }
 
 impl PropertySchema {
-    pub fn new(name: &str, data_type: DataType, target_col: Option<String>) -> PropertySchema {
+    pub fn new(
+        name: Option<String>,
+        data_type: DataType,
+        target_col: Option<String>,
+    ) -> PropertySchema {
         PropertySchema {
-            name: name.to_string(),
+            name,
             data_type,
             target_col,
         }
     }
 
-    pub(crate) fn as_property(&self, offset: usize) -> Property {
-        Property::new(
-            self.name.clone(),
-            self.data_type,
-            offset,
-            self.target_col.clone(),
-        )
+    pub(crate) fn as_property(&self, offset: usize) -> Option<Property> {
+        if let Some(name) = &self.name {
+            let p = Property::new(
+                name.clone(),
+                self.data_type,
+                offset,
+                self.target_col.clone(),
+            );
+            Some(p)
+        } else {
+            None
+        }
     }
 }

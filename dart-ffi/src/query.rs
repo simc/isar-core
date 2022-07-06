@@ -204,7 +204,7 @@ pub unsafe extern "C" fn isar_q_export_json(
     isar_try_txn!(txn, move |txn| {
         let json = json;
         let json_length = json_length;
-        let exported_json = query.export_json(txn, collection, id_name, true, true)?;
+        let exported_json = query.export_json(txn, collection, id_name, true)?;
         let bytes = serde_json::to_vec(&exported_json).unwrap();
         let mut bytes = bytes.into_boxed_slice();
         json_length.0.write(bytes.len() as u32);

@@ -1,9 +1,34 @@
+use byteorder::{ByteOrder, LittleEndian};
 use itertools::Itertools;
 
 use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
-use crate::object::isar_object::Property;
 use std::slice::from_raw_parts;
+
+use super::isar_object::Property;
+
+/*
+u16 static properties size
+
+--- Static properties ---
+i64 field1
+u24 field2_offset or 0
+f32 field3
+u24 field4_offset or 0
+
+--- Dynamic data ---
+field2_offset:
+u24 field2_length
+... field2_data ...
+
+field4_offset:
+u24 field4_length
+u24 field4_item1_length + 1 or 0
+u24 field4_item2_length + 1 or 0
+... field4_item1 ...
+... field4_item2 ...
+
+*/
 
 pub struct ObjectBuilder<'a> {
     buffer: Vec<u8>,
@@ -14,10 +39,13 @@ pub struct ObjectBuilder<'a> {
 
 impl<'a> ObjectBuilder<'a> {
     pub fn new(properties: &[Property], buffer: Option<Vec<u8>>) -> ObjectBuilder {
-        assert_eq!(properties.first().unwrap().offset, 2);
-        let last_property = properties.last().unwrap();
-        let static_size = last_property.offset + last_property.data_type.get_static_size();
-        let buffer = buffer.unwrap_or_else(|| Vec::with_capacity(static_size * 2));
+        let static_size = properties
+            .iter()
+            .max_by_key(|p| p.offset)
+            .map_or(0, |p| p.offset + p.data_type.get_static_size());
+
+        let mut buffer = buffer.unwrap_or_else(|| Vec::with_capacity(2 + static_size * 2));
+        buffer.clear();
 
         let mut ob = ObjectBuilder {
             buffer,
@@ -29,6 +57,7 @@ impl<'a> ObjectBuilder<'a> {
         ob
     }
 
+    #[inline]
     fn next_property(&mut self, peek: bool) -> &Property {
         let property = self.properties.get(self.property_id).unwrap();
         if !peek {
@@ -38,12 +67,21 @@ impl<'a> ObjectBuilder<'a> {
         property
     }
 
+    #[inline]
     fn write_at(&mut self, offset: usize, bytes: &[u8]) {
         if offset + bytes.len() > self.buffer.len() {
             let required = offset + bytes.len();
             self.buffer.resize(required, 0);
         }
-        self.buffer[offset..(offset + bytes.len())].clone_from_slice(bytes);
+        self.buffer[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    #[inline]
+    fn write_u24(&mut self, offset: usize, value: usize) {
+        if offset + 3 > self.buffer.len() {
+            self.buffer.resize(offset + 3, 0);
+        }
+        LittleEndian::write_u24(&mut self.buffer[offset..], value as u32);
     }
 
     pub fn write_null(&mut self) {
@@ -82,134 +120,147 @@ impl<'a> ObjectBuilder<'a> {
 
     pub fn write_byte(&mut self, value: u8) {
         let property = self.next_property(false);
-        let offset = property.offset;
-
         assert_eq!(property.data_type, DataType::Byte);
+
+        let offset = property.offset;
         self.write_at(offset, &[value]);
     }
 
     pub fn write_bool(&mut self, value: Option<bool>) {
         let property = self.next_property(false);
-        let offset = property.offset;
-
         assert_eq!(property.data_type, DataType::Bool);
+
+        let offset = property.offset;
         let value = Self::bool_to_byte(value);
         self.write_at(offset, &[value]);
     }
 
     pub fn write_int(&mut self, value: i32) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::Int);
+
+        let offset = property.offset;
         self.write_at(offset, &value.to_le_bytes());
     }
 
     pub fn write_float(&mut self, value: f32) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::Float);
+
+        let offset = property.offset;
         self.write_at(offset, &value.to_le_bytes());
     }
 
     pub fn write_long(&mut self, value: i64) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::Long);
+
+        let offset = property.offset;
         self.write_at(offset, &value.to_le_bytes());
     }
 
     pub fn write_double(&mut self, value: f64) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::Double);
+
+        let offset = property.offset;
         self.write_at(offset, &value.to_le_bytes());
     }
 
     pub fn write_string(&mut self, value: Option<&str>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::String);
+
+        let offset = property.offset;
         let bytes = value.map(|s| s.as_ref());
         self.write_list(offset, bytes);
     }
 
     pub fn write_object(&mut self, value: Option<IsarObject>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::Object);
+
+        let offset = property.offset;
         self.write_list(offset, value.as_ref().map(|o| o.as_bytes()));
     }
 
     pub fn write_bool_list(&mut self, value: Option<&[Option<bool>]>) {
         let property = self.next_property(false);
-        let offset = property.offset;
-
         assert_eq!(property.data_type, DataType::BoolList);
         let list = value.map(|list| list.iter().map(|b| Self::bool_to_byte(*b)).collect_vec());
+
+        let offset = property.offset;
         self.write_list(offset, list.as_deref());
     }
 
     pub fn write_byte_list(&mut self, value: Option<&[u8]>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::ByteList);
+
+        let offset = property.offset;
         self.write_list(offset, value);
     }
 
     pub fn write_int_list(&mut self, value: Option<&[i32]>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::IntList);
+
+        let offset = property.offset;
         self.write_list(offset, value);
     }
 
     pub fn write_float_list(&mut self, value: Option<&[f32]>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::FloatList);
+
+        let offset = property.offset;
         self.write_list(offset, value);
     }
 
     pub fn write_long_list(&mut self, value: Option<&[i64]>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::LongList);
+
+        let offset = property.offset;
         self.write_list(offset, value);
     }
 
     pub fn write_double_list(&mut self, value: Option<&[f64]>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::DoubleList);
+
+        let offset = property.offset;
         self.write_list(offset, value);
     }
 
     pub fn write_string_list(&mut self, value: Option<&[Option<&str>]>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::StringList);
+
+        let offset = property.offset;
         self.write_list_list(offset, value, |v| v.as_bytes())
     }
 
     pub fn write_object_list(&mut self, value: Option<&[Option<IsarObject>]>) {
         let property = self.next_property(false);
-        let offset = property.offset;
         assert_eq!(property.data_type, DataType::ObjectList);
+
+        let offset = property.offset;
         self.write_list_list(offset, value, |v| v.as_bytes())
     }
 
     fn write_list<T>(&mut self, offset: usize, list: Option<&[T]>) {
         if let Some(list) = list {
             let bytes = Self::get_list_bytes(list);
-            self.write_at(offset, &(self.dynamic_offset as u32).to_le_bytes());
-            self.write_at(self.dynamic_offset, bytes);
-            self.dynamic_offset += bytes.len();
+            self.write_u24(offset, self.dynamic_offset);
+            self.write_u24(self.dynamic_offset, list.len());
+            self.write_at(self.dynamic_offset + 3, bytes);
+            self.dynamic_offset += bytes.len() + 3;
         } else {
-            self.write_at(offset, &0u32.to_le_bytes());
+            self.write_u24(offset, 0);
         }
     }
 
-    #[inline]
     fn write_list_list<T>(
         &mut self,
         offset: usize,
@@ -217,17 +268,23 @@ impl<'a> ObjectBuilder<'a> {
         to_bytes: impl Fn(&T) -> &[u8],
     ) {
         if let Some(value) = value {
-            self.write_at(offset, &(self.dynamic_offset as u32).to_le_bytes());
+            self.write_u24(offset, self.dynamic_offset);
+            self.write_u24(self.dynamic_offset, value.len());
 
-            let mut offset_list_offset = self.dynamic_offset;
-            self.dynamic_offset += value.len() * 4;
+            let mut offset_list_offset = self.dynamic_offset + 3;
+            self.dynamic_offset += 3 + value.len() * 3;
             for v in value {
-                let bytes = v.as_ref().map(|v| to_bytes(v));
-                self.write_list(offset_list_offset, bytes);
-                offset_list_offset += 4;
+                if let Some(bytes) = v.as_ref().map(|v| to_bytes(v)) {
+                    self.write_u24(offset_list_offset, bytes.len() + 1);
+                    self.write_at(self.dynamic_offset, bytes);
+                    self.dynamic_offset += bytes.len();
+                } else {
+                    self.write_u24(offset_list_offset, 0);
+                }
+                offset_list_offset += 3;
             }
         } else {
-            self.write_at(offset, &0u32.to_le_bytes());
+            self.write_u24(offset, 0);
         }
     }
 
@@ -262,6 +319,14 @@ mod tests {
             let mut $var = ObjectBuilder::new(&props, None);
             $var.write_byte(255);
         };
+    }
+
+    fn offset_size(value: usize) -> [u8; 3] {
+        let mut bytes = [0; 3];
+        bytes[2] = (value >> 16) as u8;
+        bytes[1] = (value >> 8) as u8;
+        bytes[0] = value as u8;
+        bytes
     }
 
     #[test]
@@ -306,7 +371,7 @@ mod tests {
         for list_type in list_types {
             builder!(b, list_type);
             b.write_null();
-            let bytes = vec![7, 0, 255, 0, 0, 0, 0];
+            let bytes = vec![6, 0, 255, 0, 0, 0];
             assert_eq!(b.finish().as_bytes(), &bytes);
         }
     }
@@ -433,9 +498,23 @@ mod tests {
     pub fn test_write_string() {
         builder!(b, String);
         b.write_string(Some("hello"));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(5));
         bytes.extend_from_slice(b"hello");
+        assert_eq!(b.finish().as_bytes(), &bytes);
+
+        builder!(b, String);
+        b.write_string(Some(""));
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(0));
+        assert_eq!(b.finish().as_bytes(), &bytes);
+
+        builder!(b, String);
+        b.write_string(None);
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
 
@@ -451,8 +530,9 @@ mod tests {
         builder!(b, Object);
         let object = IsarObject::from_bytes(&[3, 0, 111]);
         b.write_object(Some(object));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(3));
         bytes.extend_from_slice(&[3, 0, 111]);
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
@@ -498,15 +578,17 @@ mod tests {
     pub fn test_write_byte_list() {
         builder!(b, ByteList);
         b.write_byte_list(Some(&[1, 2, 3]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(3));
         bytes.extend_from_slice(&[1, 2, 3]);
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, ByteList);
         b.write_byte_list(Some(&[]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
 
@@ -521,16 +603,18 @@ mod tests {
     pub fn test_write_int_list() {
         builder!(b, IntList);
         b.write_int_list(Some(&[1, -10]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(2));
         bytes.extend_from_slice(&1i32.to_le_bytes());
         bytes.extend_from_slice(&(-10i32).to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, IntList);
         b.write_int_list(Some(&[]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
 
@@ -545,16 +629,18 @@ mod tests {
     pub fn test_write_float_list() {
         builder!(b, FloatList);
         b.write_float_list(Some(&[1.1, -10.10]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(2));
         bytes.extend_from_slice(&1.1f32.to_le_bytes());
         bytes.extend_from_slice(&(-10.10f32).to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, FloatList);
         b.write_float_list(Some(&[]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
 
@@ -569,16 +655,18 @@ mod tests {
     pub fn test_write_long_list() {
         builder!(b, LongList);
         b.write_long_list(Some(&[1, -10]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(2));
         bytes.extend_from_slice(&1i64.to_le_bytes());
         bytes.extend_from_slice(&(-10i64).to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, LongList);
         b.write_long_list(Some(&[]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
 
@@ -593,16 +681,18 @@ mod tests {
     pub fn test_write_double_list() {
         builder!(b, DoubleList);
         b.write_double_list(Some(&[1.1, -10.10]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(2));
         bytes.extend_from_slice(&1.1f64.to_le_bytes());
         bytes.extend_from_slice(&(-10.10f64).to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, DoubleList);
         b.write_double_list(Some(&[]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
 
@@ -617,33 +707,37 @@ mod tests {
     pub fn test_write_string_list() {
         builder!(b, StringList);
         b.write_string_list(Some(&[Some("abc"), None, Some(""), Some("de")]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
-        bytes.extend_from_slice(&23u32.to_le_bytes());
-        bytes.extend_from_slice(&0u32.to_le_bytes());
-        bytes.extend_from_slice(&26u32.to_le_bytes());
-        bytes.extend_from_slice(&26u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(4));
+        bytes.extend_from_slice(&offset_size(4));
+        bytes.extend_from_slice(&offset_size(0));
+        bytes.extend_from_slice(&offset_size(1));
+        bytes.extend_from_slice(&offset_size(3));
         bytes.extend_from_slice(b"abcde");
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, StringList);
         b.write_string_list(Some(&[None]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
-        bytes.extend_from_slice(&0u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(1));
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, StringList);
         b.write_string_list(Some(&[Some("")]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
-        bytes.extend_from_slice(&11u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(1));
+        bytes.extend_from_slice(&offset_size(1));
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, StringList);
         b.write_string_list(Some(&[]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
 
@@ -660,18 +754,20 @@ mod tests {
         let object1 = IsarObject::from_bytes(&[2, 0]);
         let object2 = IsarObject::from_bytes(&[3, 0, 123]);
         b.write_object_list(Some(&[Some(object1), None, Some(object2)]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
-        bytes.extend_from_slice(&19u32.to_le_bytes());
-        bytes.extend_from_slice(&0u32.to_le_bytes());
-        bytes.extend_from_slice(&21u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(3));
+        bytes.extend_from_slice(&offset_size(3));
+        bytes.extend_from_slice(&offset_size(0));
+        bytes.extend_from_slice(&offset_size(4));
         bytes.extend_from_slice(&[2, 0, 3, 0, 123]);
         assert_eq!(b.finish().as_bytes(), &bytes);
 
         builder!(b, ObjectList);
         b.write_object_list(Some(&[]));
-        let mut bytes = vec![7, 0, 255];
-        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let mut bytes = vec![6, 0, 255];
+        bytes.extend_from_slice(&offset_size(6));
+        bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
     }
 

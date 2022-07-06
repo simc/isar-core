@@ -68,11 +68,6 @@ impl<'a> IsarObject<'a> {
         self.static_size > offset
     }
 
-    #[inline]
-    pub fn contains_property(&self, offset: usize) -> bool {
-        self.contains_offset(offset)
-    }
-
     pub fn is_null(&self, offset: usize, data_type: DataType) -> bool {
         match data_type {
             DataType::Byte => false,
@@ -81,7 +76,7 @@ impl<'a> IsarObject<'a> {
             DataType::Long => self.read_long(offset) == Self::NULL_LONG,
             DataType::Float => self.read_float(offset).is_nan(),
             DataType::Double => self.read_double(offset).is_nan(),
-            _ => self.get_offset_size(offset).is_none(),
+            _ => self.get_offset_length(offset).is_none(),
         }
     }
 
@@ -95,7 +90,7 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn read_byte(&self, offset: usize) -> u8 {
-        if self.contains_property(offset) {
+        if self.contains_offset(offset) {
             self.bytes[offset]
         } else {
             Self::NULL_BYTE
@@ -103,7 +98,7 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn read_bool(&self, offset: usize) -> Option<bool> {
-        let value = if self.contains_property(offset) {
+        let value = if self.contains_offset(offset) {
             self.bytes[offset]
         } else {
             Self::NULL_BOOL
@@ -111,13 +106,8 @@ impl<'a> IsarObject<'a> {
         Self::byte_to_bool(value)
     }
 
-    #[inline]
-    fn read_offset(&self, offset: usize) -> usize {
-        LittleEndian::read_u32(&self.bytes[offset..]) as usize
-    }
-
     pub fn read_int(&self, offset: usize) -> i32 {
-        if self.contains_property(offset) {
+        if self.contains_offset(offset) {
             LittleEndian::read_i32(&self.bytes[offset..])
         } else {
             Self::NULL_INT
@@ -125,7 +115,7 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn read_float(&self, offset: usize) -> f32 {
-        if self.contains_property(offset) {
+        if self.contains_offset(offset) {
             LittleEndian::read_f32(&self.bytes[offset..])
         } else {
             Self::NULL_FLOAT
@@ -133,7 +123,7 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn read_long(&self, offset: usize) -> i64 {
-        if self.contains_property(offset) {
+        if self.contains_offset(offset) {
             LittleEndian::read_i64(&self.bytes[offset..])
         } else {
             Self::NULL_LONG
@@ -141,29 +131,31 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn read_double(&self, offset: usize) -> f64 {
-        if self.contains_property(offset) {
+        if self.contains_offset(offset) {
             LittleEndian::read_f64(&self.bytes[offset..])
         } else {
             Self::NULL_DOUBLE
         }
     }
 
-    fn get_offset_size(&self, offset: usize) -> Option<(usize, usize)> {
+    fn read_u24(&self, offset: usize) -> usize {
+        LittleEndian::read_u24(&self.bytes[offset..]) as usize
+    }
+
+    fn get_offset_length(&self, offset: usize) -> Option<(usize, usize)> {
         if self.contains_offset(offset) {
-            let start_offset = self.read_offset(offset);
-            if start_offset != 0 {
-                let mut i = 1;
-                while self.contains_offset(offset + i * 4) {
-                    let end_offset = self.read_offset(offset + i * 4);
-                    if end_offset != 0 {
-                        return Some((start_offset, end_offset - start_offset));
-                    }
-                    i += 1;
-                }
-                return Some((start_offset, self.bytes.len() - start_offset));
+            let length_offset = self.read_u24(offset);
+            if length_offset != 0 {
+                let length = self.read_u24(length_offset);
+                return Some((length_offset + 3, length));
             }
         }
         None
+    }
+
+    pub fn read_byte_list(&self, offset: usize) -> Option<&'a [u8]> {
+        let (offset, length) = self.get_offset_length(offset)?;
+        Some(&self.bytes[offset..offset + length])
     }
 
     pub fn read_string(&'a self, offset: usize) -> Option<&'a str> {
@@ -177,27 +169,21 @@ impl<'a> IsarObject<'a> {
         Some(IsarObject::from_bytes(bytes))
     }
 
-    pub fn read_byte_list(&self, offset: usize) -> Option<&'a [u8]> {
-        let (offset, size) = self.get_offset_size(offset)?;
-        Some(&self.bytes[offset..offset + size])
-    }
-
     pub fn read_bool_list(&self, offset: usize) -> Option<Vec<Option<bool>>> {
-        let (offset, size) = self.get_offset_size(offset)?;
-        let list = (offset..offset + size)
-            .into_iter()
-            .map(|offset| Self::byte_to_bool(self.bytes[offset]))
-            .collect();
+        let (offset, length) = self.get_offset_length(offset)?;
+        let mut list = vec![None; length];
+        for i in 0..length {
+            list[i] = Self::byte_to_bool(self.bytes[offset + i]);
+        }
         Some(list)
     }
 
     pub fn read_int_list(&self, offset: usize) -> Option<Vec<i32>> {
-        let (offset, size) = self.get_offset_size(offset)?;
-        let list = (offset..offset + size)
-            .step_by(4)
-            .into_iter()
-            .map(|offset| LittleEndian::read_i32(&self.bytes[offset..]))
-            .collect();
+        let (offset, length) = self.get_offset_length(offset)?;
+        let mut list = vec![0; length];
+        for i in 0..length {
+            list[i] = LittleEndian::read_i32(&self.bytes[offset + i * 4..]);
+        }
         Some(list)
     }
 
@@ -216,12 +202,11 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn read_float_list(&self, offset: usize) -> Option<Vec<f32>> {
-        let (offset, size) = self.get_offset_size(offset)?;
-        let list = (offset..offset + size)
-            .step_by(4)
-            .into_iter()
-            .map(|offset| LittleEndian::read_f32(&self.bytes[offset..]))
-            .collect();
+        let (offset, length) = self.get_offset_length(offset)?;
+        let mut list = vec![0.0; length];
+        for i in 0..length {
+            list[i] = LittleEndian::read_f32(&self.bytes[offset + i * 4..]);
+        }
         Some(list)
     }
 
@@ -234,12 +219,11 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn read_long_list(&self, offset: usize) -> Option<Vec<i64>> {
-        let (offset, size) = self.get_offset_size(offset)?;
-        let list = (offset..offset + size)
-            .step_by(8)
-            .into_iter()
-            .map(|offset| LittleEndian::read_i64(&self.bytes[offset..]))
-            .collect();
+        let (offset, length) = self.get_offset_length(offset)?;
+        let mut list = vec![0; length];
+        for i in 0..length {
+            list[i] = LittleEndian::read_i64(&self.bytes[offset + i * 8..]);
+        }
         Some(list)
     }
 
@@ -258,12 +242,11 @@ impl<'a> IsarObject<'a> {
     }
 
     pub fn read_double_list(&self, offset: usize) -> Option<Vec<f64>> {
-        let (offset, size) = self.get_offset_size(offset)?;
-        let list = (offset..offset + size)
-            .step_by(8)
-            .into_iter()
-            .map(|offset| LittleEndian::read_f64(&self.bytes[offset..]))
-            .collect();
+        let (offset, length) = self.get_offset_length(offset)?;
+        let mut list = vec![0.0; length];
+        for i in 0..length {
+            list[i] = LittleEndian::read_f64(&self.bytes[offset + i * 8..]);
+        }
         Some(list)
     }
 
@@ -283,90 +266,48 @@ impl<'a> IsarObject<'a> {
         self.read_dynamic_list(offset, |bytes| IsarObject::from_bytes(bytes))
     }
 
-    fn get_first_content_offset(&self, mut offset: usize, size: usize) -> (usize, usize) {
-        let mut none_count = 0;
-        while offset + 4 <= size {
-            let content_offset = self.read_offset(offset);
-            if content_offset != 0 {
-                return (content_offset, none_count);
-            }
-            offset += 4;
-            none_count += 1;
-        }
-        (0, none_count)
-    }
-
     fn read_dynamic_list<T: Clone>(
         &self,
         offset: usize,
         transform: impl Fn(&'a [u8]) -> T,
     ) -> Option<Vec<Option<T>>> {
-        let (offset, size) = self.get_offset_size(offset)?;
-        if size == 0 {
-            return Some(vec![]);
-        }
+        let (offset, length) = self.get_offset_length(offset)?;
 
-        let (mut start_offset, none_count) = self.get_first_content_offset(offset, offset + size);
-        if start_offset == 0 {
-            return Some(vec![None; none_count]);
-        }
-
-        let length = (start_offset - offset) / 4;
         let mut list = vec![None; length];
-
-        let mut unsaved_index = -1;
-        for i in none_count..length {
-            let end_offset = if i == length - 1 {
-                offset + size
-            } else {
-                self.read_offset(offset + (i + 1) * 4)
-            };
-
-            if end_offset == 0 {
-                list[i] = None;
-                if unsaved_index == -1 {
-                    unsaved_index = i as i32;
-                }
-            } else {
-                let bytes = &self.bytes[start_offset..end_offset];
+        let mut content_offset = offset + length * 3;
+        for i in 0..length {
+            let item_size = self.read_u24(offset + i * 3);
+            if item_size != 0 {
+                let item_size = item_size - 1;
+                let bytes = &self.bytes[content_offset..content_offset + item_size];
                 let value = transform(bytes);
-                if unsaved_index >= 0 {
-                    list[unsaved_index as usize] = Some(value);
-                    unsaved_index = -1;
-                } else {
-                    list[i] = Some(value);
-                }
-            }
-
-            if end_offset != 0 {
-                start_offset = end_offset;
+                list[i] = Some(value);
+                content_offset += item_size;
             }
         }
 
         Some(list)
     }
 
-    pub fn hash_property(&self, property: &Property, case_sensitive: bool, seed: u64) -> u64 {
-        match property.data_type {
-            DataType::Byte => xxh3_64_with_seed(&[self.read_byte(property.offset)], seed),
-            DataType::Int => xxh3_64_with_seed(&self.read_int(property.offset).to_le_bytes(), seed),
-            DataType::Float => {
-                xxh3_64_with_seed(&self.read_float(property.offset).to_le_bytes(), seed)
-            }
-            DataType::Long => {
-                xxh3_64_with_seed(&self.read_long(property.offset).to_le_bytes(), seed)
-            }
-            DataType::Double => {
-                xxh3_64_with_seed(&self.read_double(property.offset).to_le_bytes(), seed)
-            }
-            DataType::String => {
-                Self::hash_string(self.read_string(property.offset), case_sensitive, seed)
-            }
+    pub fn hash_property(
+        &self,
+        offset: usize,
+        data_type: DataType,
+        case_sensitive: bool,
+        seed: u64,
+    ) -> u64 {
+        match data_type {
+            DataType::Byte => xxh3_64_with_seed(&[self.read_byte(offset)], seed),
+            DataType::Int => xxh3_64_with_seed(&self.read_int(offset).to_le_bytes(), seed),
+            DataType::Float => xxh3_64_with_seed(&self.read_float(offset).to_le_bytes(), seed),
+            DataType::Long => xxh3_64_with_seed(&self.read_long(offset).to_le_bytes(), seed),
+            DataType::Double => xxh3_64_with_seed(&self.read_double(offset).to_le_bytes(), seed),
+            DataType::String => Self::hash_string(self.read_string(offset), case_sensitive, seed),
             _ => {
-                if let Some((offset, size)) = self.get_offset_size(property.offset) {
-                    match property.data_type {
+                if let Some((offset, size)) = self.get_offset_length(offset) {
+                    match data_type {
                         DataType::StringList => Self::hash_string_list(
-                            self.read_string_list(property.offset),
+                            self.read_string_list(offset),
                             case_sensitive,
                             seed,
                         ),
@@ -416,7 +357,12 @@ impl<'a> IsarObject<'a> {
         }
     }
 
-    pub fn compare_property(&self, other: &IsarObject, property: &Property) -> Ordering {
+    pub fn compare_property(
+        &self,
+        other: &IsarObject,
+        offset: usize,
+        data_type: DataType,
+    ) -> Ordering {
         fn compare_float<T: Float>(f1: T, f2: T) -> Ordering {
             if !f1.is_nan() {
                 if !f2.is_nan() {
@@ -434,29 +380,23 @@ impl<'a> IsarObject<'a> {
                 Ordering::Equal
             }
         }
-        match property.data_type {
-            DataType::Byte => self
-                .read_byte(property.offset)
-                .cmp(&other.read_byte(property.offset)),
-            DataType::Int => self
-                .read_int(property.offset)
-                .cmp(&other.read_int(property.offset)),
+        match data_type {
+            DataType::Byte => self.read_byte(offset).cmp(&other.read_byte(offset)),
+            DataType::Int => self.read_int(offset).cmp(&other.read_int(offset)),
             DataType::Float => {
-                let f1 = self.read_float(property.offset);
-                let f2 = other.read_float(property.offset);
+                let f1 = self.read_float(offset);
+                let f2 = other.read_float(offset);
                 compare_float(f1, f2)
             }
-            DataType::Long => self
-                .read_long(property.offset)
-                .cmp(&other.read_long(property.offset)),
+            DataType::Long => self.read_long(offset).cmp(&other.read_long(offset)),
             DataType::Double => {
-                let f1 = self.read_double(property.offset);
-                let f2 = other.read_double(property.offset);
+                let f1 = self.read_double(offset);
+                let f2 = other.read_double(offset);
                 compare_float(f1, f2)
             }
             DataType::String => {
-                let s1 = self.read_string(property.offset);
-                let s2 = other.read_string(property.offset);
+                let s1 = self.read_string(offset);
+                let s2 = other.read_string(offset);
                 if let Some(s1) = s1 {
                     if let Some(s2) = s2 {
                         s1.cmp(s2)

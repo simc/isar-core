@@ -11,9 +11,6 @@ use serde::{Deserialize, Serialize};
 pub struct CollectionSchema {
     pub(crate) name: String,
     pub(crate) properties: Vec<PropertySchema>,
-    #[serde(default)]
-    #[serde(skip_serializing)]
-    pub(crate) hidden_properties: Vec<String>,
     pub(crate) indexes: Vec<IndexSchema>,
     pub(crate) links: Vec<LinkSchema>,
 }
@@ -34,7 +31,6 @@ impl CollectionSchema {
         CollectionSchema {
             name: name.to_string(),
             properties,
-            hidden_properties: vec![],
             indexes,
             links,
         }
@@ -61,7 +57,9 @@ impl CollectionSchema {
         };
 
         for property in &self.properties {
-            Self::verify_name(&property.name)?;
+            if let Some(name) = &property.name {
+                Self::verify_name(name)?;
+            }
 
             if property.data_type == DataType::Object || property.data_type == DataType::ObjectList
             {
@@ -82,7 +80,10 @@ impl CollectionSchema {
             verify_target_col_exists(&link.target_col)?;
         }
 
-        let property_names = self.properties.iter().unique_by(|p| p.name.as_str());
+        let property_names = self
+            .properties
+            .iter()
+            .unique_by(|p| p.name.as_ref().unwrap());
         if property_names.count() != self.properties.len() {
             schema_error("Duplicate property name")?;
         }
@@ -112,7 +113,7 @@ impl CollectionSchema {
                 let property = self
                     .properties
                     .iter()
-                    .find(|p| p.name == index_property.name);
+                    .find(|p| p.name.as_ref() == Some(&index_property.name));
                 if property.is_none() {
                     schema_error("IsarIndex property does not exist")?;
                 }
@@ -183,7 +184,7 @@ impl CollectionSchema {
                     return Err(IsarError::SchemaError {
                         message: format!(
                             "Property \"{}\" already exists but has a different type",
-                            property.name
+                            property.name.as_ref().unwrap()
                         ),
                     });
                 }
@@ -192,7 +193,7 @@ impl CollectionSchema {
                     return Err(IsarError::SchemaError {
                         message: format!(
                             "Property \"{}\" already exists but has a different target collection",
-                            property.name
+                            property.name.as_ref().unwrap()
                         ),
                     });
                 }
@@ -200,9 +201,9 @@ impl CollectionSchema {
                 properties.push(property.clone());
             }
         }
-        for property in &existing.properties {
+        for property in &mut properties {
             if !self.properties.contains(property) {
-                self.hidden_properties.push(property.name.clone())
+                property.name = None;
             }
         }
         self.properties = properties;
@@ -210,12 +211,12 @@ impl CollectionSchema {
         Ok(())
     }
 
-    pub(crate) fn get_properties(&self) -> Vec<Property> {
+    pub fn get_properties(&self) -> Vec<Property> {
         let mut properties = vec![];
         let mut offset = 2;
-        for property_schema in &self.properties {
-            if !self.hidden_properties.contains(&property_schema.name) {
-                let property = property_schema.as_property(offset);
+        for property_schema in self.properties.iter() {
+            let property = property_schema.as_property(offset);
+            if let Some(property) = property {
                 properties.push(property);
             }
             offset += property_schema.data_type.get_static_size();

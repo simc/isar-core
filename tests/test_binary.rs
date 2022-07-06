@@ -3,6 +3,8 @@ use std::{collections::HashMap, fs};
 use isar_core::object::isar_object::Property;
 use isar_core::object::json_encode_decode::JsonEncodeDecode;
 use isar_core::object::{data_type::DataType, isar_object::IsarObject};
+use isar_core::schema::collection_schema::CollectionSchema;
+use isar_core::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json, Value};
@@ -28,16 +30,13 @@ impl BinaryTest {
     }
 
     fn create_properties(types: &[DataType]) -> Vec<Property> {
-        let mut offset = 2;
-        types
+        let prop_schemas = types
             .iter()
             .enumerate()
-            .map(|(i, t)| {
-                let p = Property::new(format!("{}", i), *t, offset, None);
-                offset += t.get_static_size();
-                p
-            })
-            .collect()
+            .map(|(i, t)| PropertySchema::new(Some(format!("{}", i)), *t, None))
+            .collect();
+        let schema = CollectionSchema::new("col", prop_schemas, vec![], vec![]);
+        schema.get_properties()
     }
 
     fn create_temp_json(properties: &[Property], values: &[Value]) -> Value {
@@ -247,6 +246,27 @@ fn generate_binary_golden() -> Vec<BinaryTest> {
             for case3 in &string_list_blocks {
                 combinations.push(vec![case1.clone(), case2.clone(), case3.clone()]);
             }
+        }
+    }
+
+    for case1 in &static_blocks {
+        for case2 in &dynamic_blocks {
+            combinations.push(vec![case1.clone(), case2.clone()]);
+            combinations.push(vec![case2.clone(), case1.clone()]);
+        }
+    }
+
+    for case1 in &static_blocks {
+        for case2 in &string_list_blocks {
+            combinations.push(vec![case1.clone(), case2.clone()]);
+            combinations.push(vec![case2.clone(), case1.clone()]);
+        }
+    }
+
+    for case1 in &dynamic_blocks {
+        for case2 in &string_list_blocks {
+            combinations.push(vec![case1.clone(), case2.clone()]);
+            combinations.push(vec![case2.clone(), case1.clone()]);
         }
     }
 

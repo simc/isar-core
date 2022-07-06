@@ -36,7 +36,12 @@ impl<'a> IndexKeyBuilder<'a> {
             let property = &index_property.property;
 
             if index_property.index_type == IndexType::Hash {
-                let hash = object.hash_property(property, index_property.case_sensitive, 0);
+                let hash = object.hash_property(
+                    property.offset,
+                    property.data_type,
+                    index_property.case_sensitive,
+                    0,
+                );
                 key.add_hash(hash);
             } else {
                 match property.data_type {

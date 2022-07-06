@@ -72,8 +72,11 @@ impl TestObj {
         )
     }
 
-    pub fn get_prop(col: &IsarCollection, prop: DataType) -> &Property {
-        col.properties.iter().find(|p| p.data_type == prop).unwrap()
+    pub fn get_prop(col: &IsarCollection, data_type: DataType) -> &Property {
+        col.properties
+            .iter()
+            .find(|p| p.data_type == data_type)
+            .unwrap()
     }
 
     pub fn bool_index() -> IndexPropertySchema {
@@ -171,20 +174,20 @@ impl TestObj {
 
     pub fn schema(name: &str, indexes: &[IndexSchema], links: &[LinkSchema]) -> CollectionSchema {
         let properties = vec![
-            PropertySchema::new("bool", DataType::Bool, None),
-            PropertySchema::new("byte", DataType::Byte, None),
-            PropertySchema::new("int", DataType::Int, None),
-            PropertySchema::new("long", DataType::Long, None),
-            PropertySchema::new("float", DataType::Float, None),
-            PropertySchema::new("double", DataType::Double, None),
-            PropertySchema::new("string", DataType::String, None),
-            PropertySchema::new("boolList", DataType::BoolList, None),
-            PropertySchema::new("byteList", DataType::ByteList, None),
-            PropertySchema::new("intList", DataType::IntList, None),
-            PropertySchema::new("longList", DataType::LongList, None),
-            PropertySchema::new("floatList", DataType::FloatList, None),
-            PropertySchema::new("doubleList", DataType::DoubleList, None),
-            PropertySchema::new("stringList", DataType::StringList, None),
+            PropertySchema::new(Some("bool".to_string()), DataType::Bool, None),
+            PropertySchema::new(Some("byte".to_string()), DataType::Byte, None),
+            PropertySchema::new(Some("int".to_string()), DataType::Int, None),
+            PropertySchema::new(Some("long".to_string()), DataType::Long, None),
+            PropertySchema::new(Some("float".to_string()), DataType::Float, None),
+            PropertySchema::new(Some("double".to_string()), DataType::Double, None),
+            PropertySchema::new(Some("string".to_string()), DataType::String, None),
+            PropertySchema::new(Some("boolList".to_string()), DataType::BoolList, None),
+            PropertySchema::new(Some("byteList".to_string()), DataType::ByteList, None),
+            PropertySchema::new(Some("intList".to_string()), DataType::IntList, None),
+            PropertySchema::new(Some("longList".to_string()), DataType::LongList, None),
+            PropertySchema::new(Some("floatList".to_string()), DataType::FloatList, None),
+            PropertySchema::new(Some("doubleList".to_string()), DataType::DoubleList, None),
+            PropertySchema::new(Some("stringList".to_string()), DataType::StringList, None),
         ];
         CollectionSchema::new(name, properties, indexes.to_vec(), links.to_vec())
     }
@@ -269,6 +272,7 @@ impl TestObj {
 
     pub fn save(&self, txn: &mut IsarTxn, col: &IsarCollection) {
         let bytes = self.to_bytes(col);
+        eprintln!("bytes {:?}", bytes);
         col.put(txn, Some(self.id), IsarObject::from_bytes(&bytes))
             .unwrap();
     }

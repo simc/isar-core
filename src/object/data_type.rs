@@ -40,8 +40,9 @@ impl DataType {
     pub fn get_static_size(&self) -> usize {
         match *self {
             DataType::Bool | DataType::Byte => 1,
+            DataType::Int | DataType::Float => 4,
             DataType::Long | DataType::Double => 8,
-            _ => 4,
+            _ => 3,
         }
     }
 

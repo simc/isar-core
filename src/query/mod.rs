@@ -134,8 +134,8 @@ impl<'txn> Query {
 
     fn hash_properties(object: IsarObject, properties: &[(Property, bool)]) -> u64 {
         let mut hash = 0;
-        for (property, case_sensitive) in properties {
-            hash = object.hash_property(property, *case_sensitive, hash);
+        for (p, case_sensitive) in properties {
+            hash = object.hash_property(p.offset, p.data_type, *case_sensitive, hash);
         }
         hash
     }
@@ -191,7 +191,7 @@ impl<'txn> Query {
 
         results.sort_unstable_by(|(_, o1), (_, o2)| {
             for (p, sort) in &self.sort {
-                let ord = o1.compare_property(o2, p);
+                let ord = o1.compare_property(o2, p.offset, p.data_type);
                 if ord != Ordering::Equal {
                     return if *sort == Sort::Ascending {
                         ord
