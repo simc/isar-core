@@ -72,7 +72,7 @@ impl IndexKey {
                 self.bytes.extend_from_slice(index_bytes);
                 let hash = xxh3_64(bytes);
                 self.bytes.extend_from_slice(&u64::to_le_bytes(hash));
-            } else if bytes.len() == 1 {
+            } else if bytes.is_empty() {
                 self.bytes.push(1);
             } else {
                 self.bytes.extend_from_slice(bytes);
@@ -289,25 +289,21 @@ mod tests {
         let long_str = (0..850).map(|_| "aB").collect::<String>();
         let long_str_lc = long_str.to_lowercase();
 
-        let mut long_str_bytes = vec![123, 1];
+        let mut long_str_bytes = vec![123];
         long_str_bytes.extend_from_slice(long_str.as_bytes());
-        long_str_bytes.push(0);
 
-        let mut long_str_lc_bytes = vec![123, 1];
+        let mut long_str_lc_bytes = vec![123];
         long_str_lc_bytes.extend_from_slice(long_str_lc.as_bytes());
-        long_str_lc_bytes.push(0);
 
-        let mut hello_bytes = vec![123, 1];
+        let mut hello_bytes = vec![123];
         hello_bytes.extend_from_slice(b"hELLO");
-        hello_bytes.push(0);
 
-        let mut hello_bytes_lc = vec![123, 1];
+        let mut hello_bytes_lc = vec![123];
         hello_bytes_lc.extend_from_slice(b"hello");
-        hello_bytes_lc.push(0);
 
         let pairs: Vec<(Option<&str>, Vec<u8>, Vec<u8>)> = vec![
             (None, vec![123, 0], vec![123, 0]),
-            (Some(""), vec![123, 1, 0], vec![123, 1, 0]),
+            (Some(""), vec![123, 1], vec![123, 1]),
             (
                 Some("hello"),
                 hello_bytes_lc.clone(),

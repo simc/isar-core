@@ -35,14 +35,14 @@ impl Env {
             }
 
             let mut err_code = 0;
-            for i in 1..10 {
+            for i in 0..9 {
                 mdbx_result(ffi::mdbx_env_set_geometry(
                     env,
                     MB,
                     0,
-                    (2000 * MB) / i,
-                    (5 * MB) / i,
-                    (20 * MB) / i,
+                    (2000 - i * 200) * MB,
+                    5 * MB,
+                    20 * MB,
                     -1,
                 ))?;
 
