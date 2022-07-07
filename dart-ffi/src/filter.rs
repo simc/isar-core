@@ -72,7 +72,7 @@ pub unsafe extern "C" fn isar_filter_null(
         if let Some(property) = property {
             let query_filter = if !property.data_type.is_scalar() && any_null {
                 match property.data_type {
-                    DataType::ByteList => {
+                    DataType::BoolList | DataType::ByteList => {
                         Filter::byte(property, IsarObject::NULL_BYTE, IsarObject::NULL_BYTE)?
                     },
                     DataType::IntList => {

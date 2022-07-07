@@ -297,26 +297,25 @@ impl<'a> IsarObject<'a> {
         seed: u64,
     ) -> u64 {
         match data_type {
-            DataType::Byte => xxh3_64_with_seed(&[self.read_byte(offset)], seed),
+            DataType::Bool | DataType::Byte => xxh3_64_with_seed(&[self.read_byte(offset)], seed),
             DataType::Int => xxh3_64_with_seed(&self.read_int(offset).to_le_bytes(), seed),
             DataType::Float => xxh3_64_with_seed(&self.read_float(offset).to_le_bytes(), seed),
             DataType::Long => xxh3_64_with_seed(&self.read_long(offset).to_le_bytes(), seed),
             DataType::Double => xxh3_64_with_seed(&self.read_double(offset).to_le_bytes(), seed),
             DataType::String => Self::hash_string(self.read_string(offset), case_sensitive, seed),
-            _ => {
-                if let Some((offset, size)) = self.get_offset_length(offset) {
-                    match data_type {
-                        DataType::StringList => Self::hash_string_list(
-                            self.read_string_list(offset),
-                            case_sensitive,
-                            seed,
-                        ),
-                        _ => xxh3_64_with_seed(&self.bytes[offset..offset + size], seed),
-                    }
-                } else {
-                    seed
+            _ => match data_type {
+                DataType::StringList => {
+                    Self::hash_string_list(self.read_string_list(offset), case_sensitive, seed)
                 }
-            }
+                _ => {
+                    if let Some((offset, length)) = self.get_offset_length(offset) {
+                        let element_size = data_type.get_element_type().unwrap().get_static_size();
+                        xxh3_64_with_seed(&self.bytes[offset..offset + length * element_size], seed)
+                    } else {
+                        seed
+                    }
+                }
+            },
         }
     }
 
@@ -381,7 +380,7 @@ impl<'a> IsarObject<'a> {
             }
         }
         match data_type {
-            DataType::Byte => self.read_byte(offset).cmp(&other.read_byte(offset)),
+            DataType::Bool | DataType::Byte => self.read_byte(offset).cmp(&other.read_byte(offset)),
             DataType::Int => self.read_int(offset).cmp(&other.read_int(offset)),
             DataType::Float => {
                 let f1 = self.read_float(offset);

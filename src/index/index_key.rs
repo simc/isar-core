@@ -5,7 +5,7 @@ use std::cmp;
 use std::cmp::Ordering;
 use xxhash_rust::xxh3::xxh3_64;
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct IndexKey {
     bytes: Vec<u8>,
 }
@@ -67,16 +67,15 @@ impl IndexKey {
                 value.to_lowercase()
             };
             let bytes = value.as_bytes();
-            self.bytes.push(1);
             if bytes.len() >= IsarIndex::MAX_STRING_INDEX_SIZE {
-                self.bytes
-                    .extend_from_slice(&bytes[0..IsarIndex::MAX_STRING_INDEX_SIZE]);
-                self.bytes.push(0);
+                let index_bytes = &bytes[0..IsarIndex::MAX_STRING_INDEX_SIZE];
+                self.bytes.extend_from_slice(index_bytes);
                 let hash = xxh3_64(bytes);
                 self.bytes.extend_from_slice(&u64::to_le_bytes(hash));
+            } else if bytes.len() == 1 {
+                self.bytes.push(1);
             } else {
                 self.bytes.extend_from_slice(bytes);
-                self.bytes.push(0);
             }
         } else {
             self.bytes.push(0);

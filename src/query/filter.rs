@@ -14,7 +14,7 @@ use paste::paste;
 macro_rules! primitive_create {
     ($data_type:ident, $property:expr, $lower:expr, $upper:expr) => {
         paste! {
-            if $property.data_type == DataType::$data_type {
+            if $property.data_type == DataType::$data_type || ($property.data_type == DataType::Bool && DataType::$data_type == DataType::Byte) {
                 Ok(Filter(
                     FilterCond::[<$data_type Between>]([<$data_type BetweenCond>] {
                         offset: $property.offset,
@@ -22,7 +22,7 @@ macro_rules! primitive_create {
                         $upper,
                     })
                 ))
-            } else if $property.data_type == DataType::[<$data_type List>] {
+            } else if $property.data_type == DataType::[<$data_type List>] || ($property.data_type == DataType::BoolList && DataType::[<$data_type List>] == DataType::ByteList) {
                 Ok(Filter(
                     FilterCond::[<Any $data_type Between>]([<Any $data_type BetweenCond>] {
                         offset: $property.offset,

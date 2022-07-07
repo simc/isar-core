@@ -1,8 +1,8 @@
 use std::{collections::HashMap, fs};
 
-use isar_core::object::isar_object::Property;
+use isar_core::object::data_type::DataType;
+use isar_core::object::isar_object::{IsarObject, Property};
 use isar_core::object::json_encode_decode::JsonEncodeDecode;
-use isar_core::object::{data_type::DataType, isar_object::IsarObject};
 use isar_core::schema::collection_schema::CollectionSchema;
 use isar_core::schema::property_schema::PropertySchema;
 use itertools::Itertools;

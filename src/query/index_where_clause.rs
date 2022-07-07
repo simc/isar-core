@@ -97,8 +97,8 @@ impl IndexWhereClause {
     }
 
     pub fn is_overlapping(&self, other: &Self) -> bool {
-        self.index == other.index
-            && ((self.lower_key <= other.lower_key && self.upper_key >= other.upper_key)
+        self.index != other.index
+            || ((self.lower_key <= other.lower_key && self.upper_key >= other.upper_key)
                 || (other.lower_key <= self.lower_key && other.upper_key >= self.upper_key))
     }
 
