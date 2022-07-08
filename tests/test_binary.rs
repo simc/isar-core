@@ -64,12 +64,11 @@ fn generate_binary_golden() -> Vec<BinaryTest> {
     let float_blocks = (
         DataType::Float,
         vec![
-            json!(null),
-            json!(f32::NEG_INFINITY),
             json!(f32::MIN),
+            json!(-0f32),
             json!(0f32),
+            json!(core::f32::consts::PI),
             json!(f32::MAX),
-            json!(f32::INFINITY),
         ],
     );
     let long_blocks = (
@@ -84,12 +83,11 @@ fn generate_binary_golden() -> Vec<BinaryTest> {
     let double_blocks = (
         DataType::Double,
         vec![
-            json!(null),
-            json!(f64::NEG_INFINITY),
             json!(f64::MIN),
+            json!(-0f64),
             json!(0f64),
+            json!(core::f64::consts::PI),
             json!(f64::MAX),
-            json!(f64::INFINITY),
         ],
     );
     let string_blocks = (
@@ -135,10 +133,8 @@ fn generate_binary_golden() -> Vec<BinaryTest> {
         vec![
             json!(null),
             json!([]),
-            json!([null]),
-            json!([null, null, null]),
-            json!([std::f32::consts::PI]),
-            json!([null, f32::NEG_INFINITY, f32::MAX, null]),
+            json!([-0f32, 0f32]),
+            json!([f32::MIN, std::f32::consts::PI, f32::MAX]),
         ],
     );
     let long_list_blocks = (
@@ -157,10 +153,8 @@ fn generate_binary_golden() -> Vec<BinaryTest> {
         vec![
             json!(null),
             json!([]),
-            json!([null]),
-            json!([null, null, null]),
-            json!([std::f64::consts::PI]),
-            json!([null, f64::NEG_INFINITY, f64::MAX, null, null]),
+            json!([-0f64, 0f64]),
+            json!([f64::MIN, std::f64::consts::PI, f64::MAX]),
         ],
     );
     let string_list_blocks = (
