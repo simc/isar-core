@@ -121,9 +121,10 @@ impl<'txn> Cursor<'txn> {
 
     pub fn put<K: Key>(&mut self, key: &K, data: &[u8]) -> Result<()> {
         unsafe {
-            let key = to_mdb_val(&key.as_bytes());
+            // make sure that bytes are not dropped before the call to mdbx_cursor_put
+            let bytes = &key.as_bytes();
+            let key = to_mdb_val(bytes);
             let mut data = to_mdb_val(data);
-            #[allow(clippy::useless_conversion)]
             mdbx_result(ffi::mdbx_cursor_put(self.cursor.cursor, &key, &mut data, 0))?;
         }
         Ok(())

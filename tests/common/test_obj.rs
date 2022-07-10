@@ -273,7 +273,6 @@ impl TestObj {
 
     pub fn save(&self, txn: &mut IsarTxn, col: &IsarCollection) {
         let bytes = self.to_bytes(col);
-        eprintln!("bytes {:?}", bytes);
         col.put(txn, Some(self.id), IsarObject::from_bytes(&bytes))
             .unwrap();
     }

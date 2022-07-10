@@ -4,7 +4,7 @@ mod common;
 
 #[test]
 fn test_id_only() {
-    isar!(isar, col =>TestObj::default_schema());
+    isar!(isar, col => TestObj::default_schema());
 
     txn!(isar, txn);
     put!(col, txn, id, obj1 => 1);
