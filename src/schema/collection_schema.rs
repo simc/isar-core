@@ -180,7 +180,10 @@ impl CollectionSchema {
         for property in &self.properties {
             let existing_property = existing.properties.iter().find(|p| p.name == property.name);
             if let Some(existing_property) = existing_property {
-                if property.data_type != existing_property.data_type {
+                // In previus versions, bool properties were stored as byte so we silently ignore the change. TODO: remove in the future
+                let byte_to_bool = property.data_type == DataType::Bool
+                    && existing_property.data_type == DataType::Byte;
+                if property.data_type != existing_property.data_type && !byte_to_bool {
                     return Err(IsarError::SchemaError {
                         message: format!(
                             "Property \"{}\" already exists but has a different type",
