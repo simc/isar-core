@@ -10,7 +10,6 @@ use crate::object::property::Property;
 use crate::schema::index_schema::IndexType;
 use crate::txn::IsarTxn;
 use std::collections::HashSet;
-use std::ops::Deref;
 
 pub mod index_key;
 pub(crate) mod index_key_builder;
@@ -92,9 +91,10 @@ impl IsarIndex {
         key_builder.create_keys(object, |key| {
             if self.unique {
                 let existing = cursor.move_to(key)?;
-                if let Some((_, existing_key)) = existing {
-                    if self.replace {
-                        delete(existing_key.deref().to_id())?;
+                if let Some((_, existing_id_bytes)) = existing {
+                    let existing_id = existing_id_bytes.to_id();
+                    if self.replace && existing_id != id {
+                        delete(existing_id)?;
                     } else {
                         return Err(IsarError::UniqueViolated {});
                     }
@@ -103,6 +103,7 @@ impl IsarIndex {
             cursor.put(key, &id.to_id_bytes())?;
             Ok(true)
         })?;
+
         Ok(())
     }
 

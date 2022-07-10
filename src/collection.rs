@@ -363,7 +363,11 @@ impl IsarCollection {
         let mut cursor = cursors.get_cursor(self.db)?;
         cursor.iter_all(false, true, |cursor, id_bytes, object| {
             let id = id_bytes.to_id();
-            let object = IsarObject::from_bytes(&object);
+
+            // The object might become invalid if another one is deleted by an index. TODO: Find a better solution
+            let bytes = object.to_vec();
+            let object = IsarObject::from_bytes(&bytes);
+
             for index_id in indexes {
                 let index = self.indexes.get(*index_id).unwrap();
                 index.create_for_object(cursors, id, object, |id| {
