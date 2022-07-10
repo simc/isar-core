@@ -12,15 +12,17 @@ use crate::watch::WatchHandle;
 use crossbeam_channel::{unbounded, Sender};
 use intmap::IntMap;
 use once_cell::sync::Lazy;
-use rand::random;
 use std::fs;
 use std::fs::remove_file;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use xxhash_rust::xxh3::xxh3_64;
 
 static INSTANCES: Lazy<RwLock<IntMap<Arc<IsarInstance>>>> =
     Lazy::new(|| RwLock::new(IntMap::new()));
+
+static WATCHER_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct IsarInstance {
     pub name: String,
@@ -172,7 +174,7 @@ impl IsarInstance {
         collection: &IsarCollection,
         callback: WatcherCallback,
     ) -> WatchHandle {
-        let watcher_id = random();
+        let watcher_id = WATCHER_ID.fetch_add(1, Ordering::SeqCst);
         let col_id = collection.get_runtime_id();
         self.new_watcher(
             Box::new(move |iw| {
@@ -191,7 +193,7 @@ impl IsarInstance {
         oid: i64,
         callback: WatcherCallback,
     ) -> WatchHandle {
-        let watcher_id = random();
+        let watcher_id = WATCHER_ID.fetch_add(1, Ordering::SeqCst);
         let col_id = collection.get_runtime_id();
         self.new_watcher(
             Box::new(move |iw| {
@@ -211,7 +213,7 @@ impl IsarInstance {
         query: Query,
         callback: WatcherCallback,
     ) -> WatchHandle {
-        let watcher_id = random();
+        let watcher_id = WATCHER_ID.fetch_add(1, Ordering::SeqCst);
         let col_id = collection.get_runtime_id();
         self.new_watcher(
             Box::new(move |iw| {

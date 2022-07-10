@@ -1,7 +1,6 @@
 use crate::object::data_type::DataType;
 use crate::object::object_builder::ObjectBuilder;
 use byteorder::{ByteOrder, LittleEndian};
-use num_traits::Float;
 use std::{cmp::Ordering, str::from_utf8_unchecked};
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
@@ -323,42 +322,61 @@ impl<'a> IsarObject<'a> {
         }
     }
 
+    fn compare_float(f1: f32, f2: f32) -> Ordering {
+        if !f1.is_nan() {
+            if !f2.is_nan() {
+                if f1 > f2 {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            } else {
+                Ordering::Greater
+            }
+        } else if !f2.is_nan() {
+            Ordering::Less
+        } else {
+            Ordering::Equal
+        }
+    }
+
+    fn compare_double(f1: f64, f2: f64) -> Ordering {
+        if !f1.is_nan() {
+            if !f2.is_nan() {
+                if f1 > f2 {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            } else {
+                Ordering::Greater
+            }
+        } else if !f2.is_nan() {
+            Ordering::Less
+        } else {
+            Ordering::Equal
+        }
+    }
+
     pub fn compare_property(
         &self,
         other: &IsarObject,
         offset: usize,
         data_type: DataType,
     ) -> Ordering {
-        fn compare_float<T: Float>(f1: T, f2: T) -> Ordering {
-            if !f1.is_nan() {
-                if !f2.is_nan() {
-                    if f1 > f2 {
-                        Ordering::Greater
-                    } else {
-                        Ordering::Less
-                    }
-                } else {
-                    Ordering::Greater
-                }
-            } else if !f2.is_nan() {
-                Ordering::Less
-            } else {
-                Ordering::Equal
-            }
-        }
         match data_type {
             DataType::Bool | DataType::Byte => self.read_byte(offset).cmp(&other.read_byte(offset)),
             DataType::Int => self.read_int(offset).cmp(&other.read_int(offset)),
             DataType::Float => {
                 let f1 = self.read_float(offset);
                 let f2 = other.read_float(offset);
-                compare_float(f1, f2)
+                Self::compare_float(f1, f2)
             }
             DataType::Long => self.read_long(offset).cmp(&other.read_long(offset)),
             DataType::Double => {
                 let f1 = self.read_double(offset);
                 let f2 = other.read_double(offset);
-                compare_float(f1, f2)
+                Self::compare_double(f1, f2)
             }
             DataType::String => {
                 let s1 = self.read_string(offset);
