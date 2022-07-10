@@ -1,6 +1,6 @@
 use crate::index::{IndexProperty, IsarIndex};
 use crate::mdbx::db::Db;
-use crate::object::isar_object::Property;
+use crate::object::property::Property;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 

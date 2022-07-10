@@ -75,7 +75,7 @@ impl Env {
                 ptr::null_mut(),
             ))?;
         }
-        Ok(Txn::new(txn))
+        Ok(Txn::new(txn, write))
     }
 }
 

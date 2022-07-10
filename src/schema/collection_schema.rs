@@ -1,6 +1,6 @@
 use crate::error::{schema_error, IsarError, Result};
 use crate::object::data_type::DataType;
-use crate::object::isar_object::Property;
+use crate::object::property::Property;
 use crate::schema::index_schema::{IndexSchema, IndexType};
 use crate::schema::link_schema::LinkSchema;
 use crate::schema::property_schema::PropertySchema;

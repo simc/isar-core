@@ -1,7 +1,7 @@
 use crate::cursor::IsarCursors;
 use crate::error::Result;
-use crate::id_key::IdKey;
 use crate::mdbx::db::Db;
+use crate::object::id::BytesToId;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
 use intmap::IntMap;
@@ -28,8 +28,8 @@ impl IdWhereClause {
         self.upper < self.lower
     }
 
-    pub(crate) fn id_matches(&self, oid: i64) -> bool {
-        self.lower <= oid && self.upper >= oid
+    pub(crate) fn id_matches(&self, id: i64) -> bool {
+        self.lower <= id && self.upper >= id
     }
 
     pub(crate) fn iter<'txn, 'env, F>(
@@ -39,26 +39,24 @@ impl IdWhereClause {
         mut callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
-        let lower_key = IdKey::new(self.lower);
-        let upper_key = IdKey::new(self.upper);
         let mut cursor = cursors.get_cursor(self.db)?;
         cursor.iter_between(
-            &lower_key,
-            &upper_key,
+            &self.lower,
+            &self.upper,
             false,
             false,
             self.sort == Sort::Ascending,
-            |_, id_key, object| {
-                let id_key = IdKey::from_bytes(id_key);
+            |_, id_bytes, object| {
+                let id = id_bytes.to_id();
                 if let Some(result_ids) = result_ids.as_deref_mut() {
-                    if !result_ids.insert(id_key.get_unsigned_id(), ()) {
+                    if !result_ids.insert(id as u64, ()) {
                         return Ok(true);
                     }
                 }
                 let object = IsarObject::from_bytes(object);
-                callback(id_key, object)
+                callback(id, object)
             },
         )
     }

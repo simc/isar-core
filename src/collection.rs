@@ -1,21 +1,23 @@
 use crate::cursor::IsarCursors;
 use crate::error::{illegal_arg, IsarError, Result};
-use crate::id_key::IdKey;
 use crate::index::index_key::IndexKey;
 use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::index::IsarIndex;
 use crate::link::IsarLink;
 use crate::mdbx::db::Db;
-use crate::mdbx::{debug_dump_db, Key};
-use crate::object::isar_object::{IsarObject, Property};
+use crate::mdbx::debug_dump_db;
+use crate::object::id::BytesToId;
+use crate::object::isar_object::IsarObject;
 use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::object::object_builder::ObjectBuilder;
+use crate::object::property::Property;
 use crate::query::query_builder::QueryBuilder;
 use crate::txn::IsarTxn;
 use crate::watch::change_set::ChangeSet;
 use serde_json::Value;
 use std::cell::Cell;
 use std::collections::HashSet;
+use std::ops::Deref;
 
 pub struct IsarCollection {
     pub name: String,
@@ -68,7 +70,7 @@ impl IsarCollection {
     pub(crate) fn init_auto_increment(&self, cursors: &IsarCursors) -> Result<()> {
         let mut cursor = cursors.get_cursor(self.db)?;
         if let Some((key, _)) = cursor.move_to_last()? {
-            let id = IdKey::from_bytes(key).get_id();
+            let id = key.deref().to_id();
             self.update_auto_increment(id);
         }
         Ok(())
@@ -101,10 +103,9 @@ impl IsarCollection {
     pub fn get<'txn>(&self, txn: &'txn mut IsarTxn, id: i64) -> Result<Option<IsarObject<'txn>>> {
         txn.read(self.instance_id, |cursors| {
             let mut cursor = cursors.get_cursor(self.db)?;
-            let id_key = IdKey::new(id);
             let object = cursor
-                .move_to(id_key.as_bytes())?
-                .map(|(_, v)| IsarObject::from_bytes(v));
+                .move_to(&id)?
+                .map(|(_, v)| IsarObject::from_bytes(&v));
             Ok(object)
         })
     }
@@ -121,15 +122,12 @@ impl IsarCollection {
     ) -> Result<Option<(i64, IsarObject<'txn>)>> {
         let index = self.get_index_by_id(index_id)?;
         txn.read(self.instance_id, |cursors| {
-            if let Some(id_key) = index.get_id(cursors, key)? {
+            if let Some(id) = index.get_id(cursors, key)? {
                 let mut cursor = cursors.get_cursor(self.db)?;
-                let (_, bytes) =
-                    cursor
-                        .move_to(id_key.as_bytes())?
-                        .ok_or(IsarError::DbCorrupted {
-                            message: "Invalid index entry".to_string(),
-                        })?;
-                let result = (id_key.get_id(), IsarObject::from_bytes(bytes));
+                let (_, bytes) = cursor.move_to(&id)?.ok_or(IsarError::DbCorrupted {
+                    message: "Invalid index entry".to_string(),
+                })?;
+                let result = (id, IsarObject::from_bytes(&bytes));
                 Ok(Some(result))
             } else {
                 Ok(None)
@@ -156,8 +154,7 @@ impl IsarCollection {
         let key_builder = IndexKeyBuilder::new(&index.properties);
         txn.write(self.instance_id, |cursors, change_set| {
             let key = key_builder.create_primitive_key(object);
-            let id_key = index.get_id(cursors, &key)?;
-            let id = id_key.map(|i| i.get_id());
+            let id = index.get_id(cursors, &key)?;
             let new_id = self.put_internal(cursors, change_set, id, object)?;
             Ok(new_id)
         })
@@ -170,25 +167,23 @@ impl IsarCollection {
         id: Option<i64>,
         object: IsarObject,
     ) -> Result<i64> {
-        let (id, id_key) = if let Some(id) = id {
-            let id_key = IdKey::new(id);
-            self.delete_internal(cursors, false, change_set.as_deref_mut(), &id_key)?;
+        let id = if let Some(id) = id {
+            self.delete_internal(cursors, false, change_set.as_deref_mut(), id)?;
             self.update_auto_increment(id);
-            (id, id_key)
+            id
         } else {
-            let id = self.auto_increment_internal()?;
-            (id, IdKey::new(id))
+            self.auto_increment_internal()?
         };
 
         for index in &self.indexes {
-            index.create_for_object(cursors, &id_key, object, |id_key| {
-                self.delete_internal(cursors, true, change_set.as_deref_mut(), id_key)?;
+            index.create_for_object(cursors, id, object, |id| {
+                self.delete_internal(cursors, true, change_set.as_deref_mut(), id)?;
                 Ok(())
             })?;
         }
 
         let mut cursor = cursors.get_cursor(self.db)?;
-        cursor.put(id_key.as_bytes(), object.as_bytes())?;
+        cursor.put(&id, object.as_bytes())?;
         if let Some(change_set) = change_set {
             change_set.register_change(self.get_runtime_id(), Some(id), Some(object));
         }
@@ -197,8 +192,7 @@ impl IsarCollection {
 
     pub fn delete(&self, txn: &mut IsarTxn, id: i64) -> Result<bool> {
         txn.write(self.instance_id, |cursors, change_set| {
-            let id_key = IdKey::new(id);
-            self.delete_internal(cursors, true, change_set, &id_key)
+            self.delete_internal(cursors, true, change_set, id)
         })
     }
 
@@ -210,8 +204,8 @@ impl IsarCollection {
     ) -> Result<bool> {
         let index = self.get_index_by_id(index_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
-            if let Some(id_key) = index.get_id(cursors, key)? {
-                self.delete_internal(cursors, true, change_set, &id_key)?;
+            if let Some(id) = index.get_id(cursors, key)? {
+                self.delete_internal(cursors, true, change_set, id)?;
                 Ok(true)
             } else {
                 Ok(false)
@@ -224,24 +218,23 @@ impl IsarCollection {
         cursors: &IsarCursors,
         delete_links: bool,
         change_set: Option<&mut ChangeSet>,
-        id_key: &IdKey,
+        id: i64,
     ) -> Result<bool> {
         let mut cursor = cursors.get_cursor(self.db)?;
-        if let Some((_, object)) = cursor.move_to(id_key.as_bytes())? {
-            let object = IsarObject::from_bytes(object);
+        if let Some((_, object)) = cursor.move_to(&id)? {
+            let object = IsarObject::from_bytes(&object);
             for index in &self.indexes {
-                index.delete_for_object(cursors, id_key, object)?;
+                index.delete_for_object(cursors, id, object)?;
             }
             if delete_links {
                 for link in &self.links {
-                    link.delete_all_for_object(cursors, id_key)?;
+                    link.delete_all_for_object(cursors, id)?;
                 }
                 for link in &self.backlinks {
-                    link.delete_all_for_object(cursors, id_key)?;
+                    link.delete_all_for_object(cursors, id)?;
                 }
             }
             if let Some(change_set) = change_set {
-                let id = id_key.get_id();
                 change_set.register_change(self.get_runtime_id(), Some(id), Some(object));
             }
             cursor.delete_current()?;
@@ -266,9 +259,7 @@ impl IsarCollection {
         let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
-            let source_key = IdKey::new(id);
-            let target_key = IdKey::new(target_id);
-            link.create(cursors, &source_key, &target_key)
+            link.create(cursors, id, target_id)
         })
     }
 
@@ -282,9 +273,7 @@ impl IsarCollection {
         let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
-            let source_key = IdKey::new(id);
-            let target_key = IdKey::new(target_id);
-            link.delete(cursors, &source_key, &target_key)
+            link.delete(cursors, id, target_id)
         })
     }
 
@@ -292,8 +281,7 @@ impl IsarCollection {
         let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
-            let id_key = IdKey::new(id);
-            link.delete_all_for_object(cursors, &id_key)
+            link.delete_all_for_object(cursors, id)
         })
     }
 
@@ -373,15 +361,15 @@ impl IsarCollection {
 
     pub(crate) fn fill_indexes(&self, indexes: &[usize], cursors: &IsarCursors) -> Result<()> {
         let mut cursor = cursors.get_cursor(self.db)?;
-        cursor.iter_all(false, true, |cursor, key, object| {
-            let id_key = IdKey::from_bytes(key);
-            let object = IsarObject::from_bytes(object);
+        cursor.iter_all(false, true, |cursor, id_bytes, object| {
+            let id = id_bytes.to_id();
+            let object = IsarObject::from_bytes(&object);
             for index_id in indexes {
                 let index = self.indexes.get(*index_id).unwrap();
-                index.create_for_object(cursors, &id_key, object, |id_key| {
-                    let deleted = self.delete_internal(cursors, true, None, id_key)?;
+                index.create_for_object(cursors, id, object, |id| {
+                    let deleted = self.delete_internal(cursors, true, None, id)?;
                     if deleted {
-                        cursor.move_to_next()?; // todo find out why this is necessary
+                        cursor.move_to_next()?;
                     }
                     Ok(())
                 })?;

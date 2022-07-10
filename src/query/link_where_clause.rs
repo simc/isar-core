@@ -1,6 +1,5 @@
 use crate::cursor::IsarCursors;
 use crate::error::Result;
-use crate::id_key::IdKey;
 use crate::link::IsarLink;
 use crate::object::isar_object::IsarObject;
 use intmap::IntMap;
@@ -23,16 +22,15 @@ impl LinkWhereClause {
         mut callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
-        let id_key = IdKey::new(self.id);
-        self.link.iter(cursors, &id_key, |id_key, object| {
+        self.link.iter(cursors, self.id, |id, object| {
             if let Some(result_ids) = result_ids.as_deref_mut() {
-                if !result_ids.insert(id_key.get_unsigned_id(), ()) {
+                if !result_ids.insert(id as u64, ()) {
                     return Ok(true);
                 }
             }
-            callback(id_key, object)
+            callback(id, object)
         })
     }
 }

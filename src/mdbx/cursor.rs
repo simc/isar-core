@@ -71,27 +71,39 @@ impl<'txn> Cursor<'txn> {
         }
     }
 
-    pub fn move_to(&mut self, key: &[u8]) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDBX_cursor_op::MDBX_SET_KEY, Some(key), None)
+    pub fn move_to<K: Key>(&mut self, key: &K) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(
+            ffi::MDBX_cursor_op::MDBX_SET_KEY,
+            Some(&key.as_bytes()),
+            None,
+        )
     }
 
-    pub fn move_to_key_val(&mut self, key: &[u8], val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDBX_cursor_op::MDBX_GET_BOTH, Some(key), Some(val))
+    pub fn move_to_key_val<K: Key>(&mut self, key: &K, val: &[u8]) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(
+            ffi::MDBX_cursor_op::MDBX_GET_BOTH,
+            Some(&key.as_bytes()),
+            Some(val),
+        )
     }
 
-    pub fn move_to_gte(&mut self, key: &[u8]) -> Result<Option<KeyVal<'txn>>> {
-        self.op_get(ffi::MDBX_cursor_op::MDBX_SET_RANGE, Some(key), None)
+    fn move_to_gte<K: Key>(&mut self, key: &K) -> Result<Option<KeyVal<'txn>>> {
+        self.op_get(
+            ffi::MDBX_cursor_op::MDBX_SET_RANGE,
+            Some(&key.as_bytes()),
+            None,
+        )
     }
 
-    pub fn move_to_next_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
+    fn move_to_next_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_NEXT_DUP, None, None)
     }
 
-    pub fn move_to_last_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
+    fn move_to_last_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_LAST_DUP, None, None)
     }
 
-    pub fn move_to_prev_no_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
+    fn move_to_prev_no_dup(&mut self) -> Result<Option<KeyVal<'txn>>> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_PREV_NODUP, None, None)
     }
 
@@ -107,9 +119,9 @@ impl<'txn> Cursor<'txn> {
         self.op_get(ffi::MDBX_cursor_op::MDBX_LAST, None, None)
     }
 
-    pub fn put(&mut self, key: &[u8], data: &[u8]) -> Result<()> {
+    pub fn put<K: Key>(&mut self, key: &K, data: &[u8]) -> Result<()> {
         unsafe {
-            let key = to_mdb_val(key);
+            let key = to_mdb_val(&key.as_bytes());
             let mut data = to_mdb_val(data);
             #[allow(clippy::useless_conversion)]
             mdbx_result(ffi::mdbx_cursor_put(self.cursor.cursor, &key, &mut data, 0))?;
@@ -178,7 +190,7 @@ impl<'txn> Cursor<'txn> {
         duplicates: bool,
     ) -> Result<Option<KeyVal<'txn>>> {
         let first_entry = if !ascending {
-            if let Some(first_entry) = self.move_to_gte(upper_key.as_bytes())? {
+            if let Some(first_entry) = self.move_to_gte(upper_key)? {
                 if duplicates {
                     self.move_to_last_dup()?.or(Some(first_entry))
                 } else {
@@ -186,7 +198,7 @@ impl<'txn> Cursor<'txn> {
                 }
             } else if let Some(last) = self.move_to_last()? {
                 // If some key between upper_key and lower_key happens to be the last key in the db
-                if lower_key.cmp_bytes(last.0) != Ordering::Greater {
+                if lower_key.cmp_bytes(&last.0) != Ordering::Greater {
                     Some(last)
                 } else {
                     None
@@ -195,14 +207,14 @@ impl<'txn> Cursor<'txn> {
                 None
             }
         } else {
-            self.move_to_gte(lower_key.as_bytes())?
+            self.move_to_gte(lower_key)?
         };
 
         if let Some(first_entry) = first_entry {
-            if upper_key.cmp_bytes(first_entry.0) == Ordering::Less {
+            if upper_key.cmp_bytes(&first_entry.0) == Ordering::Less {
                 if !ascending {
                     if let Some(prev) = self.move_to_prev_no_dup()? {
-                        if lower_key.cmp_bytes(prev.0) != Ordering::Greater {
+                        if lower_key.cmp_bytes(&prev.0) != Ordering::Greater {
                             return Ok(Some(prev));
                         }
                     }
@@ -225,7 +237,7 @@ impl<'txn> Cursor<'txn> {
         ascending: bool,
         mut callback: impl FnMut(&mut Self, &'txn [u8], &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
-        if upper_key.cmp_bytes(lower_key.as_bytes()) == Ordering::Less {
+        if upper_key.cmp_bytes(&lower_key.as_bytes()) == Ordering::Less {
             return Ok(true);
         }
 
@@ -241,9 +253,9 @@ impl<'txn> Cursor<'txn> {
 
         self.iter(skip_duplicates, ascending, |cursor, key, val| {
             let abort = if ascending {
-                upper_key.cmp_bytes(key) == Ordering::Less
+                upper_key.cmp_bytes(&key) == Ordering::Less
             } else {
-                lower_key.cmp_bytes(key) == Ordering::Greater
+                lower_key.cmp_bytes(&key) == Ordering::Greater
             };
             if abort {
                 Ok(true)
@@ -253,13 +265,13 @@ impl<'txn> Cursor<'txn> {
         })
     }
 
-    pub fn iter_dups(
+    pub fn iter_dups<K: Key>(
         &mut self,
-        key: &[u8],
+        key: &K,
         mut callback: impl FnMut(&mut Self, &'txn [u8]) -> Result<bool>,
     ) -> Result<bool> {
         if let Some((_, val)) = self.move_to(key)? {
-            if !callback(self, val)? {
+            if !callback(self, &val)? {
                 return Ok(false);
             }
         } else {
@@ -267,7 +279,7 @@ impl<'txn> Cursor<'txn> {
         }
         loop {
             if let Some((_, val)) = self.move_to_next_dup()? {
-                if !callback(self, val)? {
+                if !callback(self, &val)? {
                     return Ok(false);
                 }
             } else {

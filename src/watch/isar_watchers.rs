@@ -65,19 +65,17 @@ impl IsarCollectionWatchers {
         self.watchers.remove(position);
     }
 
-    pub fn add_object_watcher(&mut self, watcher_id: u64, oid: i64, callback: WatcherCallback) {
-        let oid = unsafe { std::mem::transmute(oid) };
+    pub fn add_object_watcher(&mut self, watcher_id: u64, id: i64, callback: WatcherCallback) {
         let watcher = Arc::new(Watcher::new(watcher_id, callback));
-        if let Some(object_watchers) = self.object_watchers.get_mut(oid) {
+        if let Some(object_watchers) = self.object_watchers.get_mut(id as u64) {
             object_watchers.push(watcher);
         } else {
-            self.object_watchers.insert(oid, vec![watcher]);
+            self.object_watchers.insert(id as u64, vec![watcher]);
         }
     }
 
-    pub fn remove_object_watcher(&mut self, oid: i64, watcher_id: u64) {
-        let oid = unsafe { std::mem::transmute(oid) };
-        let watchers = self.object_watchers.get_mut(oid).unwrap();
+    pub fn remove_object_watcher(&mut self, id: i64, watcher_id: u64) {
+        let watchers = self.object_watchers.get_mut(id as u64).unwrap();
         let position = watchers
             .iter()
             .position(|w| w.get_id() == watcher_id)

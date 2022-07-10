@@ -1,12 +1,13 @@
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
-use crate::id_key::IdKey;
 use crate::mdbx::cursor::Cursor;
 use crate::mdbx::db::Db;
-use crate::mdbx::{debug_dump_db, Key};
+use crate::mdbx::debug_dump_db;
+use crate::object::id::{BytesToId, IdToBytes};
 use crate::object::isar_object::IsarObject;
 use crate::txn::IsarTxn;
 use std::collections::HashSet;
+use std::ops::Deref;
 
 #[derive(Clone)]
 pub(crate) struct IsarLink {
@@ -32,34 +33,29 @@ impl IsarLink {
         self.target_db.runtime_id()
     }
 
-    pub fn iter_ids<F>(
-        &self,
-        cursors: &IsarCursors,
-        id_key: &IdKey,
-        mut callback: F,
-    ) -> Result<bool>
+    pub fn iter_ids<F>(&self, cursors: &IsarCursors, id: i64, mut callback: F) -> Result<bool>
     where
-        F: FnMut(&mut Cursor, IdKey) -> Result<bool>,
+        F: FnMut(&mut Cursor, i64) -> Result<bool>,
     {
         let mut cursor = cursors.get_cursor(self.db)?;
-        cursor.iter_dups(id_key.as_bytes(), |cursor, link_target_key| {
-            callback(cursor, IdKey::from_bytes(link_target_key))
+        cursor.iter_dups(&id, |cursor, link_target_key| {
+            callback(cursor, link_target_key.to_id())
         })
     }
 
     pub fn iter<'txn, 'env, F>(
         &self,
         cursors: &IsarCursors<'txn, 'env>,
-        id_key: &IdKey,
+        id: i64,
         mut callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
         let mut target_cursor = cursors.get_cursor(self.target_db)?;
-        self.iter_ids(cursors, id_key, |_, link_target_key| {
-            if let Some((id, object)) = target_cursor.move_to(link_target_key.as_bytes())? {
-                callback(IdKey::from_bytes(id), IsarObject::from_bytes(object))
+        self.iter_ids(cursors, id, |_, link_target_key| {
+            if let Some((id_bytes, object)) = target_cursor.move_to(&link_target_key)? {
+                callback(id_bytes.deref().to_id(), IsarObject::from_bytes(&object))
             } else {
                 Err(IsarError::DbCorrupted {
                     message: "Target object does not exist".to_string(),
@@ -68,43 +64,34 @@ impl IsarLink {
         })
     }
 
-    pub fn create(
-        &self,
-        cursors: &IsarCursors,
-        source_key: &IdKey,
-        target_key: &IdKey,
-    ) -> Result<bool> {
+    pub fn create(&self, cursors: &IsarCursors, source_id: i64, target_id: i64) -> Result<bool> {
         let mut source_cursor = cursors.get_cursor(self.source_db)?;
         let mut target_cursor = cursors.get_cursor(self.target_db)?;
-        let exists_source = source_cursor.move_to(source_key.as_bytes())?.is_some();
-        let exists_target = target_cursor.move_to(target_key.as_bytes())?.is_some();
+
+        let exists_source = source_cursor.move_to(&source_id)?.is_some();
+        let exists_target = target_cursor.move_to(&target_id)?.is_some();
         if !exists_source || !exists_target {
             return Ok(false);
         }
 
         let mut link_cursor = cursors.get_cursor(self.db)?;
-        link_cursor.put(source_key.as_bytes(), target_key.as_bytes())?;
+        link_cursor.put(&source_id, &target_id.to_id_bytes())?;
 
         let mut backlink_cursor = cursors.get_cursor(self.bl_db)?;
-        backlink_cursor.put(target_key.as_bytes(), source_key.as_bytes())?;
+        backlink_cursor.put(&target_id, &source_id.to_id_bytes())?;
         Ok(true)
     }
 
-    pub fn delete(
-        &self,
-        cursors: &IsarCursors,
-        source_key: &IdKey,
-        target_key: &IdKey,
-    ) -> Result<bool> {
+    pub fn delete(&self, cursors: &IsarCursors, source_id: i64, target_id: i64) -> Result<bool> {
         let mut link_cursor = cursors.get_cursor(self.db)?;
         let exists = link_cursor
-            .move_to_key_val(source_key.as_bytes(), target_key.as_bytes())?
+            .move_to_key_val(&source_id, &target_id.to_id_bytes())?
             .is_some();
 
         if exists {
             let mut backlink_cursor = cursors.get_cursor(self.bl_db)?;
             let backlink_exists = backlink_cursor
-                .move_to_key_val(target_key.as_bytes(), source_key.as_bytes())?
+                .move_to_key_val(&target_id, &source_id.to_id_bytes())?
                 .is_some();
             if backlink_exists {
                 link_cursor.delete_current()?;
@@ -120,11 +107,13 @@ impl IsarLink {
         }
     }
 
-    pub fn delete_all_for_object(&self, cursors: &IsarCursors, id_key: &IdKey) -> Result<()> {
+    pub fn delete_all_for_object(&self, cursors: &IsarCursors, id: i64) -> Result<()> {
+        let id_bytes = id.to_id_bytes();
+
         let mut backlink_cursor = cursors.get_cursor(self.bl_db)?;
-        self.iter_ids(cursors, id_key, |cursor, link_target_key| {
+        self.iter_ids(cursors, id, |cursor, link_target_key| {
             let exists = backlink_cursor
-                .move_to_key_val(link_target_key.as_bytes(), id_key.as_bytes())?
+                .move_to_key_val(&link_target_key, &id_bytes)?
                 .is_some();
             if exists {
                 cursor.delete_current()?;

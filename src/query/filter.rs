@@ -1,10 +1,10 @@
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
 use crate::error::{illegal_arg, Result};
-use crate::id_key::IdKey;
 use crate::link::IsarLink;
 use crate::object::data_type::DataType;
-use crate::object::isar_object::{IsarObject, Property};
+use crate::object::isar_object::IsarObject;
+use crate::object::property::Property;
 use crate::query::fast_wild_match::fast_wild_match;
 use enum_dispatch::enum_dispatch;
 use itertools::Itertools;
@@ -223,7 +223,7 @@ impl Filter {
 
     pub(crate) fn evaluate(
         &self,
-        id: &IdKey,
+        id: i64,
         object: IsarObject,
         cursors: Option<&IsarCursors>,
     ) -> Result<bool> {
@@ -270,12 +270,7 @@ enum FilterCond {
 
 #[enum_dispatch(FilterCond)]
 trait Condition {
-    fn evaluate(
-        &self,
-        id: &IdKey,
-        object: IsarObject,
-        cursors: Option<&IsarCursors>,
-    ) -> Result<bool>;
+    fn evaluate(&self, id: i64, object: IsarObject, cursors: Option<&IsarCursors>) -> Result<bool>;
 }
 
 #[derive(Clone)]
@@ -285,8 +280,7 @@ struct IdBetweenCond {
 }
 
 impl Condition for IdBetweenCond {
-    fn evaluate(&self, id: &IdKey, _object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
-        let id = id.get_id();
+    fn evaluate(&self, id: i64, _object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
         Ok(self.lower <= id && self.upper >= id)
     }
 }
@@ -309,7 +303,7 @@ macro_rules! primitive_filter_between {
         impl Condition for $name {
             fn evaluate(
                 &self,
-                _id: &IdKey,
+                _id: i64,
                 object: IsarObject,
                 _: Option<&IsarCursors>,
             ) -> Result<bool> {
@@ -333,7 +327,7 @@ macro_rules! primitive_filter_between_list {
         impl Condition for $name {
             fn evaluate(
                 &self,
-                _id: &IdKey,
+                _id: i64,
                 object: IsarObject,
                 _: Option<&IsarCursors>,
             ) -> Result<bool> {
@@ -354,7 +348,7 @@ macro_rules! primitive_filter_between_list {
 filter_between_struct!(AnyByteBetweenCond, Byte, u8);
 
 impl Condition for AnyByteBetweenCond {
-    fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+    fn evaluate(&self, _id: i64, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
         let vals = object.read_byte_list(self.offset);
         if let Some(vals) = vals {
             for val in vals {
@@ -376,7 +370,7 @@ primitive_filter_between_list!(AnyLongBetweenCond, read_long_list);
 macro_rules! float_filter_between {
     ($name:ident, $prop_accessor:ident) => {
         impl Condition for $name {
-            fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+            fn evaluate(&self, _id: i64, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
                 let val = object.$prop_accessor(self.offset);
                 Ok(float_filter_between!(eval val, self.lower, self.upper))
             }
@@ -398,7 +392,7 @@ float_filter_between!(DoubleBetweenCond, read_double);
 macro_rules! float_filter_between_list {
     ($name:ident, $prop_accessor:ident) => {
         impl Condition for $name {
-            fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+            fn evaluate(&self, _id: i64, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
                 let vals = object.$prop_accessor(self.offset);
                 if let Some(vals) = vals {
                     for val in vals {
@@ -469,7 +463,7 @@ fn string_between(
 }
 
 impl Condition for StringBetweenCond {
-    fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+    fn evaluate(&self, _id: i64, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
         let value = object.read_string(self.offset);
         let result = string_between(
             value,
@@ -482,7 +476,7 @@ impl Condition for StringBetweenCond {
 }
 
 impl Condition for AnyStringBetweenCond {
-    fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+    fn evaluate(&self, _id: i64, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
         let list = object.read_string_list(self.offset);
         if let Some(list) = list {
             for value in list {
@@ -521,7 +515,7 @@ macro_rules! string_filter {
         paste! {
             string_filter_struct!($name);
             impl Condition for [<$name Cond>] {
-                fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+                fn evaluate(&self, _id: i64, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
                     let other_str = object.read_string(self.offset);
                     let result = string_filter!(eval $name, self, other_str);
                     Ok(result)
@@ -530,7 +524,7 @@ macro_rules! string_filter {
 
             string_filter_struct!([<Any $name>]);
             impl Condition for [<Any $name Cond>] {
-                fn evaluate(&self, _id: &IdKey, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+                fn evaluate(&self, _id: i64, object: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
                     let list = object.read_string_list(self.offset);
                     if let Some(list) = list {
                         for value in list {
@@ -590,7 +584,7 @@ struct NullCond {
 impl Condition for NullCond {
     fn evaluate(
         &self,
-        _id: &IdKey,
+        _id: i64,
         object: IsarObject,
         _cursors: Option<&IsarCursors>,
     ) -> Result<bool> {
@@ -604,12 +598,7 @@ struct AndCond {
 }
 
 impl Condition for AndCond {
-    fn evaluate(
-        &self,
-        id: &IdKey,
-        object: IsarObject,
-        cursors: Option<&IsarCursors>,
-    ) -> Result<bool> {
+    fn evaluate(&self, id: i64, object: IsarObject, cursors: Option<&IsarCursors>) -> Result<bool> {
         for filter in &self.filters {
             if !filter.evaluate(id, object, cursors)? {
                 return Ok(false);
@@ -625,12 +614,7 @@ struct OrCond {
 }
 
 impl Condition for OrCond {
-    fn evaluate(
-        &self,
-        id: &IdKey,
-        object: IsarObject,
-        cursors: Option<&IsarCursors>,
-    ) -> Result<bool> {
+    fn evaluate(&self, id: i64, object: IsarObject, cursors: Option<&IsarCursors>) -> Result<bool> {
         for filter in &self.filters {
             if filter.evaluate(id, object, cursors)? {
                 return Ok(true);
@@ -646,12 +630,7 @@ struct XorCond {
 }
 
 impl Condition for XorCond {
-    fn evaluate(
-        &self,
-        id: &IdKey,
-        object: IsarObject,
-        cursors: Option<&IsarCursors>,
-    ) -> Result<bool> {
+    fn evaluate(&self, id: i64, object: IsarObject, cursors: Option<&IsarCursors>) -> Result<bool> {
         let mut any = false;
         for filter in &self.filters {
             if filter.evaluate(id, object, cursors)? {
@@ -672,12 +651,7 @@ struct NotCond {
 }
 
 impl Condition for NotCond {
-    fn evaluate(
-        &self,
-        id: &IdKey,
-        object: IsarObject,
-        cursors: Option<&IsarCursors>,
-    ) -> Result<bool> {
+    fn evaluate(&self, id: i64, object: IsarObject, cursors: Option<&IsarCursors>) -> Result<bool> {
         Ok(!self.filter.evaluate(id, object, cursors)?)
     }
 }
@@ -688,7 +662,7 @@ struct StaticCond {
 }
 
 impl Condition for StaticCond {
-    fn evaluate(&self, _id: &IdKey, _: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
+    fn evaluate(&self, _id: i64, _: IsarObject, _: Option<&IsarCursors>) -> Result<bool> {
         Ok(self.value)
     }
 }
@@ -702,7 +676,7 @@ struct LinkCond {
 impl Condition for LinkCond {
     fn evaluate(
         &self,
-        id: &IdKey,
+        id: i64,
         _object: IsarObject,
         cursors: Option<&IsarCursors>,
     ) -> Result<bool> {
@@ -710,7 +684,7 @@ impl Condition for LinkCond {
             self.link
                 .iter(cursors, id, |id, object| {
                     self.filter
-                        .evaluate(&id, object, None)
+                        .evaluate(id, object, None)
                         .map(|matches| !matches)
                 })
                 .map(|none_matches| !none_matches)

@@ -1,14 +1,16 @@
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
-use crate::id_key::IdKey;
 use crate::index::index_key::IndexKey;
 use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::mdbx::db::Db;
-use crate::mdbx::{debug_dump_db, Key};
-use crate::object::isar_object::{IsarObject, Property};
+use crate::mdbx::debug_dump_db;
+use crate::object::id::{BytesToId, IdToBytes};
+use crate::object::isar_object::IsarObject;
+use crate::object::property::Property;
 use crate::schema::index_schema::IndexType;
 use crate::txn::IsarTxn;
 use std::collections::HashSet;
+use std::ops::Deref;
 
 pub mod index_key;
 pub(crate) mod index_key_builder;
@@ -78,27 +80,27 @@ impl IsarIndex {
     pub fn create_for_object<F>(
         &self,
         cursors: &IsarCursors,
-        id_key: &IdKey,
+        id: i64,
         object: IsarObject,
         mut delete: F,
     ) -> Result<()>
     where
-        F: FnMut(&IdKey) -> Result<()>,
+        F: FnMut(i64) -> Result<()>,
     {
         let mut cursor = cursors.get_cursor(self.db)?;
         let key_builder = IndexKeyBuilder::new(&self.properties);
         key_builder.create_keys(object, |key| {
             if self.unique {
-                let existing = cursor.move_to(key.as_bytes())?;
+                let existing = cursor.move_to(key)?;
                 if let Some((_, existing_key)) = existing {
                     if self.replace {
-                        delete(&IdKey::from_bytes(existing_key))?;
+                        delete(existing_key.deref().to_id())?;
                     } else {
                         return Err(IsarError::UniqueViolated {});
                     }
                 }
             }
-            cursor.put(key.as_bytes(), id_key.as_bytes())?;
+            cursor.put(key, &id.to_id_bytes())?;
             Ok(true)
         })?;
         Ok(())
@@ -107,16 +109,16 @@ impl IsarIndex {
     pub fn delete_for_object(
         &self,
         cursors: &IsarCursors,
-        id_key: &IdKey,
+        id: i64,
         object: IsarObject,
     ) -> Result<()> {
         let mut cursor = cursors.get_cursor(self.db)?;
         let key_builder = IndexKeyBuilder::new(&self.properties);
         key_builder.create_keys(object, |key| {
             let entry = if self.unique {
-                cursor.move_to(key.as_bytes())?
+                cursor.move_to(key)?
             } else {
-                cursor.move_to_key_val(key.as_bytes(), id_key.as_bytes())?
+                cursor.move_to_key_val(key, &id.to_id_bytes())?
             };
             if entry.is_some() {
                 cursor.delete_current()?;
@@ -133,7 +135,7 @@ impl IsarIndex {
         upper_key: &IndexKey,
         skip_duplicates: bool,
         ascending: bool,
-        mut callback: impl FnMut(IdKey<'txn>) -> Result<bool>,
+        mut callback: impl FnMut(i64) -> Result<bool>,
     ) -> Result<bool> {
         let mut cursor = cursors.get_cursor(self.db)?;
         cursor.iter_between(
@@ -142,7 +144,7 @@ impl IsarIndex {
             !self.unique,
             skip_duplicates,
             ascending,
-            |_, _, id_key| callback(IdKey::from_bytes(id_key)),
+            |_, _, id_bytes| callback(id_bytes.to_id()),
         )
     }
 
@@ -150,10 +152,10 @@ impl IsarIndex {
         &self,
         cursors: &IsarCursors<'txn, 'env>,
         key: &IndexKey,
-    ) -> Result<Option<IdKey<'txn>>> {
+    ) -> Result<Option<i64>> {
         let mut result = None;
-        self.iter_between(cursors, key, key, false, true, |id_key| {
-            result = Some(id_key);
+        self.iter_between(cursors, key, key, false, true, |id| {
+            result = Some(id);
             Ok(false)
         })?;
         Ok(result)

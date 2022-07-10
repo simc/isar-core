@@ -5,13 +5,15 @@ use std::marker::PhantomData;
 
 pub struct Txn<'env> {
     pub(crate) txn: *mut ffi::MDBX_txn,
+    pub write: bool,
     _marker: PhantomData<&'env ()>,
 }
 
 impl<'env> Txn<'env> {
-    pub(crate) fn new(txn: *mut ffi::MDBX_txn) -> Self {
+    pub(crate) fn new(txn: *mut ffi::MDBX_txn, write: bool) -> Self {
         Txn {
             txn,
+            write,
             _marker: PhantomData::default(),
         }
     }

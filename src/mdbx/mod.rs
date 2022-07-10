@@ -4,6 +4,7 @@ use crate::error::{IsarError, Result};
 use crate::mdbx::cursor::Cursor;
 use core::slice;
 use libc::c_int;
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ffi::{c_void, CStr};
@@ -55,7 +56,7 @@ pub fn mdbx_result(err_code: c_int) -> Result<()> {
 }
 
 pub trait Key {
-    fn as_bytes(&self) -> &[u8];
+    fn as_bytes(&self) -> Cow<[u8]>;
 
     fn cmp_bytes(&self, other: &[u8]) -> Ordering;
 }

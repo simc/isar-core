@@ -5,39 +5,6 @@ use num_traits::Float;
 use std::{cmp::Ordering, str::from_utf8_unchecked};
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct Property {
-    pub name: String,
-    pub data_type: DataType,
-    pub offset: usize,
-    pub target_col: Option<String>,
-}
-
-impl Property {
-    pub const fn new(
-        name: String,
-        data_type: DataType,
-        offset: usize,
-        target_col: Option<String>,
-    ) -> Self {
-        Property {
-            name,
-            data_type,
-            offset,
-            target_col,
-        }
-    }
-
-    pub const fn debug(data_type: DataType, offset: usize) -> Self {
-        Property {
-            name: String::new(),
-            data_type,
-            offset,
-            target_col: None,
-        }
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct IsarObject<'a> {
     bytes: &'a [u8],
@@ -417,10 +384,10 @@ impl<'a> IsarObject<'a> {
 mod tests {
     use itertools::Itertools;
 
-    use super::Property;
     use crate::object::data_type::DataType::*;
     use crate::object::isar_object::IsarObject;
     use crate::object::object_builder::ObjectBuilder;
+    use crate::object::property::Property;
 
     macro_rules! builder {
         ($builder:ident, $prop:ident, $type:ident) => {

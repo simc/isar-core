@@ -1,7 +1,7 @@
 use crate::collection::IsarCollection;
-use crate::id_key::IdKey;
 use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::mdbx::Key;
+use crate::object::id::IdToBytes;
 use crate::object::isar_object::IsarObject;
 use crate::txn::IsarTxn;
 use itertools::Itertools;
@@ -54,8 +54,7 @@ pub fn verify_isar(
             .collect();
 
         for entry in objects {
-            let id_key = IdKey::new(entry.id);
-            let inserted = entries.insert((id_key.as_bytes().to_vec(), entry.bytes.clone()));
+            let inserted = entries.insert((entry.id.to_id_bytes().to_vec(), entry.bytes.clone()));
             assert!(inserted);
 
             let object = IsarObject::from_bytes(&entry.bytes);
@@ -63,7 +62,7 @@ pub fn verify_isar(
                 let key_builder = IndexKeyBuilder::new(&index.properties);
                 key_builder
                     .create_keys(object, |key| {
-                        let entry = (key.as_bytes().to_vec(), id_key.as_bytes().to_vec());
+                        let entry = (key.as_bytes().to_vec(), entry.id.to_id_bytes().to_vec());
                         index_entries[i].insert(entry);
                         Ok(true)
                     })
@@ -73,8 +72,8 @@ pub fn verify_isar(
 
         for entry in links {
             let inserted = link_entries.get_mut(&entry.name).unwrap().insert((
-                IdKey::new(entry.source_id).as_bytes().to_vec(),
-                IdKey::new(entry.target_id).as_bytes().to_vec(),
+                entry.source_id.to_id_bytes().to_vec(),
+                entry.target_id.to_id_bytes().to_vec(),
             ));
             assert!(inserted);
         }

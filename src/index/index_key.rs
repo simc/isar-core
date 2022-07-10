@@ -1,6 +1,6 @@
 use crate::index::IsarIndex;
 use crate::mdbx::Key;
-use std::borrow::Borrow;
+use std::borrow::Cow;
 use std::cmp;
 use std::cmp::Ordering;
 use xxhash_rust::xxh3::xxh3_64;
@@ -20,13 +20,13 @@ impl IndexKey {
     }
 
     pub fn add_int(&mut self, value: i32) {
-        let unsigned: u32 = unsafe { std::mem::transmute(value) };
+        let unsigned = value as u32;
         let bytes: [u8; 4] = (unsigned ^ 1 << 31).to_be_bytes();
         self.bytes.extend_from_slice(&bytes);
     }
 
     pub fn add_long(&mut self, value: i64) {
-        let unsigned: u64 = unsafe { std::mem::transmute(value) };
+        let unsigned = value as u64;
         let bytes = (unsigned ^ 1 << 63).to_be_bytes().to_vec();
         self.bytes.extend_from_slice(&bytes);
     }
@@ -128,8 +128,8 @@ impl IndexKey {
 }
 
 impl Key for IndexKey {
-    fn as_bytes(&self) -> &[u8] {
-        self.bytes.borrow()
+    fn as_bytes(&self) -> Cow<[u8]> {
+        Cow::Borrowed(&self.bytes)
     }
 
     fn cmp_bytes(&self, other: &[u8]) -> Ordering {

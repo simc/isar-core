@@ -1,11 +1,9 @@
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
-use crate::id_key::IdKey;
 use crate::index::index_key::IndexKey;
 use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::index::IsarIndex;
 use crate::mdbx::db::Db;
-use crate::mdbx::Key;
 use crate::object::isar_object::IsarObject;
 use crate::query::Sort;
 use intmap::IntMap;
@@ -57,7 +55,7 @@ impl IndexWhereClause {
         callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(IdKey<'txn>) -> Result<bool>,
+        F: FnMut(i64) -> Result<bool>,
     {
         self.index.iter_between(
             cursors,
@@ -76,23 +74,23 @@ impl IndexWhereClause {
         mut callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
         let mut data_cursor = cursors.get_cursor(self.db)?;
-        self.iter_ids(cursors, |id_key| {
+        self.iter_ids(cursors, |id| {
             if let Some(result_ids) = result_ids.as_deref_mut() {
-                if !result_ids.insert(id_key.get_unsigned_id(), ()) {
+                if !result_ids.insert(id as u64, ()) {
                     return Ok(true);
                 }
             }
 
-            let entry = data_cursor.move_to(id_key.as_bytes())?;
+            let entry = data_cursor.move_to(&id)?;
             let (_, object) = entry.ok_or(IsarError::DbCorrupted {
                 message: "Could not find object specified in index.".to_string(),
             })?;
-            let object = IsarObject::from_bytes(object);
+            let object = IsarObject::from_bytes(&object);
 
-            callback(id_key, object)
+            callback(id, object)
         })
     }
 

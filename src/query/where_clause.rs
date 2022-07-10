@@ -1,6 +1,5 @@
 use crate::cursor::IsarCursors;
 use crate::error::Result;
-use crate::id_key::IdKey;
 use crate::object::isar_object::IsarObject;
 use crate::query::id_where_clause::IdWhereClause;
 use crate::query::index_where_clause::IndexWhereClause;
@@ -30,7 +29,7 @@ impl WhereClause {
         callback: F,
     ) -> Result<bool>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
         match self {
             WhereClause::Id(wc) => wc.iter(cursors, result_ids, callback),

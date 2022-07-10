@@ -4,7 +4,7 @@ use crate::object::isar_object::IsarObject;
 use crate::object::object_builder::ObjectBuilder;
 use serde_json::{json, Map, Value};
 
-use super::isar_object::Property;
+use super::property::Property;
 
 pub struct JsonEncodeDecode {}
 

@@ -5,7 +5,7 @@ use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use std::slice::from_raw_parts;
 
-use super::isar_object::Property;
+use super::property::Property;
 
 /*
 u16 static properties size
@@ -311,7 +311,8 @@ impl<'a> ObjectBuilder<'a> {
 mod tests {
     use super::ObjectBuilder;
     use crate::object::data_type::DataType::{self, *};
-    use crate::object::isar_object::{IsarObject, Property};
+    use crate::object::isar_object::IsarObject;
+    use crate::object::property::Property;
 
     macro_rules! builder {
         ($var:ident, $type:ident) => {

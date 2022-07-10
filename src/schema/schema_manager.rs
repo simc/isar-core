@@ -1,21 +1,39 @@
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
+use crate::index::index_key::IndexKey;
+use crate::legacy::isar_object_v1::{LegacyIsarObject, LegacyProperty};
 use crate::link::IsarLink;
 use crate::mdbx::cursor::{Cursor, UnboundCursor};
 use crate::mdbx::db::Db;
 use crate::mdbx::txn::Txn;
+use crate::object::data_type::DataType;
+use crate::object::id::BytesToId;
+use crate::object::isar_object::IsarObject;
+use crate::object::object_builder::ObjectBuilder;
 use crate::schema::collection_schema::CollectionSchema;
 use crate::schema::index_schema::IndexSchema;
 use crate::schema::link_schema::LinkSchema;
 use crate::schema::Schema;
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::ops::Deref;
 
-const ISAR_VERSION: u64 = 1;
-const INFO_VERSION_KEY: &[u8] = b"version";
-const INFO_SCHEMA_KEY: &[u8] = b"schema";
+const ISAR_VERSION: u64 = 2;
+
+static INFO_VERSION_KEY: Lazy<IndexKey> = Lazy::new(|| {
+    let mut key = IndexKey::new();
+    key.add_string(Some("version"), true);
+    key
+});
+
+static INFO_SCHEMA_KEY: Lazy<IndexKey> = Lazy::new(|| {
+    let mut key = IndexKey::new();
+    key.add_string(Some("schema"), true);
+    key
+});
 
 pub(crate) struct SchemaManger<'a> {
     instance_id: u64,
@@ -39,24 +57,135 @@ impl<'a> SchemaManger<'a> {
     }
 
     fn check_isar_version(&mut self) -> Result<()> {
-        let version = self.info_cursor.move_to(INFO_VERSION_KEY)?;
+        let version = self.info_cursor.move_to(INFO_VERSION_KEY.deref())?;
         if let Some((_, version)) = version {
-            let version_num = u64::from_le_bytes(version.try_into().unwrap());
-            if version_num != ISAR_VERSION {
+            let version_num = u64::from_le_bytes(version.deref().try_into().unwrap());
+            if version_num == 1 {
+                self.migrate_v1()?;
+            } else if version_num != ISAR_VERSION {
                 return Err(IsarError::VersionError {});
+            } else {
+                return Ok(());
             }
-        } else {
-            let version_bytes = &ISAR_VERSION.to_le_bytes();
-            self.info_cursor.put(INFO_VERSION_KEY, version_bytes)?;
         }
+
+        let version_bytes = &ISAR_VERSION.to_le_bytes();
+        self.info_cursor
+            .put(INFO_VERSION_KEY.deref(), version_bytes)?;
+
+        Ok(())
+    }
+
+    fn migrate_v1(&mut self) -> Result<()> {
+        let mut schema = self.get_existing_schema()?;
+
+        let cursors = IsarCursors::new(self.txn, vec![]);
+        let mut buffer = Some(vec![]);
+        for col in schema.collections.iter_mut() {
+            for index in &col.indexes {
+                let index_db = self.open_index_db(col, index)?;
+                index_db.clear(self.txn)?;
+            }
+            col.indexes.clear();
+
+            let props = col.get_properties();
+
+            let mut offset = 2;
+            let legacy_props = col
+                .properties
+                .iter()
+                .map(|p| {
+                    let property = LegacyProperty::new(p.data_type, offset);
+                    offset += match p.data_type {
+                        DataType::Byte => 1,
+                        DataType::Int | DataType::Float => 4,
+                        _ => 8,
+                    };
+
+                    property
+                })
+                .collect_vec();
+
+            let db = self.open_collection_db(col)?;
+            let mut db_cursor = cursors.get_cursor(db)?;
+            db_cursor.iter_all(false, true, |cursor, id_bytes, obj| {
+                // We need to copy the data here because it will become invalid during the write
+                let id = id_bytes.to_id();
+                let obj = obj.to_vec();
+
+                let legacy_object = LegacyIsarObject::from_bytes(&obj);
+                let mut new_object = ObjectBuilder::new(&props, buffer.take());
+                for (prop, legacy_prop) in props.iter().zip(&legacy_props) {
+                    match prop.data_type {
+                        DataType::Bool => {
+                            if legacy_object.is_null(*legacy_prop) {
+                                new_object.write_bool(None);
+                            } else {
+                                new_object.write_bool(Some(legacy_object.read_bool(*legacy_prop)))
+                            }
+                        }
+                        DataType::Byte => {
+                            new_object.write_byte(legacy_object.read_byte(*legacy_prop))
+                        }
+                        DataType::Int => new_object.write_int(legacy_object.read_int(*legacy_prop)),
+                        DataType::Float => {
+                            new_object.write_float(legacy_object.read_float(*legacy_prop))
+                        }
+                        DataType::Long => {
+                            new_object.write_long(legacy_object.read_long(*legacy_prop))
+                        }
+                        DataType::Double => {
+                            new_object.write_double(legacy_object.read_double(*legacy_prop))
+                        }
+                        DataType::String => {
+                            new_object.write_string(legacy_object.read_string(*legacy_prop))
+                        }
+                        DataType::BoolList => {
+                            let byte_list = legacy_object.read_byte_list(*legacy_prop);
+                            let bool_list = byte_list.map(|bytes| {
+                                bytes
+                                    .into_iter()
+                                    .map(|b| IsarObject::byte_to_bool(*b))
+                                    .collect_vec()
+                            });
+                            new_object.write_bool_list(bool_list.as_deref())
+                        }
+                        DataType::ByteList => {
+                            new_object.write_byte_list(legacy_object.read_byte_list(*legacy_prop))
+                        }
+                        DataType::IntList => new_object
+                            .write_int_list(legacy_object.read_int_list(*legacy_prop).as_deref()),
+                        DataType::FloatList => new_object.write_float_list(
+                            legacy_object.read_float_list(*legacy_prop).as_deref(),
+                        ),
+                        DataType::LongList => new_object
+                            .write_long_list(legacy_object.read_long_list(*legacy_prop).as_deref()),
+                        DataType::DoubleList => new_object.write_double_list(
+                            legacy_object.read_double_list(*legacy_prop).as_deref(),
+                        ),
+                        DataType::StringList => new_object.write_string_list(
+                            legacy_object.read_string_list(*legacy_prop).as_deref(),
+                        ),
+                        _ => unreachable!(),
+                    }
+                }
+
+                cursor.put(&id, new_object.finish().as_bytes())?;
+                buffer.replace(new_object.recycle());
+                Ok(true)
+            })?;
+        }
+
+        self.save_schema(&schema)?;
+
         Ok(())
     }
 
     fn get_existing_schema(&mut self) -> Result<Schema> {
-        let existing_schema_bytes = self.info_cursor.move_to(INFO_SCHEMA_KEY)?;
+        let existing_schema_bytes = self.info_cursor.move_to(INFO_SCHEMA_KEY.deref())?;
 
         if let Some((_, existing_schema_bytes)) = existing_schema_bytes {
-            serde_json::from_slice(existing_schema_bytes).map_err(|e| IsarError::DbCorrupted {
+            serde_json::from_slice(&existing_schema_bytes).map_err(|e| IsarError::DbCorrupted {
                 message: format!("Could not deserialize existing schema: {}", e),
             })
         } else {
@@ -146,7 +275,7 @@ impl<'a> SchemaManger<'a> {
         let bytes = serde_json::to_vec(schema).map_err(|_| IsarError::SchemaError {
             message: "Could not serialize schema.".to_string(),
         })?;
-        self.info_cursor.put(INFO_SCHEMA_KEY, &bytes)?;
+        self.info_cursor.put(INFO_SCHEMA_KEY.deref(), &bytes)?;
         Ok(())
     }
 

@@ -5,9 +5,9 @@ use std::cmp::Ordering;
 use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
 use crate::error::Result;
-use crate::id_key::IdKey;
-use crate::object::isar_object::{IsarObject, Property};
+use crate::object::isar_object::IsarObject;
 use crate::object::json_encode_decode::JsonEncodeDecode;
+use crate::object::property::Property;
 use crate::query::filter::Filter;
 use crate::query::where_clause::WhereClause;
 use crate::txn::IsarTxn;
@@ -87,7 +87,7 @@ impl<'txn> Query {
         mut callback: F,
     ) -> Result<()>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
         let mut result_ids = if self.where_clauses_dup {
             Some(IntMap::new())
@@ -99,9 +99,9 @@ impl<'txn> Query {
         let filter = self.filter.as_ref().unwrap_or(&static_filter);
 
         for where_clause in &self.where_clauses {
-            let result = where_clause.iter(cursors, result_ids.as_mut(), |id_key, object| {
-                if filter.evaluate(&id_key, object, Some(cursors))? {
-                    callback(id_key, object)
+            let result = where_clause.iter(cursors, result_ids.as_mut(), |id, object| {
+                if filter.evaluate(id, object, Some(cursors))? {
+                    callback(id, object)
                 } else {
                     Ok(true)
                 }
@@ -120,7 +120,7 @@ impl<'txn> Query {
         callback: F,
     ) -> Result<()>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
         if !self.distinct.is_empty() {
             let callback = self.add_distinct_unsorted(callback);
@@ -143,16 +143,16 @@ impl<'txn> Query {
     fn add_distinct_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>
+    ) -> impl FnMut(i64, IsarObject<'txn>) -> Result<bool>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
         let properties = self.distinct.clone();
         let mut hashes = IntMap::new();
-        move |id_key, object| {
+        move |id, object| {
             let hash = Self::hash_properties(object, &properties);
             if hashes.insert(hash, ()) {
-                callback(id_key, object)
+                callback(id, object)
             } else {
                 Ok(true)
             }
@@ -162,16 +162,16 @@ impl<'txn> Query {
     fn add_offset_limit_unsorted<F>(
         &self,
         mut callback: F,
-    ) -> impl FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>
+    ) -> impl FnMut(i64, IsarObject<'txn>) -> Result<bool>
     where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
+        F: FnMut(i64, IsarObject<'txn>) -> Result<bool>,
     {
         let offset = self.offset;
         let max_count = self.limit.saturating_add(offset);
         let mut count = 0;
-        move |id_key, value| {
+        move |id, value| {
             count += 1;
-            if count > max_count || (count > offset && !callback(id_key, value)?) {
+            if count > max_count || (count > offset && !callback(id, value)?) {
                 Ok(false)
             } else {
                 Ok(true)
@@ -182,10 +182,10 @@ impl<'txn> Query {
     fn execute_sorted<'env>(
         &self,
         cursors: &IsarCursors<'txn, 'env>,
-    ) -> Result<Vec<(IdKey<'txn>, IsarObject<'txn>)>> {
+    ) -> Result<Vec<(i64, IsarObject<'txn>)>> {
         let mut results = vec![];
-        self.execute_raw(cursors, |id_key, object| {
-            results.push((id_key, object));
+        self.execute_raw(cursors, |id, object| {
+            results.push((id, object));
             Ok(true)
         })?;
 
@@ -212,8 +212,8 @@ impl<'txn> Query {
 
     fn add_distinct_sorted(
         &self,
-        results: Vec<(IdKey<'txn>, IsarObject<'txn>)>,
-    ) -> Vec<(IdKey<'txn>, IsarObject<'txn>)> {
+        results: Vec<(i64, IsarObject<'txn>)>,
+    ) -> Vec<(i64, IsarObject<'txn>)> {
         let properties = self.distinct.clone();
         let mut hashes = IntMap::new();
         results
@@ -227,8 +227,8 @@ impl<'txn> Query {
 
     fn add_offset_limit_sorted(
         &self,
-        results: Vec<(IdKey<'txn>, IsarObject<'txn>)>,
-    ) -> impl IntoIterator<Item = (IdKey<'txn>, IsarObject<'txn>)> {
+        results: Vec<(i64, IsarObject<'txn>)>,
+    ) -> impl IntoIterator<Item = (i64, IsarObject<'txn>)> {
         results.into_iter().skip(self.offset).take(self.limit)
     }
 
@@ -242,34 +242,10 @@ impl<'txn> Query {
         }
 
         if let Some(filter) = &self.filter {
-            let id_key = IdKey::new(id);
-            filter.evaluate(&id_key, object, None).unwrap_or(true)
+            filter.evaluate(id, object, None).unwrap_or(true)
         } else {
             true
         }
-    }
-
-    pub(crate) fn find_while_internal<'env, F>(
-        &self,
-        cursors: &IsarCursors<'txn, 'env>,
-        skip_sorting: bool,
-        mut callback: F,
-    ) -> Result<()>
-    where
-        F: FnMut(IdKey<'txn>, IsarObject<'txn>) -> Result<bool>,
-    {
-        if self.sort.is_empty() || skip_sorting {
-            self.execute_unsorted(cursors, callback)?;
-        } else {
-            let results = self.execute_sorted(cursors)?;
-            let results_iter = self.add_offset_limit_sorted(results);
-            for (id, object) in results_iter {
-                if !callback(id, object)? {
-                    break;
-                }
-            }
-        }
-        Ok(())
     }
 
     pub fn find_while<F>(&self, txn: &'txn mut IsarTxn, mut callback: F) -> Result<()>
@@ -277,9 +253,21 @@ impl<'txn> Query {
         F: FnMut(i64, IsarObject<'txn>) -> bool,
     {
         txn.read(self.instance_id, |cursors| {
-            self.find_while_internal(cursors, false, |id_key, object| {
-                Ok(callback(id_key.get_id(), object))
-            })
+            if self.sort.is_empty() {
+                self.execute_unsorted(cursors, |id, object| {
+                    let cont = callback(id, object);
+                    Ok(cont)
+                })?;
+            } else {
+                let results = self.execute_sorted(cursors)?;
+                let results_iter = self.add_offset_limit_sorted(results);
+                for (id, object) in results_iter {
+                    if !callback(id, object) {
+                        break;
+                    }
+                }
+            }
+            Ok(())
         })
     }
 
