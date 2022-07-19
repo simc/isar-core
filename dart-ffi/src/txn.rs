@@ -95,7 +95,7 @@ impl CIsarTxn {
                     }
                 }
                 Err(e) => {
-                    dart_post_int(port, e.into_dart_err_code());
+                    dart_post_int(port, Err(e).into_dart_result_code());
                 }
             }
         });
@@ -110,10 +110,7 @@ impl CIsarTxn {
         stop: bool,
     ) {
         let handle_response_job = move || {
-            let result = match job() {
-                Ok(()) => 0,
-                Err(e) => e.into_dart_err_code(),
-            };
+            let result = job().into_dart_result_code();
             dart_post_int(port, result as i64);
         };
         tx.send((Box::new(handle_response_job), stop)).unwrap();

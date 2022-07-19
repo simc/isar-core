@@ -1,4 +1,4 @@
-use isar_core::error::IsarError;
+use isar_core::error::Result;
 use once_cell::sync::Lazy;
 use std::ffi::CString;
 use std::os::raw::c_char;
@@ -8,23 +8,27 @@ type ErrCounter = (Vec<(i64, String)>, i64);
 static ERRORS: Lazy<Mutex<ErrCounter>> = Lazy::new(|| Mutex::new((vec![], 1)));
 
 pub trait DartErrCode {
-    fn into_dart_err_code(self) -> i64;
+    fn into_dart_result_code(self) -> i64;
 }
 
-impl DartErrCode for IsarError {
-    fn into_dart_err_code(self) -> i64 {
-        let mut lock = ERRORS.lock().unwrap();
-        let (errors, counter) = &mut (*lock);
-        if errors.len() > 10 {
-            errors.remove(0);
+impl DartErrCode for Result<()> {
+    fn into_dart_result_code(self) -> i64 {
+        if let Err(err) = self {
+            let mut lock = ERRORS.lock().unwrap();
+            let (errors, counter) = &mut (*lock);
+            if errors.len() > 10 {
+                errors.remove(0);
+            }
+            let err_code = *counter;
+            errors.push((err_code, err.to_string()));
+            *counter = counter.wrapping_add(1);
+            if *counter == 0 {
+                *counter = 1
+            }
+            err_code
+        } else {
+            0
         }
-        let err_code = *counter;
-        errors.push((err_code, self.to_string()));
-        *counter = counter.wrapping_add(1);
-        if *counter == 0 {
-            *counter = 1
-        }
-        err_code
     }
 }
 
@@ -37,12 +41,7 @@ macro_rules! isar_try {
                 $($token)*
                 Ok(())
             };
-            match l() {
-                Ok(_) => 0,
-                Err(e) => {
-                    e.into_dart_err_code()
-                },
-            }
+            l().into_dart_result_code()
         }
     }}
 }

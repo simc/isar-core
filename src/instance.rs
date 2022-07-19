@@ -12,8 +12,8 @@ use crate::watch::WatchHandle;
 use crossbeam_channel::{unbounded, Sender};
 use intmap::IntMap;
 use once_cell::sync::Lazy;
-use std::fs;
 use std::fs::remove_file;
+use std::fs::{self, metadata};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -23,6 +23,12 @@ static INSTANCES: Lazy<RwLock<IntMap<Arc<IsarInstance>>>> =
     Lazy::new(|| RwLock::new(IntMap::new()));
 
 static WATCHER_ID: AtomicU64 = AtomicU64::new(0);
+
+pub struct CompactCondition {
+    pub min_file_size: u64,
+    pub min_bytes: u64,
+    pub min_ratio: f64,
+}
 
 pub struct IsarInstance {
     pub name: String,
@@ -40,8 +46,9 @@ impl IsarInstance {
     pub fn open(
         name: &str,
         dir: Option<&str>,
-        relaxed_durability: bool,
         schema: Schema,
+        relaxed_durability: bool,
+        compact_condition: Option<CompactCondition>,
     ) -> Result<Arc<Self>> {
         let mut lock = INSTANCES.write().unwrap();
         let instance_id = xxh3_64(name.as_bytes());
@@ -53,8 +60,14 @@ impl IsarInstance {
             }
         } else {
             if let Some(dir) = dir {
-                let new_instance =
-                    Self::open_internal(name, dir, instance_id, relaxed_durability, schema)?;
+                let new_instance = Self::open_internal(
+                    name,
+                    dir,
+                    instance_id,
+                    schema,
+                    relaxed_durability,
+                    compact_condition,
+                )?;
                 let new_instance = Arc::new(new_instance);
                 lock.insert(instance_id, new_instance.clone());
                 Ok(new_instance)
@@ -66,7 +79,7 @@ impl IsarInstance {
         }
     }
 
-    fn get_db_path(name: &str, dir: &str) -> String {
+    fn get_isar_path(name: &str, dir: &str) -> String {
         let mut file_name = name.to_string();
         file_name.push_str(".isar");
 
@@ -93,15 +106,16 @@ impl IsarInstance {
         name: &str,
         dir: &str,
         instance_id: u64,
-        relaxed_durability: bool,
         mut schema: Schema,
+        relaxed_durability: bool,
+        compact_condition: Option<CompactCondition>,
     ) -> Result<Self> {
-        let db_file = Self::get_db_path(name, dir);
+        let isar_file = Self::get_isar_path(name, dir);
 
-        Self::move_old_database(name, dir, &db_file);
+        Self::move_old_database(name, dir, &isar_file);
 
         let db_count = schema.count_dbs() as u64 + 3;
-        let env = Env::create(&db_file, db_count, relaxed_durability)
+        let env = Env::create(&isar_file, db_count, relaxed_durability)
             .map_err(|e| IsarError::EnvError { error: Box::new(e) })?;
 
         let txn = env.txn(true)?;
@@ -114,7 +128,7 @@ impl IsarInstance {
 
         let (tx, rx) = unbounded();
 
-        Ok(IsarInstance {
+        let instance = IsarInstance {
             env,
             name: name.to_string(),
             dir: dir.to_string(),
@@ -123,7 +137,46 @@ impl IsarInstance {
             schema_hash: schema.get_hash(),
             watchers: Mutex::new(IsarWatchers::new(rx)),
             watcher_modifier_sender: tx,
-        })
+        };
+
+        if let Some(compact_condition) = compact_condition {
+            let instance = instance.compact(compact_condition)?;
+            if let Some(instance) = instance {
+                Ok(instance)
+            } else {
+                Self::open_internal(name, dir, instance_id, schema, relaxed_durability, None)
+            }
+        } else {
+            Ok(instance)
+        }
+    }
+
+    fn compact(self, compact_condition: CompactCondition) -> Result<Option<Self>> {
+        let mut txn = self.begin_txn(false, true)?;
+        let instance_size = self.get_size(&mut txn, true, true)?;
+        txn.abort();
+
+        let isar_file = Self::get_isar_path(&self.name, &self.dir);
+        let file_size = metadata(&isar_file)
+            .map_err(|_| IsarError::PathError {})?
+            .len();
+
+        let compact_bytes = file_size - instance_size;
+        let compact_ratio = (instance_size as f64) / (compact_bytes as f64);
+        let should_compact = file_size >= compact_condition.min_file_size
+            && compact_bytes >= compact_condition.min_bytes
+            && compact_ratio >= compact_condition.min_ratio;
+
+        if should_compact {
+            let compact_file = format!("{}.compact", &isar_file);
+            self.copy_to_file(&compact_file)?;
+            drop(self);
+
+            let _ = fs::rename(&compact_file, &isar_file);
+            Ok(None)
+        } else {
+            Ok(Some(self))
+        }
     }
 
     pub fn get_instance(name: &str) -> Option<Arc<Self>> {
@@ -158,6 +211,10 @@ impl IsarInstance {
         }
 
         Ok(size)
+    }
+
+    pub fn copy_to_file(&self, path: &str) -> Result<()> {
+        self.env.copy(path)
     }
 
     fn new_watcher(&self, start: WatcherModifier, stop: WatcherModifier) -> WatchHandle {
@@ -235,7 +292,7 @@ impl IsarInstance {
                 lock.remove(self.instance_id);
 
                 if delete_from_disk {
-                    let mut path = Self::get_db_path(&self.name, &self.dir);
+                    let mut path = Self::get_isar_path(&self.name, &self.dir);
                     drop(self);
                     let _ = remove_file(&path);
                     path.push_str(".lock");

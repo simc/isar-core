@@ -7,7 +7,7 @@ use crate::txn::CIsarTxn;
 use crate::CharsSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::{illegal_arg, Result};
-use isar_core::instance::IsarInstance;
+use isar_core::instance::{CompactCondition, IsarInstance};
 use isar_core::schema::Schema;
 use std::ffi::CString;
 use std::os::raw::c_char;
@@ -29,8 +29,11 @@ pub unsafe extern "C" fn isar_instance_create(
     isar: *mut *const IsarInstance,
     name: *const c_char,
     path: *const c_char,
-    relaxed_durability: bool,
     schema_json: *const c_char,
+    relaxed_durability: bool,
+    compact_min_file_size: u32,
+    compact_min_bytes: u32,
+    compact_min_ratio: f64,
 ) -> i64 {
     let open = || -> Result<()> {
         let name = from_c_str(name).unwrap().unwrap();
@@ -38,15 +41,23 @@ pub unsafe extern "C" fn isar_instance_create(
         let schema_json = from_c_str(schema_json).unwrap().unwrap();
         let schema = Schema::from_json(schema_json.as_bytes())?;
 
-        let instance = IsarInstance::open(name, path, relaxed_durability, schema)?;
+        let compact_condition = if compact_min_ratio.is_nan() {
+            None
+        } else {
+            Some(CompactCondition {
+                min_file_size: compact_min_file_size as u64,
+                min_bytes: compact_min_bytes as u64,
+                min_ratio: compact_min_ratio,
+            })
+        };
+
+        let instance =
+            IsarInstance::open(name, path, schema, relaxed_durability, compact_condition)?;
         isar.write(Arc::into_raw(instance));
         Ok(())
     };
 
-    match open() {
-        Ok(_) => 0,
-        Err(e) => e.into_dart_err_code(),
-    }
+    open().into_dart_result_code()
 }
 
 #[no_mangle]
@@ -54,8 +65,11 @@ pub unsafe extern "C" fn isar_instance_create_async(
     isar: *mut *const IsarInstance,
     name: *const c_char,
     path: *const c_char,
-    relaxed_durability: bool,
     schema_json: *const c_char,
+    relaxed_durability: bool,
+    compact_min_file_size: u32,
+    compact_min_bytes: u32,
+    compact_min_ratio: f64,
     port: DartPort,
 ) {
     let isar = IsarInstanceSend(isar);
@@ -67,8 +81,16 @@ pub unsafe extern "C" fn isar_instance_create_async(
         let name = name;
         let path = path;
         let schema_json = schema_json;
-        let result =
-            isar_instance_create(isar.0, name.0, path.0, relaxed_durability, schema_json.0);
+        let result = isar_instance_create(
+            isar.0,
+            name.0,
+            path.0,
+            schema_json.0,
+            relaxed_durability,
+            compact_min_file_size,
+            compact_min_bytes,
+            compact_min_ratio,
+        );
         dart_post_int(port, result);
     });
 }
@@ -118,6 +140,21 @@ pub unsafe extern "C" fn isar_instance_get_size(
         *size = instance.get_size(txn, include_indexes, include_links)? as i64;
         Ok(())
     })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_instance_copy_to_file(
+    instance: &'static IsarInstance,
+    path: *const c_char,
+    port: DartPort,
+) {
+    let path = CharsSend(path);
+    run_async(move || {
+        let path = path;
+        let path = from_c_str(path.0).unwrap().unwrap();
+        let result = instance.copy_to_file(path);
+        dart_post_int(port, result.into_dart_result_code());
+    });
 }
 
 #[no_mangle]

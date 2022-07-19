@@ -151,7 +151,7 @@ impl<'txn> Query {
         let mut hashes = IntMap::new();
         move |id, object| {
             let hash = Self::hash_properties(object, &properties);
-            if hashes.insert(hash, ()) {
+            if hashes.insert_checked(hash, ()) {
                 callback(id, object)
             } else {
                 Ok(true)
@@ -220,7 +220,7 @@ impl<'txn> Query {
             .into_iter()
             .filter(|(_, object)| {
                 let hash = Self::hash_properties(*object, &properties);
-                hashes.insert(hash, ())
+                hashes.insert_checked(hash, ())
             })
             .collect()
     }

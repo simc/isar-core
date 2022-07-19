@@ -79,7 +79,7 @@ impl IndexWhereClause {
         let mut data_cursor = cursors.get_cursor(self.db)?;
         self.iter_ids(cursors, |id| {
             if let Some(result_ids) = result_ids.as_deref_mut() {
-                if !result_ids.insert(id as u64, ()) {
+                if !result_ids.insert_checked(id as u64, ()) {
                     return Ok(true);
                 }
             }

@@ -77,6 +77,17 @@ impl Env {
         }
         Ok(Txn::new(txn, write))
     }
+
+    pub fn copy(&self, path: &str) -> Result<()> {
+        let path = CString::new(path.as_bytes()).unwrap();
+        unsafe {
+            mdbx_result(ffi::mdbx_env_copy(
+                self.env,
+                path.as_ptr(),
+                ffi::MDBX_CP_COMPACT,
+            ))
+        }
+    }
 }
 
 impl Drop for Env {

@@ -51,7 +51,7 @@ impl IdWhereClause {
             |_, id_bytes, object| {
                 let id = id_bytes.to_id();
                 if let Some(result_ids) = result_ids.as_deref_mut() {
-                    if !result_ids.insert(id as u64, ()) {
+                    if !result_ids.insert_checked(id as u64, ()) {
                         return Ok(true);
                     }
                 }
