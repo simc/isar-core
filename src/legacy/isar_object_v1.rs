@@ -1,4 +1,4 @@
-use crate::object::data_type::DataType;
+use crate::object::{data_type::DataType, isar_object::IsarObject};
 use byteorder::{ByteOrder, LittleEndian};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -20,13 +20,6 @@ pub struct LegacyIsarObject<'a> {
 }
 
 impl<'a> LegacyIsarObject<'a> {
-    pub const NULL_BYTE: u8 = 0;
-    pub const TRUE_BYTE: u8 = 2;
-    pub const NULL_INT: i32 = i32::MIN;
-    pub const NULL_LONG: i64 = i64::MIN;
-    pub const NULL_FLOAT: f32 = f32::NAN;
-    pub const NULL_DOUBLE: f64 = f64::NAN;
-
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
         let static_size = LittleEndian::read_u16(bytes) as usize;
         LegacyIsarObject { bytes, static_size }
@@ -44,9 +37,9 @@ impl<'a> LegacyIsarObject<'a> {
 
     pub fn is_null(&self, property: LegacyProperty) -> bool {
         match property.data_type {
-            DataType::Byte => self.read_byte(property) == Self::NULL_BYTE,
-            DataType::Int => self.read_int(property) == Self::NULL_INT,
-            DataType::Long => self.read_long(property) == Self::NULL_LONG,
+            DataType::Byte => self.read_byte(property) == IsarObject::NULL_BYTE,
+            DataType::Int => self.read_int(property) == IsarObject::NULL_INT,
+            DataType::Long => self.read_long(property) == IsarObject::NULL_LONG,
             DataType::Float => self.read_float(property).is_nan(),
             DataType::Double => self.read_double(property).is_nan(),
             _ => self.get_offset_length(property.offset, false).is_none(),
@@ -58,12 +51,12 @@ impl<'a> LegacyIsarObject<'a> {
         if self.contains_property(property) {
             self.bytes[property.offset]
         } else {
-            Self::NULL_BYTE
+            IsarObject::NULL_BYTE
         }
     }
 
     pub fn read_bool(&self, property: LegacyProperty) -> bool {
-        self.read_byte(property) == Self::TRUE_BYTE
+        self.read_byte(property) == IsarObject::TRUE_BOOL
     }
 
     pub fn read_int(&self, property: LegacyProperty) -> i32 {
@@ -71,7 +64,7 @@ impl<'a> LegacyIsarObject<'a> {
         if self.contains_property(property) {
             LittleEndian::read_i32(&self.bytes[property.offset..])
         } else {
-            Self::NULL_INT
+            IsarObject::NULL_INT
         }
     }
 
@@ -80,7 +73,7 @@ impl<'a> LegacyIsarObject<'a> {
         if self.contains_property(property) {
             LittleEndian::read_f32(&self.bytes[property.offset..])
         } else {
-            Self::NULL_FLOAT
+            IsarObject::NULL_FLOAT
         }
     }
 
@@ -89,7 +82,7 @@ impl<'a> LegacyIsarObject<'a> {
         if self.contains_property(property) {
             LittleEndian::read_i64(&self.bytes[property.offset..])
         } else {
-            Self::NULL_LONG
+            IsarObject::NULL_LONG
         }
     }
 
@@ -98,7 +91,7 @@ impl<'a> LegacyIsarObject<'a> {
         if self.contains_property(property) {
             LittleEndian::read_f64(&self.bytes[property.offset..])
         } else {
-            Self::NULL_DOUBLE
+            IsarObject::NULL_DOUBLE
         }
     }
 
