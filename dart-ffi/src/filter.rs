@@ -352,17 +352,14 @@ macro_rules! filter_string_ffi {
             value: *const c_char,
             case_sensitive: bool,
             property_id: u32,
+            embedded_property_id: i32,
         ) -> i64 {
-            let property = collection.properties.get(property_id as usize);
             isar_try! {
-                if let Some(property) = property {
-                    let str = from_c_str(value)?.unwrap();
-                    let query_filter = isar_core::query::filter::Filter::$filter_name(property, str, case_sensitive)?;
-                    let ptr = Box::into_raw(Box::new(query_filter));
-                    filter.write(ptr);
-                } else {
-                    illegal_arg("Property does not exist.")?;
-                }
+                let property = get_property(collection, property_id, embedded_property_id)?;
+                let str = from_c_str(value)?.unwrap();
+                let query_filter = isar_core::query::filter::Filter::$filter_name(property, str, case_sensitive)?;
+                let ptr = Box::into_raw(Box::new(query_filter));
+                filter.write(ptr);
             }
         }
     }
