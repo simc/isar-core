@@ -134,6 +134,7 @@ pub unsafe extern "C" fn isar_filter_list_length(
     }
 }
 
+#[no_mangle]
 pub unsafe extern "C" fn isar_filter_null(
     collection: &IsarCollection,
     filter: *mut *const Filter,
