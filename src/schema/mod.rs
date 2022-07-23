@@ -44,8 +44,10 @@ impl Schema {
         hasher.finish()
     }
 
-    pub(crate) fn get_collection(&self, name: &str) -> Option<&CollectionSchema> {
-        self.collections.iter().find(|c| c.name == name)
+    pub(crate) fn get_collection(&self, name: &str, embedded: bool) -> Option<&CollectionSchema> {
+        self.collections
+            .iter()
+            .find(|c| c.name == name && c.embedded == embedded)
     }
 
     pub(crate) fn count_dbs(&self) -> usize {

@@ -6,6 +6,7 @@ pub enum DataType {
     Byte,
     Int,
     Float,
+    #[serde(alias = "DateTime")]
     Long,
     Double,
     String,
@@ -14,6 +15,7 @@ pub enum DataType {
     ByteList,
     IntList,
     FloatList,
+    #[serde(alias = "DateTimeList")]
     LongList,
     DoubleList,
     StringList,

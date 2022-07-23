@@ -177,6 +177,19 @@ impl Filter {
         string_filter_create!(Matches, property, value, case_sensitive)
     }
 
+    pub fn list_length(property: &Property, lower: usize, upper: usize) -> Result<Filter> {
+        let filter_cond = if property.data_type.get_element_type().is_some() {
+            Ok(FilterCond::ListLength(ListLengthCond {
+                offset: property.offset,
+                lower,
+                upper,
+            }))
+        } else {
+            illegal_arg("Property does not support this filter.")
+        }?;
+        Ok(Filter(filter_cond))
+    }
+
     pub fn null(property: &Property) -> Filter {
         let filter_cond = FilterCond::Null(NullCond {
             offset: property.offset,
@@ -216,8 +229,40 @@ impl Filter {
         Filter(filter_cond)
     }
 
+    pub fn object(property: &Property, filter: Filter) -> Result<Filter> {
+        let filter_cond = if property.data_type == DataType::Object {
+            Ok(FilterCond::Object(ObjectCond {
+                offset: property.offset,
+                filter: Box::new(filter.0),
+            }))
+        } else if property.data_type == DataType::ObjectList {
+            Ok(FilterCond::AnyObject(AnyObjectCond {
+                offset: property.offset,
+                filter: Box::new(filter.0),
+            }))
+        } else {
+            illegal_arg("Property does not support this filter.")
+        }?;
+        Ok(Filter(filter_cond))
+    }
+
     pub fn link(collection: &IsarCollection, link_id: usize, filter: Filter) -> Result<Filter> {
-        let filter_cond = LinkCond::filter(collection, link_id, filter.0)?;
+        let link = collection.get_link_backlink(link_id)?.clone();
+        let filter_cond = FilterCond::AnyLink(AnyLinkCond {
+            link,
+            filter: Box::new(filter.0),
+        });
+        Ok(Filter(filter_cond))
+    }
+
+    pub fn link_length(
+        collection: &IsarCollection,
+        link_id: usize,
+        lower: usize,
+        upper: usize,
+    ) -> Result<Filter> {
+        let link = collection.get_link_backlink(link_id)?.clone();
+        let filter_cond = FilterCond::LinkLength(LinkLengthCond { link, lower, upper });
         Ok(Filter(filter_cond))
     }
 
@@ -259,13 +304,20 @@ enum FilterCond {
     AnyStringContains(AnyStringContainsCond),
     AnyStringMatches(AnyStringMatchesCond),
 
+    ListLength(ListLengthCond),
+
     Null(NullCond),
     And(AndCond),
     Or(OrCond),
     Xor(XorCond),
     Not(NotCond),
     Static(StaticCond),
-    Link(LinkCond),
+
+    Object(ObjectCond),
+    AnyObject(AnyObjectCond),
+
+    AnyLink(AnyLinkCond),
+    LinkLength(LinkLengthCond),
 }
 
 #[enum_dispatch(FilterCond)]
@@ -576,6 +628,28 @@ string_filter!(StringContains);
 string_filter!(StringMatches);
 
 #[derive(Clone)]
+struct ListLengthCond {
+    offset: usize,
+    lower: usize,
+    upper: usize,
+}
+
+impl Condition for ListLengthCond {
+    fn evaluate(
+        &self,
+        _id: i64,
+        object: IsarObject,
+        _cursors: Option<&IsarCursors>,
+    ) -> Result<bool> {
+        if let Some(len) = object.read_length(self.offset) {
+            Ok(self.lower <= len && self.upper >= len)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+#[derive(Clone)]
 struct NullCond {
     offset: usize,
     data_type: DataType,
@@ -668,12 +742,60 @@ impl Condition for StaticCond {
 }
 
 #[derive(Clone)]
-struct LinkCond {
+struct ObjectCond {
+    offset: usize,
+    filter: Box<FilterCond>,
+}
+
+impl Condition for ObjectCond {
+    fn evaluate(
+        &self,
+        _id: i64,
+        object: IsarObject,
+        _cursors: Option<&IsarCursors>,
+    ) -> Result<bool> {
+        if let Some(object) = object.read_object(self.offset) {
+            self.filter.evaluate(0, object, None)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AnyObjectCond {
+    offset: usize,
+    filter: Box<FilterCond>,
+}
+
+impl Condition for AnyObjectCond {
+    fn evaluate(
+        &self,
+        _id: i64,
+        object: IsarObject,
+        _cursors: Option<&IsarCursors>,
+    ) -> Result<bool> {
+        if let Some(list) = object.read_object_list(self.offset) {
+            for object in list {
+                if let Some(object) = object {
+                    let result = self.filter.evaluate(0, object, None)?;
+                    if result {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+}
+
+#[derive(Clone)]
+struct AnyLinkCond {
     link: IsarLink,
     filter: Box<FilterCond>,
 }
 
-impl Condition for LinkCond {
+impl Condition for AnyLinkCond {
     fn evaluate(
         &self,
         id: i64,
@@ -694,16 +816,30 @@ impl Condition for LinkCond {
     }
 }
 
-impl LinkCond {
-    fn filter(
-        collection: &IsarCollection,
-        link_id: usize,
-        filter: FilterCond,
-    ) -> Result<FilterCond> {
-        let link = collection.get_link_backlink(link_id)?.clone();
-        Ok(FilterCond::Link(LinkCond {
-            link,
-            filter: Box::new(filter),
-        }))
+#[derive(Clone)]
+struct LinkLengthCond {
+    link: IsarLink,
+    lower: usize,
+    upper: usize,
+}
+
+impl Condition for LinkLengthCond {
+    fn evaluate(
+        &self,
+        id: i64,
+        _object: IsarObject,
+        cursors: Option<&IsarCursors>,
+    ) -> Result<bool> {
+        if let Some(cursors) = cursors {
+            let mut length = 0;
+            self.link.iter_ids(cursors, id, |_, _| {
+                length += 1;
+                Ok(true)
+            })?;
+
+            Ok(self.lower <= length && self.upper >= length)
+        } else {
+            Ok(true)
+        }
     }
 }

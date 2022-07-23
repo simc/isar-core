@@ -6,10 +6,12 @@ use crate::schema::link_schema::LinkSchema;
 use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::xxh3_64;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash)]
 pub struct CollectionSchema {
     pub(crate) name: String,
+    pub(crate) embedded: bool,
     pub(crate) properties: Vec<PropertySchema>,
     pub(crate) indexes: Vec<IndexSchema>,
     pub(crate) links: Vec<LinkSchema>,
@@ -17,19 +19,21 @@ pub struct CollectionSchema {
 
 impl PartialEq for CollectionSchema {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+        self.name == other.name && self.embedded == other.embedded
     }
 }
 
 impl CollectionSchema {
     pub fn new(
         name: &str,
+        embedded: bool,
         properties: Vec<PropertySchema>,
         indexes: Vec<IndexSchema>,
         links: Vec<LinkSchema>,
     ) -> CollectionSchema {
         CollectionSchema {
             name: name.to_string(),
+            embedded,
             properties,
             indexes,
             links,
@@ -49,9 +53,16 @@ impl CollectionSchema {
     pub(crate) fn verify(&self, collections: &[CollectionSchema]) -> Result<()> {
         Self::verify_name(&self.name)?;
 
-        let verify_target_col_exists = |col: &str| -> Result<()> {
-            if !collections.iter().any(|c| c.name == col) {
-                schema_error("Link target collection does not exist.")?;
+        if self.embedded && (!self.links.is_empty() || !self.indexes.is_empty()) {
+            schema_error("Embedded objects must not have Links or Indexes.")?;
+        }
+
+        let verify_target_col_exists = |col: &str, embedded: bool| -> Result<()> {
+            if !collections
+                .iter()
+                .any(|c| c.name == col && c.embedded == embedded)
+            {
+                schema_error("Target collection does not exist.")?;
             }
             Ok(())
         };
@@ -64,9 +75,9 @@ impl CollectionSchema {
             if property.data_type == DataType::Object || property.data_type == DataType::ObjectList
             {
                 if let Some(target_col) = &property.target_col {
-                    verify_target_col_exists(target_col)?;
+                    verify_target_col_exists(target_col, true)?;
                 } else {
-                    schema_error("Object property must have an target collection.")?;
+                    schema_error("Object property must have a target collection.")?;
                 }
             } else {
                 if property.target_col.is_some() {
@@ -77,7 +88,7 @@ impl CollectionSchema {
 
         for link in &self.links {
             Self::verify_name(&link.name)?;
-            verify_target_col_exists(&link.target_col)?;
+            verify_target_col_exists(&link.target_col, false)?;
         }
 
         let property_names = self
@@ -225,6 +236,10 @@ impl CollectionSchema {
             offset += property_schema.data_type.get_static_size();
         }
         properties
+    }
+
+    pub(crate) fn hash_name(name: &str) -> u64 {
+        xxh3_64(name.as_bytes())
     }
 }
 

@@ -14,6 +14,7 @@ use crate::object::property::Property;
 use crate::query::query_builder::QueryBuilder;
 use crate::txn::IsarTxn;
 use crate::watch::change_set::ChangeSet;
+use intmap::IntMap;
 use serde_json::Value;
 use std::cell::Cell;
 use std::collections::HashSet;
@@ -22,6 +23,7 @@ use std::ops::Deref;
 pub struct IsarCollection {
     pub name: String,
     pub properties: Vec<Property>,
+    pub embedded_properties: IntMap<Vec<Property>>,
 
     pub(crate) instance_id: u64,
     pub(crate) db: Db,
@@ -43,6 +45,7 @@ impl IsarCollection {
         instance_id: u64,
         name: String,
         properties: Vec<Property>,
+        embedded_properties: IntMap<Vec<Property>>,
         indexes: Vec<IsarIndex>,
         links: Vec<IsarLink>,
         backlinks: Vec<IsarLink>,
@@ -52,6 +55,7 @@ impl IsarCollection {
             db,
             name,
             properties,
+            embedded_properties,
             indexes,
             links,
             backlinks,
@@ -167,6 +171,10 @@ impl IsarCollection {
         id: Option<i64>,
         object: IsarObject,
     ) -> Result<i64> {
+        if object.len() > u16::MAX as usize {
+            illegal_arg("Object is bigger than 16MB")?;
+        }
+
         let id = if let Some(id) = id {
             self.delete_internal(cursors, false, change_set.as_deref_mut(), id)?;
             self.update_auto_increment(id);
@@ -343,7 +351,14 @@ impl IsarCollection {
                 } else {
                     None
                 };
-                let ob = JsonEncodeDecode::decode(&self.properties, value, ob_result_cache)?;
+
+                let mut ob = ObjectBuilder::new(&self.properties, ob_result_cache);
+                JsonEncodeDecode::decode(
+                    &self.properties,
+                    &self.embedded_properties,
+                    &mut ob,
+                    value,
+                )?;
                 let object = ob.finish();
                 self.put_internal(cursors, change_set.as_deref_mut(), id, object)?;
                 ob_result_cache = Some(ob.recycle());

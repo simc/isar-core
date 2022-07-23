@@ -161,8 +161,12 @@ impl IsarInstance {
             .map_err(|_| IsarError::PathError {})?
             .len();
 
-        let compact_bytes = file_size - instance_size;
-        let compact_ratio = (instance_size as f64) / (compact_bytes as f64);
+        let compact_bytes = file_size.saturating_sub(instance_size);
+        let compact_ratio = if instance_size == 0 {
+            f64::INFINITY
+        } else {
+            (file_size as f64) / (instance_size as f64)
+        };
         let should_compact = file_size >= compact_condition.min_file_size
             && compact_bytes >= compact_condition.min_bytes
             && compact_ratio >= compact_condition.min_ratio;

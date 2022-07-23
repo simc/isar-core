@@ -190,7 +190,7 @@ impl TestObj {
             PropertySchema::new(Some("doubleList".to_string()), DataType::DoubleList, None),
             PropertySchema::new(Some("stringList".to_string()), DataType::StringList, None),
         ];
-        CollectionSchema::new(name, properties, indexes.to_vec(), links.to_vec())
+        CollectionSchema::new(name, false, properties, indexes.to_vec(), links.to_vec())
     }
 
     pub fn default_indexes() -> Vec<IndexSchema> {
@@ -239,26 +239,36 @@ impl TestObj {
         let mut builder = col.new_object_builder(None);
         for prop in &col.properties {
             match prop.data_type {
-                DataType::Bool => builder.write_bool(self.bool),
-                DataType::Byte => builder.write_byte(self.byte),
-                DataType::Int => builder.write_int(self.int),
-                DataType::Float => builder.write_float(self.float),
-                DataType::Long => builder.write_long(self.id),
-                DataType::Double => builder.write_double(self.double),
-                DataType::String => builder.write_string(self.string.as_deref()),
+                DataType::Bool => builder.write_bool(prop.offset, self.bool),
+                DataType::Byte => builder.write_byte(prop.offset, self.byte),
+                DataType::Int => builder.write_int(prop.offset, self.int),
+                DataType::Float => builder.write_float(prop.offset, self.float),
+                DataType::Long => builder.write_long(prop.offset, self.id),
+                DataType::Double => builder.write_double(prop.offset, self.double),
+                DataType::String => builder.write_string(prop.offset, self.string.as_deref()),
                 DataType::Object => unimplemented!(),
-                DataType::BoolList => builder.write_bool_list(self.bool_list.as_deref()),
-                DataType::ByteList => builder.write_byte_list(self.byte_list.as_deref()),
-                DataType::IntList => builder.write_int_list(self.int_list.as_deref()),
-                DataType::FloatList => builder.write_float_list(self.float_list.as_deref()),
-                DataType::LongList => builder.write_long_list(self.long_list.as_deref()),
-                DataType::DoubleList => builder.write_double_list(self.double_list.as_deref()),
+                DataType::BoolList => {
+                    builder.write_bool_list(prop.offset, self.bool_list.as_deref())
+                }
+                DataType::ByteList => {
+                    builder.write_byte_list(prop.offset, self.byte_list.as_deref())
+                }
+                DataType::IntList => builder.write_int_list(prop.offset, self.int_list.as_deref()),
+                DataType::FloatList => {
+                    builder.write_float_list(prop.offset, self.float_list.as_deref())
+                }
+                DataType::LongList => {
+                    builder.write_long_list(prop.offset, self.long_list.as_deref())
+                }
+                DataType::DoubleList => {
+                    builder.write_double_list(prop.offset, self.double_list.as_deref())
+                }
                 DataType::StringList => {
                     let string_list = self
                         .string_list
                         .as_deref()
                         .map(|l| l.iter().map(|e| e.as_deref()).collect_vec());
-                    builder.write_string_list(string_list.as_deref());
+                    builder.write_string_list(prop.offset, string_list.as_deref());
                 }
                 DataType::ObjectList => unimplemented!(),
             }

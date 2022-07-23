@@ -29,6 +29,10 @@ impl<'a> IsarObject<'a> {
         self.bytes
     }
 
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
     #[inline]
     pub(crate) fn contains_offset(&self, offset: usize) -> bool {
         self.static_size > offset
@@ -117,6 +121,11 @@ impl<'a> IsarObject<'a> {
             }
         }
         None
+    }
+
+    pub fn read_length(&self, offset: usize) -> Option<usize> {
+        let (_, length) = self.get_offset_length(offset)?;
+        Some(length)
     }
 
     pub fn read_byte_list(&self, offset: usize) -> Option<&'a [u8]> {
@@ -433,17 +442,17 @@ mod tests {
     #[test]
     fn test_read_bool() {
         builder!(b, p, Bool);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_bool(p.offset), None);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, Bool);
-        b.write_bool(Some(true));
+        b.write_bool(p.offset, Some(true));
         assert_eq!(b.finish().read_bool(p.offset), Some(true));
         assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, Bool);
-        b.write_bool(Some(false));
+        b.write_bool(p.offset, Some(false));
         assert_eq!(b.finish().read_bool(p.offset), Some(false));
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -451,12 +460,12 @@ mod tests {
     #[test]
     fn test_read_byte() {
         builder!(b, p, Byte);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_byte(p.offset), IsarObject::NULL_BYTE);
         assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, Byte);
-        b.write_byte(123);
+        b.write_byte(p.offset, 123);
         assert_eq!(b.finish().read_byte(p.offset), 123);
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -464,12 +473,12 @@ mod tests {
     #[test]
     fn test_read_int() {
         builder!(b, p, Int);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_int(p.offset), IsarObject::NULL_INT);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, Int);
-        b.write_int(123);
+        b.write_int(p.offset, 123);
         assert_eq!(b.finish().read_int(p.offset), 123);
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -477,12 +486,12 @@ mod tests {
     #[test]
     fn test_read_float() {
         builder!(b, p, Float);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert!(b.finish().read_float(p.offset).is_nan());
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, Float);
-        b.write_float(123.123);
+        b.write_float(p.offset, 123.123);
         assert!((b.finish().read_float(p.offset) - 123.123).abs() < 0.000001);
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -490,12 +499,12 @@ mod tests {
     #[test]
     fn test_read_long() {
         builder!(b, p, Long);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_long(p.offset), IsarObject::NULL_LONG);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, Long);
-        b.write_long(123123123123123123);
+        b.write_long(p.offset, 123123123123123123);
         assert_eq!(b.finish().read_long(p.offset), 123123123123123123);
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -503,12 +512,12 @@ mod tests {
     #[test]
     fn test_read_double() {
         builder!(b, p, Double);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert!(b.finish().read_double(p.offset).is_nan());
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, Double);
-        b.write_double(123123.123123123);
+        b.write_double(p.offset, 123123.123123123);
         assert!((b.finish().read_double(p.offset) - 123123.123123123).abs() < 0.00000001);
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -516,17 +525,17 @@ mod tests {
     #[test]
     fn test_read_string() {
         builder!(b, p, String);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_string(p.offset), None);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, String);
-        b.write_string(Some("hello"));
+        b.write_string(p.offset, Some("hello"));
         assert_eq!(b.finish().read_string(p.offset), Some("hello"));
         assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, String);
-        b.write_string(Some(""));
+        b.write_string(p.offset, Some(""));
         assert_eq!(b.finish().read_string(p.offset), Some(""));
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -534,17 +543,17 @@ mod tests {
     #[test]
     fn test_read_byte_list() {
         builder!(b, p, ByteList);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_byte_list(p.offset), None);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, ByteList);
-        b.write_byte_list(Some(&[1, 2, 3]));
+        b.write_byte_list(p.offset, Some(&[1, 2, 3]));
         assert_eq!(b.finish().read_byte_list(p.offset), Some(&[1, 2, 3][..]));
         assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, ByteList);
-        b.write_byte_list(Some(&[]));
+        b.write_byte_list(p.offset, Some(&[]));
         assert_eq!(b.finish().read_byte_list(p.offset), Some(&[][..]));
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -552,17 +561,17 @@ mod tests {
     #[test]
     fn test_read_int_list() {
         builder!(b, p, IntList);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_int_list(p.offset), None);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, IntList);
-        b.write_int_list(Some(&[1, 2, 3]));
+        b.write_int_list(p.offset, Some(&[1, 2, 3]));
         assert_eq!(b.finish().read_int_list(p.offset), Some(vec![1, 2, 3]));
         assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, IntList);
-        b.write_int_list(Some(&[]));
+        b.write_int_list(p.offset, Some(&[]));
         assert_eq!(b.finish().read_int_list(p.offset), Some(vec![]));
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -570,12 +579,12 @@ mod tests {
     #[test]
     fn test_read_float_list() {
         builder!(b, p, FloatList);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_float_list(p.offset), None);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, FloatList);
-        b.write_float_list(Some(&[1.1, 2.2, 3.3]));
+        b.write_float_list(p.offset, Some(&[1.1, 2.2, 3.3]));
         assert_eq!(
             b.finish().read_float_list(p.offset),
             Some(vec![1.1, 2.2, 3.3])
@@ -583,7 +592,7 @@ mod tests {
         assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, FloatList);
-        b.write_float_list(Some(&[]));
+        b.write_float_list(p.offset, Some(&[]));
         assert_eq!(b.finish().read_float_list(p.offset), Some(vec![]));
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -591,17 +600,17 @@ mod tests {
     #[test]
     fn test_read_long_list() {
         builder!(b, p, LongList);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_long_list(p.offset), None);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, LongList);
-        b.write_long_list(Some(&[1, 2, 3]));
+        b.write_long_list(p.offset, Some(&[1, 2, 3]));
         assert_eq!(b.finish().read_long_list(p.offset), Some(vec![1, 2, 3]));
         assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, LongList);
-        b.write_long_list(Some(&[]));
+        b.write_long_list(p.offset, Some(&[]));
         assert_eq!(b.finish().read_long_list(p.offset), Some(vec![]));
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -609,12 +618,12 @@ mod tests {
     #[test]
     fn test_read_double_list() {
         builder!(b, p, DoubleList);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_double_list(p.offset), None);
         assert!(b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, DoubleList);
-        b.write_double_list(Some(&[1.1, 2.2, 3.3]));
+        b.write_double_list(p.offset, Some(&[1.1, 2.2, 3.3]));
         assert_eq!(
             b.finish().read_double_list(p.offset),
             Some(vec![1.1, 2.2, 3.3])
@@ -622,7 +631,7 @@ mod tests {
         assert!(!b.finish().is_null(p.offset, p.data_type));
 
         builder!(b, p, DoubleList);
-        b.write_double_list(Some(&[]));
+        b.write_double_list(p.offset, Some(&[]));
         assert_eq!(b.finish().read_double_list(p.offset), Some(vec![]));
         assert!(!b.finish().is_null(p.offset, p.data_type));
     }
@@ -630,7 +639,7 @@ mod tests {
     #[test]
     fn test_read_string_list() {
         builder!(b, p, StringList);
-        b.write_null();
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().read_string_list(p.offset), None);
 
         let cases = vec![
@@ -673,7 +682,7 @@ mod tests {
                         .cloned()
                         .collect_vec();
                     builder!(b, p, StringList);
-                    b.write_string_list(Some(&case));
+                    b.write_string_list(p.offset, Some(&case));
                     assert_eq!(b.finish().read_string_list(p.offset), Some(case));
                 }
             }

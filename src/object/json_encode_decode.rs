@@ -2,6 +2,8 @@ use crate::error::{IsarError, Result};
 use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::object::object_builder::ObjectBuilder;
+use intmap::IntMap;
+use itertools::Itertools;
 use serde_json::{json, Map, Value};
 
 use super::property::Property;
@@ -11,6 +13,7 @@ pub struct JsonEncodeDecode {}
 impl<'a> JsonEncodeDecode {
     pub fn encode(
         properties: &[Property],
+        embedded_properties: &IntMap<Vec<Property>>,
         object: IsarObject,
         primitive_null: bool,
     ) -> Map<String, Value> {
@@ -32,7 +35,17 @@ impl<'a> JsonEncodeDecode {
                     DataType::Long => json!(object.read_long(property.offset)),
                     DataType::Double => json!(object.read_double(property.offset)),
                     DataType::String => json!(object.read_string(property.offset)),
-                    DataType::Object => unimplemented!(),
+                    DataType::Object => {
+                        let properties = embedded_properties
+                            .get(property.target_col.unwrap())
+                            .unwrap();
+                        Self::object_to_value(
+                            properties,
+                            embedded_properties,
+                            object.read_object(property.offset),
+                            primitive_null,
+                        )
+                    }
                     DataType::BoolList => json!(object.read_bool_list(property.offset).unwrap()),
                     DataType::ByteList => json!(object.read_byte_list(property.offset).unwrap()),
                     DataType::IntList => {
@@ -64,7 +77,28 @@ impl<'a> JsonEncodeDecode {
                         }
                     }
                     DataType::StringList => json!(object.read_string_list(property.offset)),
-                    DataType::ObjectList => unimplemented!(),
+                    DataType::ObjectList => {
+                        let properties = embedded_properties
+                            .get(property.target_col.unwrap())
+                            .unwrap();
+                        if let Some(objects) = object.read_object_list(property.offset) {
+                            let encoded = objects
+                                .into_iter()
+                                .map(|object| {
+                                    Self::object_to_value(
+                                        properties,
+                                        embedded_properties,
+                                        object,
+                                        primitive_null,
+                                    )
+                                })
+                                .collect_vec();
+
+                            json!(encoded)
+                        } else {
+                            Value::Null
+                        }
+                    }
                 }
             };
             object_map.insert(property.name.clone(), value);
@@ -73,68 +107,115 @@ impl<'a> JsonEncodeDecode {
         object_map
     }
 
+    fn object_to_value(
+        properties: &[Property],
+        embedded_properties: &IntMap<Vec<Property>>,
+        object: Option<IsarObject>,
+        primitive_null: bool,
+    ) -> Value {
+        if let Some(object) = object {
+            let encoded =
+                JsonEncodeDecode::encode(properties, embedded_properties, object, primitive_null);
+            json!(encoded)
+        } else {
+            Value::Null
+        }
+    }
+
     pub fn decode(
-        properties: &'a [Property],
+        properties: &[Property],
+        embedded_properties: &IntMap<Vec<Property>>,
+        ob: &mut ObjectBuilder,
         json: &Value,
-        buffer: Option<Vec<u8>>,
-    ) -> Result<ObjectBuilder<'a>> {
-        let mut ob = ObjectBuilder::new(properties, buffer);
+    ) -> Result<()> {
         let object = json.as_object().ok_or(IsarError::InvalidJson {})?;
 
         for property in properties {
             if let Some(value) = object.get(&property.name) {
                 match property.data_type {
-                    DataType::Bool => ob.write_bool(Self::value_to_bool(value)?),
-                    DataType::Byte => ob.write_byte(Self::value_to_byte(value)?),
-                    DataType::Int => ob.write_int(Self::value_to_int(value)?),
-                    DataType::Float => ob.write_float(Self::value_to_float(value)?),
-                    DataType::Long => ob.write_long(Self::value_to_long(value)?),
-                    DataType::Double => ob.write_double(Self::value_to_double(value)?),
-                    DataType::String => ob.write_string(Self::value_to_string(value)?),
-                    DataType::Object => unimplemented!(),
+                    DataType::Bool => ob.write_bool(property.offset, Self::value_to_bool(value)?),
+                    DataType::Byte => ob.write_byte(property.offset, Self::value_to_byte(value)?),
+                    DataType::Int => ob.write_int(property.offset, Self::value_to_int(value)?),
+                    DataType::Float => {
+                        ob.write_float(property.offset, Self::value_to_float(value)?)
+                    }
+                    DataType::Long => ob.write_long(property.offset, Self::value_to_long(value)?),
+                    DataType::Double => {
+                        ob.write_double(property.offset, Self::value_to_double(value)?)
+                    }
+                    DataType::String => {
+                        ob.write_string(property.offset, Self::value_to_string(value)?)
+                    }
+                    DataType::Object => {
+                        let builder = Self::value_to_object(
+                            value,
+                            embedded_properties,
+                            property.target_col.unwrap(),
+                        )?;
+                        ob.write_object(property.offset, builder.as_ref().map(|b| b.finish()));
+                    }
                     DataType::BoolList => {
                         let list = Self::value_to_array(value, Self::value_to_bool)?;
-                        ob.write_bool_list(list.as_deref());
+                        ob.write_bool_list(property.offset, list.as_deref());
                     }
                     DataType::ByteList => {
                         let list = Self::value_to_array(value, Self::value_to_byte)?;
-                        ob.write_byte_list(list.as_deref());
+                        ob.write_byte_list(property.offset, list.as_deref());
                     }
                     DataType::IntList => {
                         let list = Self::value_to_array(value, Self::value_to_int)?;
-                        ob.write_int_list(list.as_deref());
+                        ob.write_int_list(property.offset, list.as_deref());
                     }
                     DataType::FloatList => {
                         let list = Self::value_to_array(value, Self::value_to_float)?;
-                        ob.write_float_list(list.as_deref());
+                        ob.write_float_list(property.offset, list.as_deref());
                     }
                     DataType::LongList => {
                         let list = Self::value_to_array(value, Self::value_to_long)?;
-                        ob.write_long_list(list.as_deref());
+                        ob.write_long_list(property.offset, list.as_deref());
                     }
                     DataType::DoubleList => {
                         let list = Self::value_to_array(value, Self::value_to_double)?;
-                        ob.write_double_list(list.as_deref());
+                        ob.write_double_list(property.offset, list.as_deref());
                     }
                     DataType::StringList => {
                         if value.is_null() {
-                            ob.write_string_list(None);
-                        } else if let Some(value) = value.as_array() {
+                            ob.write_string_list(property.offset, None);
+                        } else if let Some(list) = value.as_array() {
                             let list: Result<Vec<Option<&str>>> =
-                                value.iter().map(Self::value_to_string).collect();
-                            ob.write_string_list(Some(list?.as_slice()));
+                                list.iter().map(Self::value_to_string).collect();
+                            ob.write_string_list(property.offset, Some(list?.as_slice()));
                         } else {
                             return Err(IsarError::InvalidJson {});
                         }
                     }
-                    DataType::ObjectList => unimplemented!(),
+                    DataType::ObjectList => {
+                        if value.is_null() {
+                            ob.write_object_list(property.offset, None);
+                        } else if let Some(list) = value.as_array() {
+                            let list: Result<Vec<Option<ObjectBuilder>>> = list
+                                .iter()
+                                .map(|value| {
+                                    Self::value_to_object(
+                                        value,
+                                        embedded_properties,
+                                        property.target_col.unwrap(),
+                                    )
+                                })
+                                .collect();
+                            //let objects = list?.iter().map(|o| o.map(|o| o.finish())).collect_vec();
+                            //ob.write_object_list(property.offset, Some(objects.as_slice()));
+                        } else {
+                            return Err(IsarError::InvalidJson {});
+                        }
+                    }
                 }
             } else {
-                ob.write_null();
+                ob.write_null(property.offset, property.data_type);
             }
         }
 
-        Ok(ob)
+        Ok(())
     }
 
     fn value_to_bool(value: &Value) -> Result<Option<bool>> {
@@ -147,7 +228,9 @@ impl<'a> JsonEncodeDecode {
     }
 
     fn value_to_byte(value: &Value) -> Result<u8> {
-        if let Some(value) = value.as_i64() {
+        if value.is_null() {
+            return Ok(IsarObject::NULL_BYTE);
+        } else if let Some(value) = value.as_i64() {
             if value >= 0 && value <= u8::MAX as i64 {
                 return Ok(value as u8);
             }
@@ -204,6 +287,21 @@ impl<'a> JsonEncodeDecode {
             Ok(Some(value))
         } else {
             Err(IsarError::InvalidJson {})
+        }
+    }
+
+    fn value_to_object(
+        value: &Value,
+        embedded_properties: &IntMap<Vec<Property>>,
+        target_col: u64,
+    ) -> Result<Option<ObjectBuilder>> {
+        if value.is_null() {
+            Ok(None)
+        } else {
+            let properties = embedded_properties.get(target_col).unwrap();
+            let mut embedded_ob = ObjectBuilder::new(properties, None);
+            Self::decode(properties, embedded_properties, &mut embedded_ob, value)?;
+            Ok(Some(embedded_ob))
         }
     }
 

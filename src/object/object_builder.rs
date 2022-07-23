@@ -30,14 +30,12 @@ u24 field4_item2_length + 1 or 0
 
 */
 
-pub struct ObjectBuilder<'a> {
+pub struct ObjectBuilder {
     buffer: Vec<u8>,
-    properties: &'a [Property],
-    property_id: usize,
     dynamic_offset: usize,
 }
 
-impl<'a> ObjectBuilder<'a> {
+impl ObjectBuilder {
     pub fn new(properties: &[Property], buffer: Option<Vec<u8>>) -> ObjectBuilder {
         let static_size = properties
             .iter()
@@ -49,8 +47,6 @@ impl<'a> ObjectBuilder<'a> {
 
         let mut ob = ObjectBuilder {
             buffer,
-            properties,
-            property_id: 0,
             dynamic_offset: static_size,
         };
         ob.write_at(0, &(static_size as u16).to_le_bytes());
@@ -58,20 +54,9 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     #[inline]
-    fn next_property(&mut self, peek: bool) -> &Property {
-        let property = self.properties.get(self.property_id).unwrap();
-        if !peek {
-            self.property_id += 1;
-        }
-
-        property
-    }
-
-    #[inline]
     fn write_at(&mut self, offset: usize, bytes: &[u8]) {
         if offset + bytes.len() > self.buffer.len() {
-            let required = offset + bytes.len();
-            self.buffer.resize(required, 0);
+            self.buffer.resize(offset + bytes.len(), 0);
         }
         self.buffer[offset..offset + bytes.len()].copy_from_slice(bytes);
     }
@@ -84,25 +69,24 @@ impl<'a> ObjectBuilder<'a> {
         LittleEndian::write_u24(&mut self.buffer[offset..], value as u32);
     }
 
-    pub fn write_null(&mut self) {
-        let property = self.next_property(true);
-        match property.data_type {
-            DataType::Bool => self.write_bool(None),
-            DataType::Byte => self.write_byte(IsarObject::NULL_BYTE),
-            DataType::Int => self.write_int(IsarObject::NULL_INT),
-            DataType::Float => self.write_float(IsarObject::NULL_FLOAT),
-            DataType::Long => self.write_long(IsarObject::NULL_LONG),
-            DataType::Double => self.write_double(IsarObject::NULL_DOUBLE),
-            DataType::String => self.write_string(None),
-            DataType::Object => self.write_object(None),
-            DataType::BoolList => self.write_bool_list(None),
-            DataType::ByteList => self.write_byte_list(None),
-            DataType::IntList => self.write_int_list(None),
-            DataType::FloatList => self.write_float_list(None),
-            DataType::LongList => self.write_long_list(None),
-            DataType::DoubleList => self.write_double_list(None),
-            DataType::StringList => self.write_string_list(None),
-            DataType::ObjectList => self.write_object_list(None),
+    pub fn write_null(&mut self, offset: usize, data_type: DataType) {
+        match data_type {
+            DataType::Bool => self.write_bool(offset, None),
+            DataType::Byte => self.write_byte(offset, IsarObject::NULL_BYTE),
+            DataType::Int => self.write_int(offset, IsarObject::NULL_INT),
+            DataType::Float => self.write_float(offset, IsarObject::NULL_FLOAT),
+            DataType::Long => self.write_long(offset, IsarObject::NULL_LONG),
+            DataType::Double => self.write_double(offset, IsarObject::NULL_DOUBLE),
+            DataType::String => self.write_string(offset, None),
+            DataType::Object => self.write_object(offset, None),
+            DataType::BoolList => self.write_bool_list(offset, None),
+            DataType::ByteList => self.write_byte_list(offset, None),
+            DataType::IntList => self.write_int_list(offset, None),
+            DataType::FloatList => self.write_float_list(offset, None),
+            DataType::LongList => self.write_long_list(offset, None),
+            DataType::DoubleList => self.write_double_list(offset, None),
+            DataType::StringList => self.write_string_list(offset, None),
+            DataType::ObjectList => self.write_object_list(offset, None),
         }
     }
 
@@ -118,134 +102,70 @@ impl<'a> ObjectBuilder<'a> {
         }
     }
 
-    pub fn write_byte(&mut self, value: u8) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::Byte);
-
-        let offset = property.offset;
+    pub fn write_byte(&mut self, offset: usize, value: u8) {
         self.write_at(offset, &[value]);
     }
 
-    pub fn write_bool(&mut self, value: Option<bool>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::Bool);
-
-        let offset = property.offset;
+    pub fn write_bool(&mut self, offset: usize, value: Option<bool>) {
         let value = Self::bool_to_byte(value);
         self.write_at(offset, &[value]);
     }
 
-    pub fn write_int(&mut self, value: i32) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::Int);
-
-        let offset = property.offset;
+    pub fn write_int(&mut self, offset: usize, value: i32) {
         self.write_at(offset, &value.to_le_bytes());
     }
 
-    pub fn write_float(&mut self, value: f32) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::Float);
-
-        let offset = property.offset;
+    pub fn write_float(&mut self, offset: usize, value: f32) {
         self.write_at(offset, &value.to_le_bytes());
     }
 
-    pub fn write_long(&mut self, value: i64) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::Long);
-
-        let offset = property.offset;
+    pub fn write_long(&mut self, offset: usize, value: i64) {
         self.write_at(offset, &value.to_le_bytes());
     }
 
-    pub fn write_double(&mut self, value: f64) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::Double);
-
-        let offset = property.offset;
+    pub fn write_double(&mut self, offset: usize, value: f64) {
         self.write_at(offset, &value.to_le_bytes());
     }
 
-    pub fn write_string(&mut self, value: Option<&str>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::String);
-
-        let offset = property.offset;
+    pub fn write_string(&mut self, offset: usize, value: Option<&str>) {
         let bytes = value.map(|s| s.as_ref());
         self.write_list(offset, bytes);
     }
 
-    pub fn write_object(&mut self, value: Option<IsarObject>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::Object);
-
-        let offset = property.offset;
+    pub fn write_object(&mut self, offset: usize, value: Option<IsarObject>) {
         self.write_list(offset, value.as_ref().map(|o| o.as_bytes()));
     }
 
-    pub fn write_bool_list(&mut self, value: Option<&[Option<bool>]>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::BoolList);
+    pub fn write_bool_list(&mut self, offset: usize, value: Option<&[Option<bool>]>) {
         let list = value.map(|list| list.iter().map(|b| Self::bool_to_byte(*b)).collect_vec());
-
-        let offset = property.offset;
         self.write_list(offset, list.as_deref());
     }
 
-    pub fn write_byte_list(&mut self, value: Option<&[u8]>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::ByteList);
-
-        let offset = property.offset;
+    pub fn write_byte_list(&mut self, offset: usize, value: Option<&[u8]>) {
         self.write_list(offset, value);
     }
 
-    pub fn write_int_list(&mut self, value: Option<&[i32]>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::IntList);
-
-        let offset = property.offset;
+    pub fn write_int_list(&mut self, offset: usize, value: Option<&[i32]>) {
         self.write_list(offset, value);
     }
 
-    pub fn write_float_list(&mut self, value: Option<&[f32]>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::FloatList);
-
-        let offset = property.offset;
+    pub fn write_float_list(&mut self, offset: usize, value: Option<&[f32]>) {
         self.write_list(offset, value);
     }
 
-    pub fn write_long_list(&mut self, value: Option<&[i64]>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::LongList);
-
-        let offset = property.offset;
+    pub fn write_long_list(&mut self, offset: usize, value: Option<&[i64]>) {
         self.write_list(offset, value);
     }
 
-    pub fn write_double_list(&mut self, value: Option<&[f64]>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::DoubleList);
-
-        let offset = property.offset;
+    pub fn write_double_list(&mut self, offset: usize, value: Option<&[f64]>) {
         self.write_list(offset, value);
     }
 
-    pub fn write_string_list(&mut self, value: Option<&[Option<&str>]>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::StringList);
-
-        let offset = property.offset;
+    pub fn write_string_list(&mut self, offset: usize, value: Option<&[Option<&str>]>) {
         self.write_list_list(offset, value, |v| v.as_bytes())
     }
 
-    pub fn write_object_list(&mut self, value: Option<&[Option<IsarObject>]>) {
-        let property = self.next_property(false);
-        assert_eq!(property.data_type, DataType::ObjectList);
-
-        let offset = property.offset;
+    pub fn write_object_list(&mut self, offset: usize, value: Option<&[Option<IsarObject>]>) {
         self.write_list_list(offset, value, |v| v.as_bytes())
     }
 
@@ -296,7 +216,6 @@ impl<'a> ObjectBuilder<'a> {
     }
 
     pub fn finish(&self) -> IsarObject {
-        assert_eq!(self.property_id, self.properties.len());
         IsarObject::from_bytes(&self.buffer)
     }
 
@@ -315,10 +234,11 @@ mod tests {
     use crate::object::property::Property;
 
     macro_rules! builder {
-        ($var:ident, $type:ident) => {
-            let props = vec![Property::debug(Byte, 2), Property::debug($type, 3)];
+        ($var:ident, $prop:ident, $type:ident) => {
+            let $prop = Property::debug($type, 3);
+            let props = vec![Property::debug(Byte, 2), $prop.clone()];
             let mut $var = ObjectBuilder::new(&props, None);
-            $var.write_byte(255);
+            $var.write_byte(2, 255);
         };
     }
 
@@ -332,34 +252,34 @@ mod tests {
 
     #[test]
     pub fn test_write_null() {
-        builder!(b, Bool);
-        b.write_null();
+        builder!(b, p, Bool);
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, 0]);
 
-        builder!(b, Byte);
-        b.write_null();
+        builder!(b, p, Byte);
+        b.write_null(p.offset, p.data_type);
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, 0]);
 
-        builder!(b, Int);
-        b.write_null();
+        builder!(b, p, Int);
+        b.write_null(p.offset, p.data_type);
         let mut bytes = vec![7, 0, 255];
         bytes.extend_from_slice(&IsarObject::NULL_INT.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, Float);
-        b.write_null();
+        builder!(b, p, Float);
+        b.write_null(p.offset, p.data_type);
         let mut bytes = vec![7, 0, 255];
         bytes.extend_from_slice(&IsarObject::NULL_FLOAT.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, Long);
-        b.write_null();
+        builder!(b, p, Long);
+        b.write_null(p.offset, p.data_type);
         let mut bytes = vec![11, 0, 255];
         bytes.extend_from_slice(&IsarObject::NULL_LONG.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, Double);
-        b.write_null();
+        builder!(b, p, Double);
+        b.write_null(p.offset, p.data_type);
         let mut bytes = vec![11, 0, 255];
         bytes.extend_from_slice(&IsarObject::NULL_DOUBLE.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
@@ -370,8 +290,8 @@ mod tests {
         ];
 
         for list_type in list_types {
-            builder!(b, list_type);
-            b.write_null();
+            builder!(b, p, list_type);
+            b.write_null(p.offset, p.data_type);
             let bytes = vec![6, 0, 255, 0, 0, 0];
             assert_eq!(b.finish().as_bytes(), &bytes);
         }
@@ -379,72 +299,72 @@ mod tests {
 
     #[test]
     pub fn test_write_bool() {
-        builder!(b, Bool);
-        b.write_bool(Some(true));
+        builder!(b, p, Bool);
+        b.write_bool(p.offset, Some(true));
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, IsarObject::TRUE_BOOL]);
 
-        builder!(b, Bool);
-        b.write_bool(Some(false));
+        builder!(b, p, Bool);
+        b.write_bool(p.offset, Some(false));
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, IsarObject::FALSE_BOOL]);
 
-        builder!(b, Bool);
-        b.write_bool(None);
+        builder!(b, p, Bool);
+        b.write_bool(p.offset, None);
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, IsarObject::NULL_BOOL]);
     }
 
     #[test]
     #[should_panic]
     pub fn test_write_bool_wrong_type() {
-        builder!(b, Byte);
-        b.write_bool(None);
+        builder!(b, p, Byte);
+        b.write_bool(p.offset, None);
     }
 
     #[test]
     pub fn test_write_byte() {
-        builder!(b, Byte);
-        b.write_byte(0);
+        builder!(b, p, Byte);
+        b.write_byte(p.offset, 0);
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, 0]);
 
-        builder!(b, Byte);
-        b.write_byte(123);
+        builder!(b, p, Byte);
+        b.write_byte(p.offset, 123);
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, 123]);
 
-        builder!(b, Byte);
-        b.write_byte(255);
+        builder!(b, p, Byte);
+        b.write_byte(p.offset, 255);
         assert_eq!(b.finish().as_bytes(), &[4, 0, 255, 255]);
     }
 
     #[test]
     #[should_panic]
     pub fn test_write_byte_wrong_type() {
-        builder!(b, Bool);
-        b.write_byte(123);
+        builder!(b, p, Bool);
+        b.write_byte(p.offset, 123);
     }
 
     #[test]
     pub fn test_write_int() {
-        builder!(b, Int);
-        b.write_int(123);
+        builder!(b, p, Int);
+        b.write_int(p.offset, 123);
         assert_eq!(b.finish().as_bytes(), &[7, 0, 255, 123, 0, 0, 0])
     }
 
     #[test]
     #[should_panic]
     pub fn test_write_int_wrong_type() {
-        builder!(b, Long);
-        b.write_int(123);
+        builder!(b, p, Long);
+        b.write_int(p.offset, 123);
     }
 
     #[test]
     pub fn test_write_float() {
-        builder!(b, Float);
-        b.write_float(123.123);
+        builder!(b, p, Float);
+        b.write_float(p.offset, 123.123);
         let mut bytes = vec![7, 0, 255];
         bytes.extend_from_slice(&123.123f32.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, Float);
-        b.write_float(f32::NAN);
+        builder!(b, p, Float);
+        b.write_float(p.offset, f32::NAN);
         let mut bytes = vec![7, 0, 255];
         bytes.extend_from_slice(&f32::NAN.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
@@ -453,14 +373,14 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_float_wrong_type() {
-        builder!(b, Double);
-        b.write_float(123.123);
+        builder!(b, p, Double);
+        b.write_float(p.offset, 123.123);
     }
 
     #[test]
     pub fn test_write_long() {
-        builder!(b, Long);
-        b.write_long(123123);
+        builder!(b, p, Long);
+        b.write_long(p.offset, 123123);
         let mut bytes = vec![11, 0, 255];
         bytes.extend_from_slice(&123123i64.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes)
@@ -469,20 +389,20 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_long_wrong_type() {
-        builder!(b, Int);
-        b.write_long(123123);
+        builder!(b, p, Int);
+        b.write_long(p.offset, 123123);
     }
 
     #[test]
     pub fn test_write_double() {
-        builder!(b, Double);
-        b.write_double(123.123);
+        builder!(b, p, Double);
+        b.write_double(p.offset, 123.123);
         let mut bytes = vec![11, 0, 255];
         bytes.extend_from_slice(&123.123f64.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, Double);
-        b.write_double(f64::NAN);
+        builder!(b, p, Double);
+        b.write_double(p.offset, f64::NAN);
         let mut bytes = vec![11, 0, 255];
         bytes.extend_from_slice(&f64::NAN.to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
@@ -491,29 +411,29 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_double_wrong_type() {
-        builder!(b, Float);
-        b.write_double(123.0);
+        builder!(b, p, Float);
+        b.write_double(p.offset, 123.0);
     }
 
     #[test]
     pub fn test_write_string() {
-        builder!(b, String);
-        b.write_string(Some("hello"));
+        builder!(b, p, String);
+        b.write_string(p.offset, Some("hello"));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(5));
         bytes.extend_from_slice(b"hello");
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, String);
-        b.write_string(Some(""));
+        builder!(b, p, String);
+        b.write_string(p.offset, Some(""));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, String);
-        b.write_string(None);
+        builder!(b, p, String);
+        b.write_string(p.offset, None);
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
@@ -522,15 +442,15 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_string_wrong_type() {
-        builder!(b, ByteList);
-        b.write_string(Some("hello"));
+        builder!(b, p, ByteList);
+        b.write_string(p.offset, Some("hello"));
     }
 
     #[test]
     pub fn test_write_object() {
-        builder!(b, Object);
+        builder!(b, p, Object);
         let object = IsarObject::from_bytes(&[3, 0, 111]);
-        b.write_object(Some(object));
+        b.write_object(p.offset, Some(object));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(3));
@@ -541,9 +461,9 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_object_wrong_type() {
-        builder!(b, String);
+        builder!(b, p, String);
         let object = IsarObject::from_bytes(&[3, 0, 111]);
-        b.write_object(Some(object));
+        b.write_object(p.offset, Some(object));
     }
 
     #[test]
@@ -558,12 +478,12 @@ mod tests {
         ];
         let mut b = ObjectBuilder::new(&props, None);
 
-        b.write_long(1);
-        b.write_byte(u8::MAX);
-        b.write_int(i32::MAX);
-        b.write_float(std::f32::consts::E);
-        b.write_long(i64::MIN);
-        b.write_double(std::f64::consts::PI);
+        b.write_long(props.get(0).unwrap().offset, 1);
+        b.write_byte(props.get(1).unwrap().offset, u8::MAX);
+        b.write_int(props.get(2).unwrap().offset, i32::MAX);
+        b.write_float(props.get(3).unwrap().offset, std::f32::consts::E);
+        b.write_long(props.get(4).unwrap().offset, i64::MIN);
+        b.write_double(props.get(5).unwrap().offset, std::f64::consts::PI);
 
         let mut bytes = vec![35, 0, 1, 0, 0, 0, 0, 0, 0, 0];
         bytes.push(u8::MAX);
@@ -577,16 +497,16 @@ mod tests {
 
     #[test]
     pub fn test_write_byte_list() {
-        builder!(b, ByteList);
-        b.write_byte_list(Some(&[1, 2, 3]));
+        builder!(b, p, ByteList);
+        b.write_byte_list(p.offset, Some(&[1, 2, 3]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(3));
         bytes.extend_from_slice(&[1, 2, 3]);
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, ByteList);
-        b.write_byte_list(Some(&[]));
+        builder!(b, p, ByteList);
+        b.write_byte_list(p.offset, Some(&[]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(0));
@@ -596,14 +516,14 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_byte_list_wrong_type() {
-        builder!(b, String);
-        b.write_byte_list(Some(&[1, 2, 3]));
+        builder!(b, p, String);
+        b.write_byte_list(p.offset, Some(&[1, 2, 3]));
     }
 
     #[test]
     pub fn test_write_int_list() {
-        builder!(b, IntList);
-        b.write_int_list(Some(&[1, -10]));
+        builder!(b, p, IntList);
+        b.write_int_list(p.offset, Some(&[1, -10]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(2));
@@ -611,8 +531,8 @@ mod tests {
         bytes.extend_from_slice(&(-10i32).to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, IntList);
-        b.write_int_list(Some(&[]));
+        builder!(b, p, IntList);
+        b.write_int_list(p.offset, Some(&[]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(0));
@@ -622,14 +542,14 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_int_list_wrong_type() {
-        builder!(b, LongList);
-        b.write_int_list(Some(&[1, 2, 3]));
+        builder!(b, p, LongList);
+        b.write_int_list(p.offset, Some(&[1, 2, 3]));
     }
 
     #[test]
     pub fn test_write_float_list() {
-        builder!(b, FloatList);
-        b.write_float_list(Some(&[1.1, -10.10]));
+        builder!(b, p, FloatList);
+        b.write_float_list(p.offset, Some(&[1.1, -10.10]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(2));
@@ -637,8 +557,8 @@ mod tests {
         bytes.extend_from_slice(&(-10.10f32).to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, FloatList);
-        b.write_float_list(Some(&[]));
+        builder!(b, p, FloatList);
+        b.write_float_list(p.offset, Some(&[]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(0));
@@ -648,14 +568,14 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_float_list_wrong_type() {
-        builder!(b, Double);
-        b.write_float(123.123);
+        builder!(b, p, Double);
+        b.write_float(p.offset, 123.123);
     }
 
     #[test]
     pub fn test_write_long_list() {
-        builder!(b, LongList);
-        b.write_long_list(Some(&[1, -10]));
+        builder!(b, p, LongList);
+        b.write_long_list(p.offset, Some(&[1, -10]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(2));
@@ -663,8 +583,8 @@ mod tests {
         bytes.extend_from_slice(&(-10i64).to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, LongList);
-        b.write_long_list(Some(&[]));
+        builder!(b, p, LongList);
+        b.write_long_list(p.offset, Some(&[]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(0));
@@ -674,14 +594,14 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_long_list_wrong_type() {
-        builder!(b, IntList);
-        b.write_long_list(Some(&[1, 2, 3]));
+        builder!(b, p, IntList);
+        b.write_long_list(p.offset, Some(&[1, 2, 3]));
     }
 
     #[test]
     pub fn test_write_double_list() {
-        builder!(b, DoubleList);
-        b.write_double_list(Some(&[1.1, -10.10]));
+        builder!(b, p, DoubleList);
+        b.write_double_list(p.offset, Some(&[1.1, -10.10]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(2));
@@ -689,8 +609,8 @@ mod tests {
         bytes.extend_from_slice(&(-10.10f64).to_le_bytes());
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, DoubleList);
-        b.write_double_list(Some(&[]));
+        builder!(b, p, DoubleList);
+        b.write_double_list(p.offset, Some(&[]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(0));
@@ -700,14 +620,14 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_double_list_wrong_type() {
-        builder!(b, FloatList);
-        b.write_double_list(Some(&[1.2]));
+        builder!(b, p, FloatList);
+        b.write_double_list(p.offset, Some(&[1.2]));
     }
 
     #[test]
     pub fn test_write_string_list() {
-        builder!(b, StringList);
-        b.write_string_list(Some(&[Some("abc"), None, Some(""), Some("de")]));
+        builder!(b, p, StringList);
+        b.write_string_list(p.offset, Some(&[Some("abc"), None, Some(""), Some("de")]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(4));
@@ -718,24 +638,24 @@ mod tests {
         bytes.extend_from_slice(b"abcde");
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, StringList);
-        b.write_string_list(Some(&[None]));
+        builder!(b, p, StringList);
+        b.write_string_list(p.offset, Some(&[None]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(1));
         bytes.extend_from_slice(&offset_size(0));
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, StringList);
-        b.write_string_list(Some(&[Some("")]));
+        builder!(b, p, StringList);
+        b.write_string_list(p.offset, Some(&[Some("")]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(1));
         bytes.extend_from_slice(&offset_size(1));
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, StringList);
-        b.write_string_list(Some(&[]));
+        builder!(b, p, StringList);
+        b.write_string_list(p.offset, Some(&[]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(0));
@@ -745,16 +665,16 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_string_list_wrong_type() {
-        builder!(b, DoubleList);
-        b.write_string_list(Some(&[]));
+        builder!(b, p, DoubleList);
+        b.write_string_list(p.offset, Some(&[]));
     }
 
     #[test]
     pub fn test_write_object_list() {
-        builder!(b, ObjectList);
+        builder!(b, p, ObjectList);
         let object1 = IsarObject::from_bytes(&[2, 0]);
         let object2 = IsarObject::from_bytes(&[3, 0, 123]);
-        b.write_object_list(Some(&[Some(object1), None, Some(object2)]));
+        b.write_object_list(p.offset, Some(&[Some(object1), None, Some(object2)]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(3));
@@ -764,8 +684,8 @@ mod tests {
         bytes.extend_from_slice(&[2, 0, 3, 0, 123]);
         assert_eq!(b.finish().as_bytes(), &bytes);
 
-        builder!(b, ObjectList);
-        b.write_object_list(Some(&[]));
+        builder!(b, p, ObjectList);
+        b.write_object_list(p.offset, Some(&[]));
         let mut bytes = vec![6, 0, 255];
         bytes.extend_from_slice(&offset_size(6));
         bytes.extend_from_slice(&offset_size(0));
@@ -775,14 +695,14 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_write_object_list_wrong_type() {
-        builder!(b, StringList);
-        b.write_object_list(None);
+        builder!(b, p, StringList);
+        b.write_object_list(p.offset, None);
     }
 
     #[test]
     #[should_panic]
     pub fn test_finish_missing_properties() {
-        builder!(b, Int);
+        builder!(b, p, Int);
         b.finish();
     }
 }

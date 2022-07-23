@@ -5,7 +5,7 @@ pub struct Property {
     pub name: String,
     pub data_type: DataType,
     pub offset: usize,
-    pub target_col: Option<String>,
+    pub target_col: Option<u64>,
 }
 
 impl Property {
@@ -13,7 +13,7 @@ impl Property {
         name: String,
         data_type: DataType,
         offset: usize,
-        target_col: Option<String>,
+        target_col: Option<u64>,
     ) -> Self {
         Property {
             name,

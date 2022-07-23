@@ -11,10 +11,12 @@ use crate::object::data_type::DataType;
 use crate::object::id::BytesToId;
 use crate::object::isar_object::IsarObject;
 use crate::object::object_builder::ObjectBuilder;
+use crate::object::property::Property;
 use crate::schema::collection_schema::CollectionSchema;
 use crate::schema::index_schema::IndexSchema;
 use crate::schema::link_schema::LinkSchema;
 use crate::schema::Schema;
+use intmap::IntMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -119,27 +121,27 @@ impl<'a> SchemaManger<'a> {
                     match prop.data_type {
                         DataType::Bool => {
                             if legacy_object.is_null(*legacy_prop) {
-                                new_object.write_bool(None);
+                                new_object.write_bool(prop.offset, None);
                             } else {
-                                new_object.write_bool(Some(legacy_object.read_bool(*legacy_prop)))
+                                new_object.write_bool(
+                                    prop.offset,
+                                    Some(legacy_object.read_bool(*legacy_prop)),
+                                )
                             }
                         }
-                        DataType::Byte => {
-                            new_object.write_byte(legacy_object.read_byte(*legacy_prop))
+                        DataType::Byte => new_object
+                            .write_byte(prop.offset, legacy_object.read_byte(*legacy_prop)),
+                        DataType::Int => {
+                            new_object.write_int(prop.offset, legacy_object.read_int(*legacy_prop))
                         }
-                        DataType::Int => new_object.write_int(legacy_object.read_int(*legacy_prop)),
-                        DataType::Float => {
-                            new_object.write_float(legacy_object.read_float(*legacy_prop))
-                        }
-                        DataType::Long => {
-                            new_object.write_long(legacy_object.read_long(*legacy_prop))
-                        }
-                        DataType::Double => {
-                            new_object.write_double(legacy_object.read_double(*legacy_prop))
-                        }
-                        DataType::String => {
-                            new_object.write_string(legacy_object.read_string(*legacy_prop))
-                        }
+                        DataType::Float => new_object
+                            .write_float(prop.offset, legacy_object.read_float(*legacy_prop)),
+                        DataType::Long => new_object
+                            .write_long(prop.offset, legacy_object.read_long(*legacy_prop)),
+                        DataType::Double => new_object
+                            .write_double(prop.offset, legacy_object.read_double(*legacy_prop)),
+                        DataType::String => new_object
+                            .write_string(prop.offset, legacy_object.read_string(*legacy_prop)),
                         DataType::BoolList => {
                             let byte_list = legacy_object.read_byte_list(*legacy_prop);
                             let bool_list = byte_list.map(|bytes| {
@@ -148,22 +150,30 @@ impl<'a> SchemaManger<'a> {
                                     .map(|b| IsarObject::byte_to_bool(*b))
                                     .collect_vec()
                             });
-                            new_object.write_bool_list(bool_list.as_deref())
+                            new_object.write_bool_list(prop.offset, bool_list.as_deref())
                         }
-                        DataType::ByteList => {
-                            new_object.write_byte_list(legacy_object.read_byte_list(*legacy_prop))
-                        }
-                        DataType::IntList => new_object
-                            .write_int_list(legacy_object.read_int_list(*legacy_prop).as_deref()),
+                        DataType::ByteList => new_object.write_byte_list(
+                            prop.offset,
+                            legacy_object.read_byte_list(*legacy_prop),
+                        ),
+                        DataType::IntList => new_object.write_int_list(
+                            prop.offset,
+                            legacy_object.read_int_list(*legacy_prop).as_deref(),
+                        ),
                         DataType::FloatList => new_object.write_float_list(
+                            prop.offset,
                             legacy_object.read_float_list(*legacy_prop).as_deref(),
                         ),
-                        DataType::LongList => new_object
-                            .write_long_list(legacy_object.read_long_list(*legacy_prop).as_deref()),
+                        DataType::LongList => new_object.write_long_list(
+                            prop.offset,
+                            legacy_object.read_long_list(*legacy_prop).as_deref(),
+                        ),
                         DataType::DoubleList => new_object.write_double_list(
+                            prop.offset,
                             legacy_object.read_double_list(*legacy_prop).as_deref(),
                         ),
                         DataType::StringList => new_object.write_string_list(
+                            prop.offset,
                             legacy_object.read_string_list(*legacy_prop).as_deref(),
                         ),
                         _ => unreachable!(),
@@ -242,7 +252,7 @@ impl<'a> SchemaManger<'a> {
         }
 
         for col in schema.collections.iter_mut() {
-            let existing_col = existing_schema.get_collection(&col.name);
+            let existing_col = existing_schema.get_collection(&col.name, col.embedded);
             if let Some(existing_col) = existing_col {
                 col.merge_properties(existing_col)?;
 
@@ -282,7 +292,7 @@ impl<'a> SchemaManger<'a> {
     pub fn open_collections(&mut self, schema: &Schema) -> Result<Vec<IsarCollection>> {
         let cursors = IsarCursors::new(self.txn, vec![]);
         let mut cols = vec![];
-        for col_schema in &schema.collections {
+        for col_schema in schema.collections.iter().filter(|c| !c.embedded) {
             let col = self.open_collection(schema, col_schema)?;
             col.init_auto_increment(&cursors)?;
             if let Some(new_indexes) = self.new_indexes.get(&col.name) {
@@ -302,6 +312,21 @@ impl<'a> SchemaManger<'a> {
         let mut properties = col_schema.get_properties();
         properties.sort_by(|a, b| a.name.cmp(&b.name));
 
+        let mut embedded_properties = IntMap::<Vec<Property>>::new();
+        for property in &col_schema.properties {
+            if let Some(target_col) = &property.target_col {
+                let col_schema = schema
+                    .collections
+                    .iter()
+                    .find(|c| &c.name == target_col)
+                    .unwrap();
+                embedded_properties.insert(
+                    CollectionSchema::hash_name(&target_col),
+                    col_schema.get_properties(),
+                );
+            }
+        }
+
         let mut indexes = vec![];
         for index_schema in &col_schema.indexes {
             let db = self.open_index_db(col_schema, index_schema)?;
@@ -313,7 +338,9 @@ impl<'a> SchemaManger<'a> {
         let mut links = vec![];
         for link_schema in &col_schema.links {
             let (link_db, backlink_db) = self.open_link_dbs(col_schema, link_schema)?;
-            let target_col_schema = schema.get_collection(&link_schema.target_col).unwrap();
+            let target_col_schema = schema
+                .get_collection(&link_schema.target_col, false)
+                .unwrap();
             let target_db = self.open_collection_db(target_col_schema)?;
             let link = IsarLink::new(
                 link_schema.name.clone(),
@@ -350,6 +377,7 @@ impl<'a> SchemaManger<'a> {
             self.instance_id,
             col_schema.name.clone(),
             properties,
+            embedded_properties,
             indexes,
             links,
             backlinks,
