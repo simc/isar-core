@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs};
 
 use isar_core::object::isar_object::IsarObject;
+use isar_core::object::json_encode_decode::JsonEncodeDecode;
 use isar_core::object::{data_type::DataType, property::Property};
 use isar_core::schema::collection_schema::CollectionSchema;
 use isar_core::schema::property_schema::PropertySchema;
@@ -34,7 +35,7 @@ impl BinaryTest {
             .enumerate()
             .map(|(i, t)| PropertySchema::new(Some(format!("{}", i)), *t, None))
             .collect();
-        let schema = CollectionSchema::new("col", false, prop_schemas, vec![], vec![]);
+        let schema = CollectionSchema::new("col", prop_schemas, vec![], vec![]);
         schema.get_properties()
     }
 

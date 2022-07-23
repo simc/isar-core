@@ -1,9 +1,12 @@
 use intmap::IntMap;
+use serde_json::{json, Value};
 use std::cmp::Ordering;
 
+use crate::collection::IsarCollection;
 use crate::cursor::IsarCursors;
 use crate::error::Result;
 use crate::object::isar_object::IsarObject;
+use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::object::property::Property;
 use crate::query::filter::Filter;
 use crate::query::where_clause::WhereClause;
@@ -284,5 +287,29 @@ impl<'txn> Query {
             true
         })?;
         Ok(counter)
+    }
+
+    pub fn export_json(
+        &self,
+        txn: &mut IsarTxn,
+        collection: &IsarCollection,
+        id_name: Option<&str>,
+        primitive_null: bool,
+    ) -> Result<Value> {
+        let mut items = vec![];
+        self.find_while(txn, |id, object| {
+            let mut json = JsonEncodeDecode::encode(
+                &collection.properties,
+                &collection.embedded_properties,
+                object,
+                primitive_null,
+            );
+            if let Some(id_name) = id_name {
+                json.insert(id_name.to_string(), Value::from(id));
+            }
+            items.push(json);
+            true
+        })?;
+        Ok(json!(items))
     }
 }

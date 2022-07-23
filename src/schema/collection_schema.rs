@@ -6,6 +6,7 @@ use crate::schema::link_schema::LinkSchema;
 use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::xxh3_64;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash)]
 pub struct CollectionSchema {
@@ -235,6 +236,10 @@ impl CollectionSchema {
             offset += property_schema.data_type.get_static_size();
         }
         properties
+    }
+
+    pub(crate) fn hash_name(name: &str) -> u64 {
+        xxh3_64(name.as_bytes())
     }
 }
 
