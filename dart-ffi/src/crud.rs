@@ -1,10 +1,8 @@
 use crate::c_object_set::{CObject, CObjectSet};
 use crate::txn::CIsarTxn;
-use crate::{from_c_str, BoolSend, UintSend};
+use crate::{BoolSend, UintSend};
 use isar_core::collection::IsarCollection;
 use isar_core::index::index_key::IndexKey;
-use serde_json::Value;
-use std::os::raw::c_char;
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_get(
@@ -231,22 +229,6 @@ pub unsafe extern "C" fn isar_clear(
     txn: &mut CIsarTxn,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| collection.clear(txn))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_json_import(
-    collection: &'static IsarCollection,
-    txn: &mut CIsarTxn,
-    id_name: *const c_char,
-    json_bytes: *const u8,
-    json_length: u32,
-) -> i64 {
-    let id_name = from_c_str(id_name).unwrap();
-    let bytes = std::slice::from_raw_parts(json_bytes, json_length as usize);
-    let json: Value = serde_json::from_slice(bytes).unwrap();
-    isar_try_txn!(txn, move |txn| {
-        collection.import_json(txn, id_name, json)
-    })
 }
 
 #[no_mangle]

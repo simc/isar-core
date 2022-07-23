@@ -11,12 +11,10 @@ use crate::object::data_type::DataType;
 use crate::object::id::BytesToId;
 use crate::object::isar_object::IsarObject;
 use crate::object::object_builder::ObjectBuilder;
-use crate::object::property::Property;
 use crate::schema::collection_schema::CollectionSchema;
 use crate::schema::index_schema::IndexSchema;
 use crate::schema::link_schema::LinkSchema;
 use crate::schema::Schema;
-use intmap::IntMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -312,21 +310,6 @@ impl<'a> SchemaManger<'a> {
         let mut properties = col_schema.get_properties();
         properties.sort_by(|a, b| a.name.cmp(&b.name));
 
-        let mut embedded_properties = IntMap::<Vec<Property>>::new();
-        for property in &col_schema.properties {
-            if let Some(target_col) = &property.target_col {
-                let col_schema = schema
-                    .collections
-                    .iter()
-                    .find(|c| &c.name == target_col)
-                    .unwrap();
-                embedded_properties.insert(
-                    CollectionSchema::hash_name(&target_col),
-                    col_schema.get_properties(),
-                );
-            }
-        }
-
         let mut indexes = vec![];
         for index_schema in &col_schema.indexes {
             let db = self.open_index_db(col_schema, index_schema)?;
@@ -377,7 +360,6 @@ impl<'a> SchemaManger<'a> {
             self.instance_id,
             col_schema.name.clone(),
             properties,
-            embedded_properties,
             indexes,
             links,
             backlinks,

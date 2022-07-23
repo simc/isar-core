@@ -8,14 +8,11 @@ use crate::mdbx::db::Db;
 use crate::mdbx::debug_dump_db;
 use crate::object::id::BytesToId;
 use crate::object::isar_object::IsarObject;
-use crate::object::json_encode_decode::JsonEncodeDecode;
 use crate::object::object_builder::ObjectBuilder;
 use crate::object::property::Property;
 use crate::query::query_builder::QueryBuilder;
 use crate::txn::IsarTxn;
 use crate::watch::change_set::ChangeSet;
-use intmap::IntMap;
-use serde_json::Value;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::ops::Deref;
@@ -23,7 +20,6 @@ use std::ops::Deref;
 pub struct IsarCollection {
     pub name: String,
     pub properties: Vec<Property>,
-    pub embedded_properties: IntMap<Vec<Property>>,
 
     pub(crate) instance_id: u64,
     pub(crate) db: Db,
@@ -45,7 +41,6 @@ impl IsarCollection {
         instance_id: u64,
         name: String,
         properties: Vec<Property>,
-        embedded_properties: IntMap<Vec<Property>>,
         indexes: Vec<IsarIndex>,
         links: Vec<IsarLink>,
         backlinks: Vec<IsarLink>,
@@ -55,7 +50,6 @@ impl IsarCollection {
             db,
             name,
             properties,
-            embedded_properties,
             indexes,
             links,
             backlinks,
@@ -334,37 +328,6 @@ impl IsarCollection {
         }
 
         Ok(size)
-    }
-
-    pub fn import_json(&self, txn: &mut IsarTxn, id_name: Option<&str>, json: Value) -> Result<()> {
-        txn.write(self.instance_id, |cursors, mut change_set| {
-            let array = json.as_array().ok_or(IsarError::InvalidJson {})?;
-            let mut ob_result_cache = None;
-            for value in array {
-                let id = if let Some(id_name) = id_name {
-                    if let Some(id) = value.get(id_name) {
-                        let id = id.as_i64().ok_or(IsarError::InvalidJson {})?;
-                        Some(id)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                let mut ob = ObjectBuilder::new(&self.properties, ob_result_cache);
-                JsonEncodeDecode::decode(
-                    &self.properties,
-                    &self.embedded_properties,
-                    &mut ob,
-                    value,
-                )?;
-                let object = ob.finish();
-                self.put_internal(cursors, change_set.as_deref_mut(), id, object)?;
-                ob_result_cache = Some(ob.recycle());
-            }
-            Ok(())
-        })
     }
 
     fn register_link_change(&self, change_set: Option<&mut ChangeSet>, link: &IsarLink) {

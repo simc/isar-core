@@ -1,13 +1,12 @@
 use super::c_object_set::{CObject, CObjectSet};
 use crate::txn::CIsarTxn;
-use crate::{from_c_str, UintSend};
+use crate::UintSend;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::index::index_key::IndexKey;
 use isar_core::query::filter::Filter;
 use isar_core::query::query_builder::QueryBuilder;
 use isar_core::query::{Query, Sort};
-use std::os::raw::c_char;
 
 #[no_mangle]
 pub extern "C" fn isar_qb_create(collection: &IsarCollection) -> *mut QueryBuilder {
@@ -188,31 +187,6 @@ unsafe impl Send for JsonBytes {}
 
 struct JsonLen(*mut u32);
 unsafe impl Send for JsonLen {}
-
-#[no_mangle]
-pub unsafe extern "C" fn isar_q_export_json(
-    query: &'static Query,
-    collection: &'static IsarCollection,
-    txn: &mut CIsarTxn,
-    id_name: *const c_char,
-    json_bytes: *mut *mut u8,
-    json_length: *mut u32,
-) -> i64 {
-    let id_name = from_c_str(id_name).unwrap();
-    let json = JsonBytes(json_bytes);
-    let json_length = JsonLen(json_length);
-    isar_try_txn!(txn, move |txn| {
-        let json = json;
-        let json_length = json_length;
-        let exported_json = query.export_json(txn, collection, id_name, true)?;
-        let bytes = serde_json::to_vec(&exported_json).unwrap();
-        let mut bytes = bytes.into_boxed_slice();
-        json_length.0.write(bytes.len() as u32);
-        json.0.write(bytes.as_mut_ptr());
-        std::mem::forget(bytes);
-        Ok(())
-    })
-}
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_free_json(json_bytes: *mut u8, json_length: u32) {
