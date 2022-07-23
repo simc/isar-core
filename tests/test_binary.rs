@@ -1,7 +1,9 @@
 use std::{collections::HashMap, fs};
 
+use intmap::IntMap;
 use isar_core::object::isar_object::IsarObject;
 use isar_core::object::json_encode_decode::JsonEncodeDecode;
+use isar_core::object::object_builder::ObjectBuilder;
 use isar_core::object::{data_type::DataType, property::Property};
 use isar_core::schema::collection_schema::CollectionSchema;
 use isar_core::schema::property_schema::PropertySchema;
@@ -20,12 +22,14 @@ impl BinaryTest {
     fn create(data: &[(DataType, Value)]) -> Self {
         let (types, values): (Vec<_>, Vec<_>) = data.iter().cloned().unzip();
         let properties = Self::create_properties(&types);
+        let embedded_properties = IntMap::new();
         let json = Self::create_temp_json(&properties, &values);
-        let object = JsonEncodeDecode::decode(&properties, &json, None).unwrap();
+        let mut ob = ObjectBuilder::new(&properties, None);
+        JsonEncodeDecode::decode(&properties, &embedded_properties, &mut ob, &json).unwrap();
         BinaryTest {
             types,
             values,
-            bytes: object.finish().as_bytes().to_vec(),
+            bytes: ob.finish().as_bytes().to_vec(),
         }
     }
 
@@ -35,7 +39,7 @@ impl BinaryTest {
             .enumerate()
             .map(|(i, t)| PropertySchema::new(Some(format!("{}", i)), *t, None))
             .collect();
-        let schema = CollectionSchema::new("col", prop_schemas, vec![], vec![]);
+        let schema = CollectionSchema::new("col", false, prop_schemas, vec![], vec![]);
         schema.get_properties()
     }
 
@@ -290,10 +294,11 @@ fn test_binary_serialize() {
     let golden = from_str::<Vec<BinaryTest>>(&golden_str).unwrap();
     for test in golden.iter() {
         let properties = BinaryTest::create_properties(&test.types);
+        let embedded_properties = IntMap::new();
         let golden_json = BinaryTest::create_temp_json(&properties, &test.values);
-        let builder = JsonEncodeDecode::decode(&properties, &golden_json, None).unwrap();
-        let object = builder.finish();
-        let bytes = object.as_bytes();
+        let mut ob = ObjectBuilder::new(&properties, None);
+        JsonEncodeDecode::decode(&properties, &embedded_properties, &mut ob, &golden_json).unwrap();
+        let bytes = ob.finish().as_bytes();
         if bytes != test.bytes {
             println!("{:?}", test);
             assert_eq!(bytes, test.bytes);
@@ -307,9 +312,11 @@ fn test_binary_parse() {
     let golden = from_str::<Vec<BinaryTest>>(&golden_str).unwrap();
     for test in golden.iter() {
         let properties = BinaryTest::create_properties(&test.types);
+        let embedded_properties = IntMap::new();
         let golden_json = BinaryTest::create_temp_json(&properties, &test.values);
         let object = IsarObject::from_bytes(&test.bytes);
-        let generated_map = JsonEncodeDecode::encode(&properties, object, true);
+        let generated_map =
+            JsonEncodeDecode::encode(&properties, &embedded_properties, object, true);
         let generated_json = json!(generated_map);
         if generated_json != golden_json {
             println!("{:?}", test);

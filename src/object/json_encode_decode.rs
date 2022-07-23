@@ -203,8 +203,12 @@ impl<'a> JsonEncodeDecode {
                                     )
                                 })
                                 .collect();
-                            //let objects = list?.iter().map(|o| o.map(|o| o.finish())).collect_vec();
-                            //ob.write_object_list(property.offset, Some(objects.as_slice()));
+                            let list = list?;
+                            let objects = list
+                                .iter()
+                                .map(|o| o.as_ref().map(|o| o.finish()))
+                                .collect_vec();
+                            ob.write_object_list(property.offset, Some(objects.as_slice()));
                         } else {
                             return Err(IsarError::InvalidJson {});
                         }

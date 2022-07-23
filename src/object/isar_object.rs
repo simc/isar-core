@@ -25,7 +25,7 @@ impl<'a> IsarObject<'a> {
         IsarObject { bytes, static_size }
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &'a [u8] {
         self.bytes
     }
 

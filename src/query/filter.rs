@@ -72,9 +72,9 @@ macro_rules! string_filter_create {
 pub struct Filter(FilterCond);
 
 impl Filter {
-    pub fn id(lower: i64, upper: i64) -> Result<Filter> {
+    pub fn id(lower: i64, upper: i64) -> Filter {
         let filter_cond = FilterCond::IdBetween(IdBetweenCond { lower, upper });
-        Ok(Filter(filter_cond))
+        Filter(filter_cond)
     }
 
     pub fn byte(property: &Property, lower: u8, upper: u8) -> Result<Filter> {
@@ -229,16 +229,23 @@ impl Filter {
         Filter(filter_cond)
     }
 
-    pub fn object(property: &Property, filter: Filter) -> Result<Filter> {
+    pub fn object(property: &Property, filter: Option<Filter>) -> Result<Filter> {
         let filter_cond = if property.data_type == DataType::Object {
-            Ok(FilterCond::Object(ObjectCond {
-                offset: property.offset,
-                filter: Box::new(filter.0),
-            }))
+            if let Some(filter) = filter {
+                Ok(FilterCond::Object(ObjectCond {
+                    offset: property.offset,
+                    filter: Box::new(filter.0),
+                }))
+            } else {
+                Ok(FilterCond::Null(NullCond {
+                    offset: property.offset,
+                    data_type: DataType::Object,
+                }))
+            }
         } else if property.data_type == DataType::ObjectList {
             Ok(FilterCond::AnyObject(AnyObjectCond {
                 offset: property.offset,
-                filter: Box::new(filter.0),
+                filter: filter.map(|f| Box::new(f.0)),
             }))
         } else {
             illegal_arg("Property does not support this filter.")
@@ -765,7 +772,7 @@ impl Condition for ObjectCond {
 #[derive(Clone)]
 struct AnyObjectCond {
     offset: usize,
-    filter: Box<FilterCond>,
+    filter: Option<Box<FilterCond>>,
 }
 
 impl Condition for AnyObjectCond {
@@ -777,11 +784,13 @@ impl Condition for AnyObjectCond {
     ) -> Result<bool> {
         if let Some(list) = object.read_object_list(self.offset) {
             for object in list {
-                if let Some(object) = object {
-                    let result = self.filter.evaluate(0, object, None)?;
+                if let (Some(object), Some(filter)) = (object, &self.filter) {
+                    let result = filter.evaluate(0, object, None)?;
                     if result {
                         return Ok(true);
                     }
+                } else if object.is_none() && self.filter.is_none() {
+                    return Ok(true);
                 }
             }
         }
