@@ -63,12 +63,6 @@ impl IndexSchema {
                 IndexProperty::new(property.clone(), ip.index_type, ip.case_sensitive)
             })
             .collect_vec();
-        IsarIndex::new(
-            self.name.clone(),
-            db,
-            index_properties,
-            self.unique,
-            self.replace,
-        )
+        IsarIndex::new(&self.name, db, index_properties, self.unique, self.replace)
     }
 }

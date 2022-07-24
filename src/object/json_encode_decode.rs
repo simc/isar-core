@@ -37,7 +37,7 @@ impl<'a> JsonEncodeDecode {
                     DataType::String => json!(object.read_string(property.offset)),
                     DataType::Object => {
                         let properties = embedded_properties
-                            .get(property.target_col.unwrap())
+                            .get(property.target_id.unwrap())
                             .unwrap();
                         Self::object_to_value(
                             properties,
@@ -79,7 +79,7 @@ impl<'a> JsonEncodeDecode {
                     DataType::StringList => json!(object.read_string_list(property.offset)),
                     DataType::ObjectList => {
                         let properties = embedded_properties
-                            .get(property.target_col.unwrap())
+                            .get(property.target_id.unwrap())
                             .unwrap();
                         if let Some(objects) = object.read_object_list(property.offset) {
                             let encoded = objects
@@ -150,7 +150,7 @@ impl<'a> JsonEncodeDecode {
                         let builder = Self::value_to_object(
                             value,
                             embedded_properties,
-                            property.target_col.unwrap(),
+                            property.target_id.unwrap(),
                         )?;
                         ob.write_object(property.offset, builder.as_ref().map(|b| b.finish()));
                     }
@@ -199,7 +199,7 @@ impl<'a> JsonEncodeDecode {
                                     Self::value_to_object(
                                         value,
                                         embedded_properties,
-                                        property.target_col.unwrap(),
+                                        property.target_id.unwrap(),
                                     )
                                 })
                                 .collect();
@@ -297,12 +297,12 @@ impl<'a> JsonEncodeDecode {
     fn value_to_object(
         value: &Value,
         embedded_properties: &IntMap<Vec<Property>>,
-        target_col: u64,
+        target_id: u64,
     ) -> Result<Option<ObjectBuilder>> {
         if value.is_null() {
             Ok(None)
         } else {
-            let properties = embedded_properties.get(target_col).unwrap();
+            let properties = embedded_properties.get(target_id).unwrap();
             let mut embedded_ob = ObjectBuilder::new(properties, None);
             Self::decode(properties, embedded_properties, &mut embedded_ob, value)?;
             Ok(Some(embedded_ob))

@@ -253,7 +253,7 @@ impl Filter {
         Ok(Filter(filter_cond))
     }
 
-    pub fn link(collection: &IsarCollection, link_id: usize, filter: Filter) -> Result<Filter> {
+    pub fn link(collection: &IsarCollection, link_id: u64, filter: Filter) -> Result<Filter> {
         let link = collection.get_link_backlink(link_id)?.clone();
         let filter_cond = FilterCond::AnyLink(AnyLinkCond {
             link,
@@ -264,7 +264,7 @@ impl Filter {
 
     pub fn link_length(
         collection: &IsarCollection,
-        link_id: usize,
+        link_id: u64,
         lower: usize,
         upper: usize,
     ) -> Result<Filter> {

@@ -1,8 +1,8 @@
 use super::c_object_set::{CObject, CObjectSet};
+use crate::filter::get_property;
 use crate::txn::CIsarTxn;
 use crate::{from_c_str, UintSend};
 use isar_core::collection::IsarCollection;
-use isar_core::error::illegal_arg;
 use isar_core::index::index_key::IndexKey;
 use isar_core::query::filter::Filter;
 use isar_core::query::query_builder::QueryBuilder;
@@ -29,7 +29,7 @@ pub unsafe extern "C" fn isar_qb_add_id_where_clause(
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_index_where_clause(
     builder: &mut QueryBuilder,
-    index_id: u32,
+    index_id: u64,
     lower_key: *mut IndexKey,
     upper_key: *mut IndexKey,
     sort_asc: bool,
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
     };
     isar_try! {
         builder.add_index_where_clause(
-            index_id as usize,
+            index_id ,
             lower_key,
             upper_key,
             sort,
@@ -57,11 +57,11 @@ pub unsafe extern "C" fn isar_qb_add_index_where_clause(
 pub unsafe extern "C" fn isar_qb_add_link_where_clause(
     builder: &mut QueryBuilder,
     source_collection: &IsarCollection,
-    link_id: u32,
+    link_id: u64,
     id: i64,
 ) -> i64 {
     isar_try! {
-        builder.add_link_where_clause(source_collection, link_id as usize, id)?;
+        builder.add_link_where_clause(source_collection, link_id, id)?;
     }
 }
 
@@ -74,37 +74,29 @@ pub unsafe extern "C" fn isar_qb_set_filter(builder: &mut QueryBuilder, filter: 
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_sort_by(
     builder: &mut QueryBuilder,
-    property_id: u32,
+    property_id: u64,
     asc: bool,
 ) -> i64 {
-    let property = builder.collection.properties.get(property_id as usize);
     let sort = if asc {
         Sort::Ascending
     } else {
         Sort::Descending
     };
     isar_try! {
-        if let Some(property) = property {
-            builder.add_sort(property, sort)?;
-        } else {
-            illegal_arg("Property does not exist.")?;
-        }
+        let property = get_property(builder.collection, 0, property_id)?;
+        builder.add_sort(property, sort)?;
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn isar_qb_add_distinct_by(
     builder: &mut QueryBuilder,
-    property_id: u32,
+    property_id: u64,
     case_sensitive: bool,
 ) -> i64 {
-    let property = builder.collection.properties.get(property_id as usize);
     isar_try! {
-        if let Some(property) = property {
+        let property = get_property(builder.collection, 0, property_id)?;
             builder.add_distinct(property, case_sensitive);
-        } else {
-            illegal_arg("Property does not exist.")?;
-        }
     }
 }
 

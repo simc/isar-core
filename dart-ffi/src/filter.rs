@@ -47,27 +47,26 @@ pub unsafe extern "C" fn isar_filter_not(filter: *mut *const Filter, condition: 
     filter.write(ptr);
 }
 
-fn get_property(
+pub fn get_property(
     collection: &IsarCollection,
-    property_id: u32,
-    embedded_property_id: i32,
+    embedded_col_id: u64,
+    property_id: u64,
 ) -> Result<&Property> {
-    let property = collection.properties.get(property_id as usize);
-    if let Some(property) = property {
-        if embedded_property_id >= 0 && property.target_col.is_some() {
-            if let Some(embedded_properties) = collection
-                .embedded_properties
-                .get(property.target_col.unwrap())
-            {
-                if let Some(property) = embedded_properties.get(embedded_property_id as usize) {
-                    return Ok(property);
-                }
-            }
+    let properties = if embedded_col_id != 0 {
+        if let Some(properties) = collection.embedded_properties.get(embedded_col_id) {
+            properties
         } else {
-            return Ok(property);
+            return illegal_arg("Embedded collection does not exist.");
         }
+    } else {
+        &collection.properties
+    };
+    let property = properties.iter().find(|p| p.id == property_id);
+    if let Some(property) = property {
+        Ok(property)
+    } else {
+        illegal_arg("Property does not exist.")
     }
-    illegal_arg("Property does not exist.")
 }
 
 #[no_mangle]
@@ -75,11 +74,11 @@ pub unsafe extern "C" fn isar_filter_object(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     condition: *mut Filter,
-    property_id: u32,
-    embedded_property_id: i32,
+    embedded_col_id: u64,
+    property_id: u64,
 ) -> i64 {
     isar_try! {
-        let property = get_property(collection, property_id, embedded_property_id)?;
+        let property = get_property(collection, embedded_col_id, property_id)?;
         let condition = *Box::from_raw(condition);
         let query_filter = Filter::object(property, Some(condition))?;
         let ptr = Box::into_raw(Box::new(query_filter));
@@ -92,11 +91,11 @@ pub unsafe extern "C" fn isar_filter_link(
     collection: &IsarCollection,
     filter: *mut *const Filter,
     condition: *mut Filter,
-    link_id: u32,
+    link_id: u64,
 ) -> i64 {
     isar_try! {
         let condition = *Box::from_raw(condition);
-        let query_filter = Filter::link(collection, link_id as usize, condition)?;
+        let query_filter = Filter::link(collection, link_id, condition)?;
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
     }
@@ -108,10 +107,10 @@ pub unsafe extern "C" fn isar_filter_link_length(
     filter: *mut *const Filter,
     lower: u32,
     upper: u32,
-    link_id: u32,
+    link_id: u64,
 ) -> i64 {
     isar_try! {
-        let query_filter = Filter::link_length(collection, link_id as usize, lower as usize,upper as usize)?;
+        let query_filter = Filter::link_length(collection, link_id, lower as usize,upper as usize)?;
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
     }
@@ -123,11 +122,11 @@ pub unsafe extern "C" fn isar_filter_list_length(
     filter: *mut *const Filter,
     lower: u32,
     upper: u32,
-    property_id: u32,
-    embedded_property_id: i32,
+    embedded_col_id: u64,
+    property_id: u64,
 ) -> i64 {
     isar_try! {
-        let property = get_property(collection, property_id, embedded_property_id)?;
+        let property = get_property(collection, embedded_col_id, property_id)?;
         let query_filter = Filter::list_length(property, lower as usize,upper as usize)?;
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
@@ -138,12 +137,12 @@ pub unsafe extern "C" fn isar_filter_list_length(
 pub unsafe extern "C" fn isar_filter_null(
     collection: &IsarCollection,
     filter: *mut *const Filter,
-    property_id: u32,
     any_null: bool,
-    embedded_property_id: i32,
+    embedded_col_id: u64,
+    property_id: u64,
 ) -> i64 {
     isar_try! {
-        let property = get_property(collection, property_id, embedded_property_id)?;
+        let property = get_property(collection, embedded_col_id, property_id)?;
         let query_filter = if !property.data_type.is_scalar() && any_null {
             match property.data_type {
                 DataType::BoolList | DataType::ByteList => {
@@ -218,11 +217,11 @@ pub unsafe extern "C" fn isar_filter_long(
     include_lower: bool,
     upper: i64,
     include_upper: bool,
-    property_id: u32,
-    embedded_property_id: i32,
+    embedded_col_id: u64,
+    property_id: u64,
 ) -> i64 {
     isar_try! {
-        let property = get_property(collection, property_id, embedded_property_id)?;
+        let property = get_property(collection, embedded_col_id, property_id)?;
         let query_filter = if property.data_type == DataType::Byte || property.data_type == DataType::ByteList {
             if let (Some(lower), Some(upper)) = include_num!(u8, lower, include_lower, upper, include_upper) {
                 Filter::byte(property, lower, upper)?
@@ -253,11 +252,11 @@ pub unsafe extern "C" fn isar_filter_double(
     filter: *mut *const Filter,
     lower: f64,
     upper: f64,
-    property_id: u32,
-    embedded_property_id: i32,
+    embedded_col_id: u64,
+    property_id: u64,
 ) -> i64 {
     isar_try! {
-        let property = get_property(collection, property_id, embedded_property_id)?;
+        let property = get_property(collection, embedded_col_id, property_id)?;
         let query_filter = if upper.is_nan() {
             Filter::stat(false)
         } else if property.data_type == DataType::Float || property.data_type == DataType::FloatList {
@@ -320,11 +319,11 @@ pub unsafe extern "C" fn isar_filter_string(
     upper: *const c_char,
     include_upper: bool,
     case_sensitive: bool,
-    property_id: u32,
-    embedded_property_id: i32,
+    embedded_col_id: u64,
+    property_id: u64,
 ) -> i64 {
     isar_try! {
-        let property = get_property(collection, property_id, embedded_property_id)?;
+        let property = get_property(collection, embedded_col_id, property_id)?;
 
         let lower_bytes = Filter::string_to_bytes(from_c_str(lower)?, case_sensitive);
         let lower = get_lower_str(lower_bytes, include_lower);
@@ -351,11 +350,11 @@ macro_rules! filter_string_ffi {
             filter: *mut *const Filter,
             value: *const c_char,
             case_sensitive: bool,
-            property_id: u32,
-            embedded_property_id: i32,
+            embedded_col_id: u64,
+            property_id: u64,
         ) -> i64 {
             isar_try! {
-                let property = get_property(collection, property_id, embedded_property_id)?;
+                let property = get_property(collection, embedded_col_id, property_id)?;
                 let str = from_c_str(value)?.unwrap();
                 let query_filter = isar_core::query::filter::Filter::$filter_name(property, str, case_sensitive)?;
                 let ptr = Box::into_raw(Box::new(query_filter));

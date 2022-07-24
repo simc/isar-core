@@ -6,7 +6,7 @@ use crate::schema::link_schema::LinkSchema;
 use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use xxhash_rust::xxh3::xxh3_64;
+use xxhash_rust::xxh3::{xxh3_64, xxh3_64_with_seed};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash)]
 pub struct CollectionSchema {
@@ -238,8 +238,11 @@ impl CollectionSchema {
         properties
     }
 
-    pub(crate) fn hash_name(name: &str) -> u64 {
-        xxh3_64(name.as_bytes())
+    pub fn debug_link_id(&self, index: usize) -> u64 {
+        let link_schema = self.links.get(index).unwrap();
+        let id = xxh3_64(self.name.as_bytes());
+        let id = xxh3_64_with_seed(link_schema.target_col.as_bytes(), id);
+        xxh3_64_with_seed(link_schema.name.as_bytes(), id)
     }
 }
 

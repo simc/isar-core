@@ -1,3 +1,5 @@
+use xxhash_rust::xxh3::{xxh3_64, xxh3_64_with_seed};
+
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
 use crate::mdbx::cursor::Cursor;
@@ -11,7 +13,8 @@ use std::ops::Deref;
 
 #[derive(Clone)]
 pub(crate) struct IsarLink {
-    pub(crate) name: String,
+    pub name: String,
+    pub id: u64,
     db: Db,
     bl_db: Db,
     source_db: Db,
@@ -19,9 +22,21 @@ pub(crate) struct IsarLink {
 }
 
 impl IsarLink {
-    pub fn new(name: String, db: Db, bl_db: Db, source_db: Db, target_db: Db) -> IsarLink {
+    pub fn new(
+        source_col: &str,
+        target_col: &str,
+        name: &str,
+        db: Db,
+        bl_db: Db,
+        source_db: Db,
+        target_db: Db,
+    ) -> IsarLink {
+        let id = xxh3_64(source_col.as_bytes());
+        let id = xxh3_64_with_seed(target_col.as_bytes(), id);
+        let id = xxh3_64_with_seed(name.as_bytes(), id);
         IsarLink {
-            name,
+            name: name.to_string(),
+            id,
             db,
             bl_db,
             source_db,

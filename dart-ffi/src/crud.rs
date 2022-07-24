@@ -24,13 +24,13 @@ pub unsafe extern "C" fn isar_get(
 pub unsafe extern "C" fn isar_get_by_index(
     collection: &'static IsarCollection,
     txn: &mut CIsarTxn,
-    index_id: u32,
+    index_id: u64,
     key: *mut IndexKey,
     object: &'static mut CObject,
 ) -> i64 {
     let key = *Box::from_raw(key);
     isar_try_txn!(txn, move |txn| {
-        let result = collection.get_by_index(txn, index_id as usize, &key)?;
+        let result = collection.get_by_index(txn, index_id, &key)?;
         if let Some((id, obj)) = result {
             object.set_id(id);
             object.set_object(Some(obj));
@@ -61,7 +61,7 @@ pub unsafe extern "C" fn isar_get_all(
 pub unsafe extern "C" fn isar_get_all_by_index(
     collection: &'static IsarCollection,
     txn: &mut CIsarTxn,
-    index_id: u32,
+    index_id: u64,
     keys: *const *mut IndexKey,
     objects: &'static mut CObjectSet,
 ) -> i64 {
@@ -69,7 +69,7 @@ pub unsafe extern "C" fn isar_get_all_by_index(
     let keys: Vec<IndexKey> = slice.iter().map(|k| *Box::from_raw(*k)).collect();
     isar_try_txn!(txn, move |txn| {
         for (object, key) in objects.get_objects().iter_mut().zip(keys) {
-            let result = collection.get_by_index(txn, index_id as usize, &key)?;
+            let result = collection.get_by_index(txn, index_id, &key)?;
             if let Some((id, obj)) = result {
                 object.set_id(id);
                 object.set_object(Some(obj));
@@ -103,11 +103,11 @@ pub unsafe extern "C" fn isar_put(
 pub unsafe extern "C" fn isar_put_by_index(
     collection: &'static mut IsarCollection,
     txn: &mut CIsarTxn,
-    index_id: u32,
+    index_id: u64,
     object: &'static mut CObject,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
-        let id = collection.put_by_index(txn, index_id as usize, object.get_object())?;
+        let id = collection.put_by_index(txn, index_id, object.get_object())?;
         object.set_id(id);
         Ok(())
     })
@@ -137,12 +137,12 @@ pub unsafe extern "C" fn isar_put_all(
 pub unsafe extern "C" fn isar_put_all_by_index(
     collection: &'static IsarCollection,
     txn: &mut CIsarTxn,
-    index_id: u32,
+    index_id: u64,
     objects: &'static mut CObjectSet,
 ) -> i64 {
     isar_try_txn!(txn, move |txn| {
         for object in objects.get_objects() {
-            let id = collection.put_by_index(txn, index_id as usize, object.get_object())?;
+            let id = collection.put_by_index(txn, index_id, object.get_object())?;
             object.set_id(id)
         }
         Ok(())
@@ -167,14 +167,14 @@ pub unsafe extern "C" fn isar_delete(
 pub unsafe extern "C" fn isar_delete_by_index(
     collection: &'static IsarCollection,
     txn: &mut CIsarTxn,
-    index_id: u32,
+    index_id: u64,
     key: *mut IndexKey,
     deleted: &'static mut bool,
 ) -> i64 {
     let deleted = BoolSend(deleted);
     let key = *Box::from_raw(key);
     isar_try_txn!(txn, move |txn| {
-        *deleted.0 = collection.delete_by_index(txn, index_id as usize, &key)?;
+        *deleted.0 = collection.delete_by_index(txn, index_id, &key)?;
         Ok(())
     })
 }
@@ -205,7 +205,7 @@ pub unsafe extern "C" fn isar_delete_all(
 pub unsafe extern "C" fn isar_delete_all_by_index(
     collection: &'static IsarCollection,
     txn: &mut CIsarTxn,
-    index_id: u32,
+    index_id: u64,
     keys: *const *mut IndexKey,
     keys_length: u32,
     count: &'static mut u32,
@@ -216,7 +216,7 @@ pub unsafe extern "C" fn isar_delete_all_by_index(
     isar_try_txn!(txn, move |txn| {
         let mut n = 0u32;
         for key in keys {
-            if collection.delete_by_index(txn, index_id as usize, &key)? {
+            if collection.delete_by_index(txn, index_id, &key)? {
                 n += 1;
             }
         }

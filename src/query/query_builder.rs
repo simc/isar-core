@@ -57,7 +57,7 @@ impl<'a> QueryBuilder<'a> {
 
     pub fn add_index_where_clause(
         &mut self,
-        index_id: usize,
+        index_id: u64,
         lower: IndexKey,
         upper: IndexKey,
         sort: Sort,
@@ -84,7 +84,7 @@ impl<'a> QueryBuilder<'a> {
     pub fn add_link_where_clause(
         &mut self,
         collection: &IsarCollection,
-        link_id: usize,
+        link_id: u64,
         id: i64,
     ) -> Result<()> {
         let link = collection.get_link_backlink(link_id)?;

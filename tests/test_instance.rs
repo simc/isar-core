@@ -42,7 +42,7 @@ fn test_open_instance_added_collection() {
     isar!(path, isar, col1 => schema1);
     txn!(isar, txn);
     put!(id: col1, txn, obj1 => 1, obj2 => 2);
-    col1.link(&mut txn, 0, 1, 2).unwrap();
+    col1.link(&mut txn, schema1.debug_link_id(0), 1, 2).unwrap();
     verify!(txn, col1, obj1, obj2; "testlink", 1 => 2);
     txn.commit().unwrap();
     isar.close();
@@ -70,8 +70,9 @@ fn test_open_instance_removed_collection() {
     txn!(isar, txn);
     put!(id: col1, txn, obj1 => 1, obj2 => 2);
     put!(id: col2, txn, obj3 => 3, obj4 => 4);
-    col1.link(&mut txn, 0, 1, 2).unwrap();
-    col2.link(&mut txn, 0, 3, 4).unwrap();
+
+    col1.link(&mut txn, schema1.debug_link_id(0), 1, 2).unwrap();
+    col2.link(&mut txn, schema2.debug_link_id(0), 3, 4).unwrap();
     verify!(txn, col!(col1, obj1, obj2; "testlink1", 1 => 2); col!(col2, obj3, obj4; "testlink2", 3 => 4));
     txn.commit().unwrap();
     isar.close();

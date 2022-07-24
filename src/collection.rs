@@ -15,6 +15,7 @@ use crate::query::query_builder::QueryBuilder;
 use crate::txn::IsarTxn;
 use crate::watch::change_set::ChangeSet;
 use intmap::IntMap;
+use itertools::Itertools;
 use serde_json::Value;
 use std::cell::Cell;
 use std::collections::HashSet;
@@ -43,7 +44,7 @@ impl IsarCollection {
     pub(crate) fn new(
         db: Db,
         instance_id: u64,
-        name: String,
+        name: &str,
         properties: Vec<Property>,
         embedded_properties: IntMap<Vec<Property>>,
         indexes: Vec<IsarIndex>,
@@ -53,7 +54,7 @@ impl IsarCollection {
         IsarCollection {
             instance_id,
             db,
-            name,
+            name: name.to_string(),
             properties,
             embedded_properties,
             indexes,
@@ -114,14 +115,17 @@ impl IsarCollection {
         })
     }
 
-    pub(crate) fn get_index_by_id(&self, index_id: usize) -> Result<&IsarIndex> {
-        self.indexes.get(index_id).ok_or(IsarError::UnknownIndex {})
+    pub(crate) fn get_index_by_id(&self, index_id: u64) -> Result<&IsarIndex> {
+        self.indexes
+            .iter()
+            .find(|i| i.id == index_id)
+            .ok_or(IsarError::UnknownIndex {})
     }
 
     pub fn get_by_index<'txn>(
         &self,
         txn: &'txn mut IsarTxn,
-        index_id: usize,
+        index_id: u64,
         key: &IndexKey,
     ) -> Result<Option<(i64, IsarObject<'txn>)>> {
         let index = self.get_index_by_id(index_id)?;
@@ -148,7 +152,7 @@ impl IsarCollection {
     pub fn put_by_index(
         &self,
         txn: &mut IsarTxn,
-        index_id: usize,
+        index_id: u64,
         object: IsarObject,
     ) -> Result<i64> {
         let index = self.get_index_by_id(index_id)?;
@@ -207,7 +211,7 @@ impl IsarCollection {
     pub fn delete_by_index(
         &self,
         txn: &mut IsarTxn,
-        index_id: usize,
+        index_id: u64,
         key: &IndexKey,
     ) -> Result<bool> {
         let index = self.get_index_by_id(index_id)?;
@@ -252,18 +256,19 @@ impl IsarCollection {
         }
     }
 
-    pub(crate) fn get_link_backlink(&self, link_id: usize) -> Result<&IsarLink> {
-        if link_id < self.links.len() {
-            self.links.get(link_id)
+    pub(crate) fn get_link_backlink(&self, link_id: u64) -> Result<&IsarLink> {
+        eprintln!("linkid: {}", link_id);
+        eprintln!("links: {:?}", self.links.iter().map(|l| l.id).collect_vec());
+        if let Some(link) = self.links.iter().find(|l| l.id == link_id) {
+            Ok(link)
+        } else if let Some(link) = self.backlinks.iter().find(|l| l.id == link_id) {
+            Ok(link)
         } else {
-            self.backlinks.get(link_id - self.links.len())
+            illegal_arg("IsarLink does not exist")
         }
-        .ok_or(IsarError::IllegalArg {
-            message: "IsarLink does not exist".to_string(),
-        })
     }
 
-    pub fn link(&self, txn: &mut IsarTxn, link_id: usize, id: i64, target_id: i64) -> Result<bool> {
+    pub fn link(&self, txn: &mut IsarTxn, link_id: u64, id: i64, target_id: i64) -> Result<bool> {
         let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
@@ -271,13 +276,7 @@ impl IsarCollection {
         })
     }
 
-    pub fn unlink(
-        &self,
-        txn: &mut IsarTxn,
-        link_id: usize,
-        id: i64,
-        target_id: i64,
-    ) -> Result<bool> {
+    pub fn unlink(&self, txn: &mut IsarTxn, link_id: u64, id: i64, target_id: i64) -> Result<bool> {
         let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);
@@ -285,7 +284,7 @@ impl IsarCollection {
         })
     }
 
-    pub fn unlink_all(&self, txn: &mut IsarTxn, link_id: usize, id: i64) -> Result<()> {
+    pub fn unlink_all(&self, txn: &mut IsarTxn, link_id: u64, id: i64) -> Result<()> {
         let link = self.get_link_backlink(link_id)?;
         txn.write(self.instance_id, |cursors, change_set| {
             self.register_link_change(change_set, link);

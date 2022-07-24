@@ -10,6 +10,7 @@ use crate::object::property::Property;
 use crate::schema::index_schema::IndexType;
 use crate::txn::IsarTxn;
 use std::collections::HashSet;
+use xxhash_rust::xxh3::xxh3_64;
 
 pub mod index_key;
 pub(crate) mod index_key_builder;
@@ -48,6 +49,7 @@ impl IndexProperty {
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct IsarIndex {
     pub name: String,
+    pub id: u64,
     pub properties: Vec<IndexProperty>,
     pub unique: bool,
     pub replace: bool,
@@ -59,15 +61,17 @@ impl IsarIndex {
     pub const MAX_STRING_INDEX_SIZE: usize = 1024;
 
     pub fn new(
-        name: String,
+        name: &str,
         db: Db,
         properties: Vec<IndexProperty>,
         unique: bool,
         replace: bool,
     ) -> Self {
+        let id = xxh3_64(name.as_bytes());
         let multi_entry = properties.first().unwrap().is_multi_entry();
         IsarIndex {
-            name,
+            name: name.to_string(),
+            id,
             properties,
             unique,
             replace,

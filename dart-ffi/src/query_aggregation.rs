@@ -1,6 +1,6 @@
+use crate::filter::get_property;
 use crate::txn::CIsarTxn;
 use isar_core::collection::IsarCollection;
-use isar_core::error::illegal_arg;
 use isar_core::error::Result;
 use isar_core::object::data_type::DataType;
 use isar_core::object::isar_object::IsarObject;
@@ -154,17 +154,19 @@ pub unsafe extern "C" fn isar_q_aggregate(
     query: &'static Query,
     txn: &mut CIsarTxn,
     operation: u8,
-    property_id: u32,
+    embedded_col_id: u64,
+    property_id: u64,
     result: *mut *const AggregationResult,
 ) -> i64 {
     let op = AggregationOp::from_u8(operation);
-    let property = collection.properties.get(property_id as usize);
     let result = AggregationResultSend(result);
     isar_try_txn!(txn, move |txn| {
         let result = result;
-        if op != AggregationOp::Count && property.is_none() {
-            return illegal_arg("Property does not exist.");
-        }
+        let property = if op != AggregationOp::Count {
+            Some(get_property(collection, embedded_col_id, property_id)?)
+        } else {
+            None
+        };
         let aggregate_result = aggregate(query, txn, op, property)?;
         result.0.write(Box::into_raw(Box::new(aggregate_result)));
         Ok(())

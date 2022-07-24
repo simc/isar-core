@@ -2,8 +2,6 @@ use crate::object::data_type::DataType;
 use crate::object::property::Property;
 use serde::{Deserialize, Serialize};
 
-use super::collection_schema::CollectionSchema;
-
 #[derive(PartialEq, Serialize, Deserialize, Clone, Debug, Eq, Hash)]
 pub struct PropertySchema {
     pub(crate) name: Option<String>,
@@ -29,11 +27,7 @@ impl PropertySchema {
 
     pub(crate) fn as_property(&self, offset: usize) -> Option<Property> {
         if let Some(name) = &self.name {
-            let target_col = self
-                .target_col
-                .as_deref()
-                .map(|col| CollectionSchema::hash_name(col));
-            let p = Property::new(name.clone(), self.data_type, offset, target_col);
+            let p = Property::new(name, self.data_type, offset, self.target_col.as_deref());
             Some(p)
         } else {
             None

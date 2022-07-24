@@ -22,6 +22,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ops::Deref;
+use xxhash_rust::xxh3::xxh3_64;
 
 const ISAR_VERSION: u64 = 2;
 
@@ -303,29 +304,37 @@ impl<'a> SchemaManger<'a> {
         Ok(cols)
     }
 
+    fn get_embedded_properties(
+        schema: &Schema,
+        properties: &[Property],
+        embedded_properties: &mut IntMap<Vec<Property>>,
+    ) {
+        for property in properties {
+            if let Some(target_id) = property.target_id {
+                if !embedded_properties.contains_key(target_id) {
+                    let embedded_col_schema = schema
+                        .collections
+                        .iter()
+                        .find(|c| xxh3_64(c.name.as_bytes()) == target_id)
+                        .unwrap();
+                    let properties = embedded_col_schema.get_properties();
+                    embedded_properties.insert(target_id, properties.clone());
+                    Self::get_embedded_properties(schema, &properties, embedded_properties)
+                }
+            }
+        }
+    }
+
     fn open_collection(
         &mut self,
         schema: &Schema,
         col_schema: &CollectionSchema,
     ) -> Result<IsarCollection> {
         let db = self.open_collection_db(col_schema)?;
-        let mut properties = col_schema.get_properties();
-        properties.sort_by(|a, b| a.name.cmp(&b.name));
+        let properties = col_schema.get_properties();
 
-        let mut embedded_properties = IntMap::<Vec<Property>>::new();
-        for property in &col_schema.properties {
-            if let Some(target_col) = &property.target_col {
-                let col_schema = schema
-                    .collections
-                    .iter()
-                    .find(|c| &c.name == target_col)
-                    .unwrap();
-                embedded_properties.insert(
-                    CollectionSchema::hash_name(&target_col),
-                    col_schema.get_properties(),
-                );
-            }
-        }
+        let mut embedded_properties = IntMap::new();
+        Self::get_embedded_properties(schema, &properties, &mut embedded_properties);
 
         let mut indexes = vec![];
         for index_schema in &col_schema.indexes {
@@ -333,7 +342,6 @@ impl<'a> SchemaManger<'a> {
             let index = index_schema.as_index(db, &properties);
             indexes.push(index);
         }
-        indexes.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut links = vec![];
         for link_schema in &col_schema.links {
@@ -343,7 +351,9 @@ impl<'a> SchemaManger<'a> {
                 .unwrap();
             let target_db = self.open_collection_db(target_col_schema)?;
             let link = IsarLink::new(
-                link_schema.name.clone(),
+                &col_schema.name,
+                &target_col_schema.name,
+                &link_schema.name,
                 link_db,
                 backlink_db,
                 db,
@@ -351,7 +361,6 @@ impl<'a> SchemaManger<'a> {
             );
             links.push(link);
         }
-        links.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut backlinks = vec![];
         for other_col_schema in &schema.collections {
@@ -359,23 +368,24 @@ impl<'a> SchemaManger<'a> {
                 if link_schema.target_col == col_schema.name {
                     let other_col_db = self.open_collection_db(other_col_schema)?;
                     let (link_db, bl_db) = self.open_link_dbs(other_col_schema, link_schema)?;
-                    let backlink =
-                        IsarLink::new(link_schema.name.clone(), bl_db, link_db, db, other_col_db);
-                    backlinks.push((&other_col_schema.name, backlink));
+                    let backlink = IsarLink::new(
+                        &col_schema.name,
+                        &other_col_schema.name,
+                        &link_schema.name,
+                        bl_db,
+                        link_db,
+                        db,
+                        other_col_db,
+                    );
+                    backlinks.push(backlink);
                 }
             }
         }
-        // sort backlinks by collection then by link name
-        let backlinks = backlinks
-            .into_iter()
-            .sorted_by(|(col1, l1), (col2, l2)| col1.cmp(col2).then(l1.name.cmp(&l2.name)))
-            .map(|(_, link)| link)
-            .collect_vec();
 
         Ok(IsarCollection::new(
             db,
             self.instance_id,
-            col_schema.name.clone(),
+            &col_schema.name,
             properties,
             embedded_properties,
             indexes,
