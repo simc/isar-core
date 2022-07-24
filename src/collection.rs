@@ -20,9 +20,12 @@ use serde_json::Value;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::ops::Deref;
+use xxhash_rust::xxh3::xxh3_64;
 
 pub struct IsarCollection {
     pub name: String,
+    pub id: u64,
+
     pub properties: Vec<Property>,
     pub embedded_properties: IntMap<Vec<Property>>,
 
@@ -51,12 +54,14 @@ impl IsarCollection {
         links: Vec<IsarLink>,
         backlinks: Vec<IsarLink>,
     ) -> Self {
+        let id = xxh3_64(name.as_bytes());
         IsarCollection {
-            instance_id,
-            db,
             name: name.to_string(),
+            id,
             properties,
             embedded_properties,
+            instance_id,
+            db,
             indexes,
             links,
             backlinks,

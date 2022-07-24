@@ -116,14 +116,14 @@ pub unsafe extern "C" fn isar_instance_get_path(isar: &'static IsarInstance) -> 
 pub unsafe extern "C" fn isar_instance_get_collection<'a>(
     isar: &'a IsarInstance,
     collection: *mut &'a IsarCollection,
-    index: u32,
+    collection_id: u64,
 ) -> i64 {
     isar_try! {
-        let new_collection = isar.collections.get(index as usize);
+        let new_collection = isar.collections.iter().find(|c| c.id == collection_id);
         if let Some(new_collection) = new_collection {
             collection.write(new_collection);
         } else {
-            illegal_arg("Collection index is invalid.")?;
+            illegal_arg("Collection id is invalid.")?;
         }
     }
 }
