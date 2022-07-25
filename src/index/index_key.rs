@@ -5,7 +5,7 @@ use std::cmp;
 use std::cmp::Ordering;
 use xxhash_rust::xxh3::xxh3_64;
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct IndexKey {
     bytes: Vec<u8>,
 }

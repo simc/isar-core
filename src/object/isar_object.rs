@@ -4,7 +4,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use std::{cmp::Ordering, str::from_utf8_unchecked};
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct IsarObject<'a> {
     bytes: &'a [u8],
     static_size: usize,

@@ -1,5 +1,3 @@
-use xxhash_rust::xxh3::xxh3_64_with_seed;
-
 use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
 use crate::mdbx::cursor::Cursor;
@@ -10,6 +8,7 @@ use crate::object::isar_object::IsarObject;
 use crate::txn::IsarTxn;
 use std::collections::HashSet;
 use std::ops::Deref;
+use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 #[derive(Clone)]
 pub(crate) struct IsarLink {

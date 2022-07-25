@@ -9,7 +9,6 @@ use isar_core::query::Query;
 use isar_core::txn::IsarTxn;
 use std::cmp::Ordering;
 
-#[derive(Debug)]
 pub enum AggregationResult {
     Long(i64),
     Double(f64),

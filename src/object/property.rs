@@ -2,7 +2,7 @@ use xxhash_rust::xxh3::xxh3_64;
 
 use super::data_type::DataType;
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Property {
     pub name: String,
     pub id: u64,

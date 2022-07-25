@@ -4,14 +4,12 @@ pub mod link_schema;
 pub mod property_schema;
 pub(crate) mod schema_manager;
 
-use crate::error::{schema_error, Result};
+use crate::error::{schema_error, IsarError, Result};
 use crate::schema::collection_schema::CollectionSchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Hash)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Schema {
     pub(crate) collections: Vec<CollectionSchema>,
 }
@@ -38,10 +36,10 @@ impl Schema {
         }
     }
 
-    pub fn get_hash(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|_| IsarError::SchemaError {
+            message: "Could not serialize schema.".to_string(),
+        })
     }
 
     pub(crate) fn get_collection(&self, name: &str, embedded: bool) -> Option<&CollectionSchema> {

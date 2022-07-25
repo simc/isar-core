@@ -8,7 +8,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::{xxh3_64, xxh3_64_with_seed};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Eq)]
 pub struct CollectionSchema {
     pub(crate) name: String,
     pub(crate) embedded: bool,

@@ -11,7 +11,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json, Value};
 
-#[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
+#[derive(PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct BinaryTest {
     pub types: Vec<DataType>,
     pub values: Vec<Value>,

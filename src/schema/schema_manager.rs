@@ -196,8 +196,8 @@ impl<'a> SchemaManger<'a> {
         let existing_schema_bytes = self.info_cursor.move_to(INFO_SCHEMA_KEY.deref())?;
 
         if let Some((_, existing_schema_bytes)) = existing_schema_bytes {
-            serde_json::from_slice(&existing_schema_bytes).map_err(|e| IsarError::DbCorrupted {
-                message: format!("Could not deserialize existing schema: {}", e),
+            serde_json::from_slice(&existing_schema_bytes).map_err(|_| IsarError::DbCorrupted {
+                message: "Could not deserialize existing schema.".to_string(),
             })
         } else {
             Schema::new(vec![])
@@ -283,9 +283,7 @@ impl<'a> SchemaManger<'a> {
     }
 
     fn save_schema(&mut self, schema: &Schema) -> Result<()> {
-        let bytes = serde_json::to_vec(schema).map_err(|_| IsarError::SchemaError {
-            message: "Could not serialize schema.".to_string(),
-        })?;
+        let bytes = schema.to_json_bytes()?;
         self.info_cursor.put(INFO_SCHEMA_KEY.deref(), &bytes)?;
         Ok(())
     }

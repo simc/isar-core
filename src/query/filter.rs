@@ -6,6 +6,7 @@ use crate::object::data_type::DataType;
 use crate::object::isar_object::IsarObject;
 use crate::object::property::Property;
 use crate::query::fast_wild_match::fast_wild_match;
+use alloc::boxed::Box;
 use enum_dispatch::enum_dispatch;
 use itertools::Itertools;
 use paste::paste;
@@ -216,7 +217,6 @@ impl Filter {
         Filter(filter_cond)
     }
 
-    #[allow(clippy::should_implement_trait)]
     pub fn not(filter: Filter) -> Filter {
         let filter_cond = FilterCond::Not(NotCond {
             filter: Box::new(filter.0),

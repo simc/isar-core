@@ -53,7 +53,7 @@ impl IsarInstance {
         let mut lock = INSTANCES.write().unwrap();
         let instance_id = xxh3_64(name.as_bytes());
         if let Some(instance) = lock.get(instance_id) {
-            if instance.schema_hash == schema.get_hash() {
+            if instance.schema_hash == xxh3_64(&schema.to_json_bytes()?) {
                 Ok(instance.clone())
             } else {
                 Err(IsarError::SchemaMismatch {})
@@ -134,7 +134,7 @@ impl IsarInstance {
             dir: dir.to_string(),
             collections,
             instance_id,
-            schema_hash: schema.get_hash(),
+            schema_hash: xxh3_64(&schema.to_json_bytes()?),
             watchers: Mutex::new(IsarWatchers::new(rx)),
             watcher_modifier_sender: tx,
         };

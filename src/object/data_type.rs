@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Debug, Hash)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum DataType {
     Bool,
     Byte,

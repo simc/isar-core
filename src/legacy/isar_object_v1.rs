@@ -1,7 +1,7 @@
 use crate::object::{data_type::DataType, isar_object::IsarObject};
 use byteorder::{ByteOrder, LittleEndian};
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct LegacyProperty {
     pub data_type: DataType,
     pub offset: usize,
@@ -13,7 +13,7 @@ impl LegacyProperty {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct LegacyIsarObject<'a> {
     bytes: &'a [u8],
     static_size: usize,
@@ -47,7 +47,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_byte(&self, property: LegacyProperty) -> u8 {
-        assert_eq!(property.data_type, DataType::Byte);
         if self.contains_property(property) {
             self.bytes[property.offset]
         } else {
@@ -60,7 +59,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_int(&self, property: LegacyProperty) -> i32 {
-        assert_eq!(property.data_type, DataType::Int);
         if self.contains_property(property) {
             LittleEndian::read_i32(&self.bytes[property.offset..])
         } else {
@@ -69,7 +67,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_float(&self, property: LegacyProperty) -> f32 {
-        assert_eq!(property.data_type, DataType::Float);
         if self.contains_property(property) {
             LittleEndian::read_f32(&self.bytes[property.offset..])
         } else {
@@ -78,7 +75,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_long(&self, property: LegacyProperty) -> i64 {
-        assert_eq!(property.data_type, DataType::Long);
         if self.contains_property(property) {
             LittleEndian::read_i64(&self.bytes[property.offset..])
         } else {
@@ -87,7 +83,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_double(&self, property: LegacyProperty) -> f64 {
-        assert_eq!(property.data_type, DataType::Double);
         if self.contains_property(property) {
             LittleEndian::read_f64(&self.bytes[property.offset..])
         } else {
@@ -113,18 +108,15 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_string(&'a self, property: LegacyProperty) -> Option<&'a str> {
-        assert_eq!(property.data_type, DataType::String);
         self.read_string_at(property.offset, false)
     }
 
     pub fn read_byte_list(&self, property: LegacyProperty) -> Option<&'a [u8]> {
-        assert_eq!(property.data_type, DataType::ByteList);
         let (offset, length) = self.get_offset_length(property.offset, false)?;
         Some(&self.bytes[offset..offset + length])
     }
 
     pub fn read_int_list(&self, property: LegacyProperty) -> Option<Vec<i32>> {
-        assert_eq!(property.data_type, DataType::IntList);
         let (offset, length) = self.get_offset_length(property.offset, false)?;
         let list = (offset..offset + length * 4)
             .step_by(4)
@@ -135,7 +127,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_float_list(&self, property: LegacyProperty) -> Option<Vec<f32>> {
-        assert_eq!(property.data_type, DataType::FloatList);
         let (offset, length) = self.get_offset_length(property.offset, false)?;
         let list = (offset..offset + length * 4)
             .step_by(4)
@@ -146,7 +137,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_long_list(&self, property: LegacyProperty) -> Option<Vec<i64>> {
-        assert_eq!(property.data_type, DataType::LongList);
         let (offset, length) = self.get_offset_length(property.offset, false)?;
         let list = (offset..offset + length * 8)
             .step_by(8)
@@ -157,7 +147,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_double_list(&self, property: LegacyProperty) -> Option<Vec<f64>> {
-        assert_eq!(property.data_type, DataType::DoubleList);
         let (offset, length) = self.get_offset_length(property.offset, false)?;
         let list = (offset..offset + length * 8)
             .step_by(8)
@@ -168,7 +157,6 @@ impl<'a> LegacyIsarObject<'a> {
     }
 
     pub fn read_string_list(&self, property: LegacyProperty) -> Option<Vec<Option<&'a str>>> {
-        assert_eq!(property.data_type, DataType::StringList);
         let (offset, length) = self.get_offset_length(property.offset, false)?;
         let list = (offset..offset + length * 8)
             .step_by(8)
