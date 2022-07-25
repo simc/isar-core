@@ -154,7 +154,6 @@ pub unsafe extern "C" fn isar_q_aggregate(
     query: &'static Query,
     txn: &mut CIsarTxn,
     operation: u8,
-    embedded_col_id: u64,
     property_id: u64,
     result: *mut *const AggregationResult,
 ) -> i64 {
@@ -163,7 +162,7 @@ pub unsafe extern "C" fn isar_q_aggregate(
     isar_try_txn!(txn, move |txn| {
         let result = result;
         let property = if op != AggregationOp::Count {
-            Some(get_property(collection, embedded_col_id, property_id)?)
+            Some(get_property(collection, 0, property_id)?)
         } else {
             None
         };

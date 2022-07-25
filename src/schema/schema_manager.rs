@@ -352,8 +352,8 @@ impl<'a> SchemaManger<'a> {
             let target_db = self.open_collection_db(target_col_schema)?;
             let link = IsarLink::new(
                 &col_schema.name,
-                &target_col_schema.name,
                 &link_schema.name,
+                false,
                 link_db,
                 backlink_db,
                 db,
@@ -369,9 +369,9 @@ impl<'a> SchemaManger<'a> {
                     let other_col_db = self.open_collection_db(other_col_schema)?;
                     let (link_db, bl_db) = self.open_link_dbs(other_col_schema, link_schema)?;
                     let backlink = IsarLink::new(
-                        &col_schema.name,
                         &other_col_schema.name,
                         &link_schema.name,
+                        true,
                         bl_db,
                         link_db,
                         db,
