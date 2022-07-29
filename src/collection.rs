@@ -15,7 +15,6 @@ use crate::query::query_builder::QueryBuilder;
 use crate::txn::IsarTxn;
 use crate::watch::change_set::ChangeSet;
 use intmap::IntMap;
-use itertools::Itertools;
 use serde_json::Value;
 use std::cell::Cell;
 use std::collections::HashSet;
