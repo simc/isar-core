@@ -262,8 +262,6 @@ impl IsarCollection {
     }
 
     pub(crate) fn get_link_backlink(&self, link_id: u64) -> Result<&IsarLink> {
-        eprintln!("linkid: {}", link_id);
-        eprintln!("links: {:?}", self.links.iter().map(|l| l.id).collect_vec());
         if let Some(link) = self.links.iter().find(|l| l.id == link_id) {
             Ok(link)
         } else if let Some(link) = self.backlinks.iter().find(|l| l.id == link_id) {
