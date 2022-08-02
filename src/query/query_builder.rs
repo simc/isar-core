@@ -89,10 +89,6 @@ impl<'a> QueryBuilder<'a> {
     ) -> Result<()> {
         let link = collection.get_link_backlink(link_id)?;
 
-        if link.get_target_col_runtime_id() != self.collection.get_runtime_id() {
-            illegal_arg("Link target collection does not match query collection")?;
-        }
-
         self.init_where_clauses();
         let wc = LinkWhereClause::new(link.clone(), id)?;
         self.where_clauses

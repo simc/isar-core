@@ -1,6 +1,7 @@
 use crate::c_object_set::{CObject, CObjectSet};
 use crate::txn::CIsarTxn;
 use crate::{from_c_str, BoolSend, UintSend};
+use intmap::IntMap;
 use isar_core::collection::IsarCollection;
 use isar_core::index::index_key::IndexKey;
 use serde_json::Value;
@@ -273,4 +274,17 @@ pub unsafe extern "C" fn isar_get_size(
         *size = collection.get_size(txn, include_indexes, include_links)? as i64;
         Ok(())
     })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_verify(
+    collection: &'static IsarCollection,
+    txn: &mut CIsarTxn,
+    objects: &'static mut CObjectSet,
+) -> i64 {
+    let mut objects_map = IntMap::new();
+    for object in objects.get_objects() {
+        objects_map.insert(object.get_id() as u64, object.get_object());
+    }
+    isar_try_txn!(txn, move |txn| { collection.verify(txn, &objects_map) })
 }

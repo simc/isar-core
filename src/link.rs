@@ -2,11 +2,8 @@ use crate::cursor::IsarCursors;
 use crate::error::{IsarError, Result};
 use crate::mdbx::cursor::Cursor;
 use crate::mdbx::db::Db;
-use crate::mdbx::debug_dump_db;
 use crate::object::id::{BytesToId, IdToBytes};
 use crate::object::isar_object::IsarObject;
-use crate::txn::IsarTxn;
-use std::collections::HashSet;
 use std::ops::Deref;
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
@@ -41,10 +38,6 @@ impl IsarLink {
             source_db,
             target_db,
         }
-    }
-
-    pub fn get_target_col_runtime_id(&self) -> u64 {
-        self.target_db.runtime_id()
     }
 
     pub fn iter_ids<F>(&self, cursors: &IsarCursors, id: i64, mut callback: F) -> Result<bool>
@@ -142,22 +135,50 @@ impl IsarLink {
         Ok(())
     }
 
-    pub fn get_size(&self, txn: &mut IsarTxn) -> Result<u64> {
-        Ok(txn.db_stat(self.db)?.1)
+    pub fn get_size(&self, cursors: &IsarCursors) -> Result<u64> {
+        Ok(cursors.db_stat(self.db)?.1)
     }
 
-    pub fn clear(&self, txn: &mut IsarTxn) -> Result<()> {
-        txn.clear_db(self.db)?;
-        txn.clear_db(self.bl_db)
+    pub fn clear(&self, cursors: &IsarCursors) -> Result<()> {
+        cursors.clear_db(self.db)?;
+        cursors.clear_db(self.bl_db)
     }
 
-    pub fn debug_dump(&self, cursors: &IsarCursors) -> HashSet<(Vec<u8>, Vec<u8>)> {
-        let mut cursor = cursors.get_cursor(self.db).unwrap();
-        debug_dump_db(&mut cursor)
-    }
+    pub fn verify(&self, cursors: &IsarCursors, links: &[(i64, i64)]) -> Result<()> {
+        let link_count = cursors.db_stat(self.db)?.0 as usize;
+        let backlink_count = cursors.db_stat(self.db)?.0 as usize;
+        if link_count != links.len() || backlink_count != links.len() {
+            return Err(IsarError::DbCorrupted {
+                message: "Link or Backlink count mismatch.".to_string(),
+            });
+        }
 
-    pub fn debug_dump_bl(&self, cursors: &IsarCursors) -> HashSet<(Vec<u8>, Vec<u8>)> {
-        let mut cursor = cursors.get_cursor(self.bl_db).unwrap();
-        debug_dump_db(&mut cursor)
+        let mut cursor = cursors.get_cursor(self.db)?;
+        cursor.iter_all(false, true, |_, id_bytes, target_id_bytes| {
+            let id = id_bytes.to_id();
+            let target_id = target_id_bytes.to_id();
+            if links.contains(&(id, target_id)) {
+                Ok(true)
+            } else {
+                Err(IsarError::DbCorrupted {
+                    message: "Unknown link in database.".to_string(),
+                })
+            }
+        })?;
+
+        let mut cursor = cursors.get_cursor(self.bl_db)?;
+        cursor.iter_all(false, true, |_, target_id_bytes, id_bytes| {
+            let id = id_bytes.to_id();
+            let target_id = target_id_bytes.to_id();
+            if links.contains(&(id, target_id)) {
+                Ok(true)
+            } else {
+                Err(IsarError::DbCorrupted {
+                    message: "Unknown link in database.".to_string(),
+                })
+            }
+        })?;
+
+        Ok(())
     }
 }

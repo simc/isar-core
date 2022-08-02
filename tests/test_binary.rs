@@ -300,7 +300,6 @@ fn test_binary_serialize() {
         JsonEncodeDecode::decode(&properties, &embedded_properties, &mut ob, &golden_json).unwrap();
         let bytes = ob.finish().as_bytes();
         if bytes != test.bytes {
-            println!("{:?}", test);
             assert_eq!(bytes, test.bytes);
         }
     }
@@ -319,7 +318,6 @@ fn test_binary_parse() {
             JsonEncodeDecode::encode(&properties, &embedded_properties, object, true);
         let generated_json = json!(generated_map);
         if generated_json != golden_json {
-            println!("{:?}", test);
             assert_eq!(generated_json, golden_json);
         }
     }

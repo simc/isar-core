@@ -1,13 +1,15 @@
 pub mod collection_schema;
 pub mod index_schema;
 pub mod link_schema;
+pub(crate) mod migrate_v1;
 pub mod property_schema;
 pub(crate) mod schema_manager;
 
-use crate::error::{schema_error, IsarError, Result};
+use crate::error::{schema_error, Result};
 use crate::schema::collection_schema::CollectionSchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Schema {
@@ -36,12 +38,6 @@ impl Schema {
         }
     }
 
-    pub fn to_json_bytes(&self) -> Result<Vec<u8>> {
-        serde_json::to_vec(self).map_err(|_| IsarError::SchemaError {
-            message: "Could not serialize schema.".to_string(),
-        })
-    }
-
     pub(crate) fn get_collection(&self, name: &str, embedded: bool) -> Option<&CollectionSchema> {
         self.collections
             .iter()
@@ -56,6 +52,13 @@ impl Schema {
             count += col.links.len() * 2;
         }
         count
+    }
+
+    pub(crate) fn hash(&mut self) -> u64 {
+        self.collections.sort_by(|a, b| a.name.cmp(&b.name));
+        self.collections
+            .iter()
+            .fold(0, |seed, col| xxh3_64_with_seed(col.name.as_bytes(), seed))
     }
 }
 

@@ -1,12 +1,10 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::error::{IsarError, Result};
-use crate::mdbx::cursor::Cursor;
 use core::slice;
 use libc::c_int;
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::ffi::{c_void, CStr};
 
 pub mod cursor;
@@ -59,16 +57,4 @@ pub trait Key {
     fn as_bytes(&self) -> Cow<[u8]>;
 
     fn cmp_bytes(&self, other: &[u8]) -> Ordering;
-}
-
-pub fn debug_dump_db(cursor: &mut Cursor) -> HashSet<(Vec<u8>, Vec<u8>)> {
-    let mut entries = HashSet::new();
-    cursor
-        .iter_all(false, true, |_, key, val| {
-            let inserted = entries.insert((key.to_vec(), val.to_vec()));
-            assert!(inserted);
-            Ok(true)
-        })
-        .unwrap();
-    entries
 }

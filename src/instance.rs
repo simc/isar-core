@@ -2,7 +2,7 @@ use crate::collection::IsarCollection;
 use crate::error::*;
 use crate::mdbx::env::Env;
 use crate::query::Query;
-use crate::schema::schema_manager::SchemaManger;
+use crate::schema::schema_manager::SchemaManager;
 use crate::schema::Schema;
 use crate::txn::IsarTxn;
 use crate::watch::change_set::ChangeSet;
@@ -46,14 +46,14 @@ impl IsarInstance {
     pub fn open(
         name: &str,
         dir: Option<&str>,
-        schema: Schema,
+        mut schema: Schema,
         relaxed_durability: bool,
         compact_condition: Option<CompactCondition>,
     ) -> Result<Arc<Self>> {
         let mut lock = INSTANCES.write().unwrap();
         let instance_id = xxh3_64(name.as_bytes());
         if let Some(instance) = lock.get(instance_id) {
-            if instance.schema_hash == xxh3_64(&schema.to_json_bytes()?) {
+            if instance.schema_hash == schema.hash() {
                 Ok(instance.clone())
             } else {
                 Err(IsarError::SchemaMismatch {})
@@ -119,12 +119,22 @@ impl IsarInstance {
             .map_err(|e| IsarError::EnvError { error: Box::new(e) })?;
 
         let txn = env.txn(true)?;
-        let collections = {
-            let mut manager = SchemaManger::create(instance_id, &txn)?;
-            manager.perform_migration(&mut schema)?;
-            manager.open_collections(&schema)?
-        };
+        let mut manager = SchemaManager::create(instance_id, &txn)?;
         txn.commit()?;
+
+        let mut collections = vec![];
+        for col_schema in &schema.collections {
+            let txn = env.txn(true)?;
+            let col = manager.open_collection(&txn, col_schema.clone(), &schema)?;
+            collections.push(col);
+            txn.commit()?;
+        }
+
+        if !manager.schemas.is_empty() {
+            let txn = env.txn(true)?;
+            manager.delete_unopened_collections(&txn)?;
+            txn.commit()?;
+        }
 
         let (tx, rx) = unbounded();
 
@@ -134,7 +144,7 @@ impl IsarInstance {
             dir: dir.to_string(),
             collections,
             instance_id,
-            schema_hash: xxh3_64(&schema.to_json_bytes()?),
+            schema_hash: schema.hash(),
             watchers: Mutex::new(IsarWatchers::new(rx)),
             watcher_modifier_sender: tx,
         };
@@ -236,7 +246,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = WATCHER_ID.fetch_add(1, Ordering::SeqCst);
-        let col_id = collection.get_runtime_id();
+        let col_id = collection.id;
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -255,7 +265,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = WATCHER_ID.fetch_add(1, Ordering::SeqCst);
-        let col_id = collection.get_runtime_id();
+        let col_id = collection.id;
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -275,7 +285,7 @@ impl IsarInstance {
         callback: WatcherCallback,
     ) -> WatchHandle {
         let watcher_id = WATCHER_ID.fetch_add(1, Ordering::SeqCst);
-        let col_id = collection.get_runtime_id();
+        let col_id = collection.id;
         self.new_watcher(
             Box::new(move |iw| {
                 iw.get_col_watchers(col_id)
@@ -314,5 +324,33 @@ impl IsarInstance {
 
     pub fn close_and_delete(self: Arc<Self>) -> bool {
         self.close_internal(true)
+    }
+
+    pub fn verify(&self, txn: &mut IsarTxn) -> Result<()> {
+        let mut db_names = vec![];
+        db_names.push("_info".to_string());
+        for col in &self.collections {
+            db_names.push(col.name.clone());
+            for index in &col.indexes {
+                db_names.push(format!("_i_{}_{}", col.name, index.name));
+            }
+
+            for link in &col.links {
+                db_names.push(format!("_l_{}_{}", col.name, link.name));
+                db_names.push(format!("_b_{}_{}", col.name, link.name));
+            }
+        }
+        let mut actual_db_names = txn.db_names()?;
+
+        db_names.sort();
+        actual_db_names.sort();
+
+        if db_names != actual_db_names {
+            Err(IsarError::DbCorrupted {
+                message: "Incorrect databases".to_string(),
+            })
+        } else {
+            Ok(())
+        }
     }
 }

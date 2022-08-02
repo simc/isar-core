@@ -158,6 +158,14 @@ pub unsafe extern "C" fn isar_instance_copy_to_file(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn isar_instance_verify(
+    instance: &'static IsarInstance,
+    txn: &mut CIsarTxn,
+) -> i64 {
+    isar_try_txn!(txn, move |txn| { instance.verify(txn) })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn isar_get_offsets(collection: &IsarCollection, offsets: *mut u32) -> u32 {
     let properties = &collection.properties;
     let offsets = std::slice::from_raw_parts_mut(offsets, properties.len());

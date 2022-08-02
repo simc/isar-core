@@ -82,27 +82,6 @@ impl<'env> IsarTxn<'env> {
         }
     }
 
-    pub(crate) fn db_stat(&mut self, db: Db) -> Result<(u64, u64)> {
-        db.stat(&self.txn)
-    }
-
-    pub(crate) fn clear_db(&mut self, db: Db) -> Result<()> {
-        if !self.write {
-            return Err(IsarError::WriteTxnRequired {});
-        }
-        db.clear(&self.txn)
-    }
-
-    pub(crate) fn register_all_changed(&mut self, col_id: u64) -> Result<()> {
-        if !self.write {
-            return Err(IsarError::WriteTxnRequired {});
-        }
-        if let Some(change_set) = self.change_set.borrow_mut().as_mut() {
-            change_set.register_all(col_id)
-        }
-        Ok(())
-    }
-
     pub fn commit(self) -> Result<()> {
         if !self.is_active() {
             return Err(IsarError::TransactionClosed {});
@@ -121,7 +100,7 @@ impl<'env> IsarTxn<'env> {
         self.txn.abort()
     }
 
-    pub(crate) fn debug_db_names(&mut self) -> Result<Vec<String>> {
+    pub(crate) fn db_names(&mut self) -> Result<Vec<String>> {
         let unnamed_db = Db::open(&self.txn, None, false, false, false)?;
         let cursor = UnboundCursor::new();
         let mut cursor = cursor.bind(&self.txn, unnamed_db)?;

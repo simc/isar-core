@@ -3,13 +3,11 @@ use crate::error::{IsarError, Result};
 use crate::index::index_key::IndexKey;
 use crate::index::index_key_builder::IndexKeyBuilder;
 use crate::mdbx::db::Db;
-use crate::mdbx::debug_dump_db;
 use crate::object::id::{BytesToId, IdToBytes};
 use crate::object::isar_object::IsarObject;
 use crate::object::property::Property;
 use crate::schema::index_schema::IndexType;
-use crate::txn::IsarTxn;
-use std::collections::HashSet;
+use intmap::IntMap;
 use xxhash_rust::xxh3::xxh3_64;
 
 pub mod index_key;
@@ -166,16 +164,16 @@ impl IsarIndex {
         Ok(result)
     }
 
-    pub fn get_size(&self, txn: &mut IsarTxn) -> Result<u64> {
-        Ok(txn.db_stat(self.db)?.1)
+    pub fn get_size(&self, cursors: &IsarCursors) -> Result<u64> {
+        Ok(cursors.db_stat(self.db)?.1)
     }
 
-    pub fn clear(&self, txn: &mut IsarTxn) -> Result<()> {
-        txn.clear_db(self.db)
+    pub fn clear(&self, cursors: &IsarCursors) -> Result<()> {
+        cursors.clear_db(self.db)
     }
 
-    pub fn debug_dump(&self, cursors: &IsarCursors) -> HashSet<(Vec<u8>, Vec<u8>)> {
-        let mut cursor = cursors.get_cursor(self.db).unwrap();
-        debug_dump_db(&mut cursor)
+    pub fn verify(&self, cursors: &IsarCursors, objects: &IntMap<IsarObject>) -> Result<()> {
+        // TODO
+        Ok(())
     }
 }

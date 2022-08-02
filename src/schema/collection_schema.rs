@@ -6,7 +6,8 @@ use crate::schema::link_schema::LinkSchema;
 use crate::schema::property_schema::PropertySchema;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use xxhash_rust::xxh3::{xxh3_64, xxh3_64_with_seed};
+
+use super::schema_manager::SchemaManager;
 
 #[derive(Serialize, Deserialize, Clone, Eq)]
 pub struct CollectionSchema {
@@ -15,6 +16,8 @@ pub struct CollectionSchema {
     pub(crate) properties: Vec<PropertySchema>,
     pub(crate) indexes: Vec<IndexSchema>,
     pub(crate) links: Vec<LinkSchema>,
+    #[serde(skip)]
+    pub(crate) version: u8,
 }
 
 impl PartialEq for CollectionSchema {
@@ -37,6 +40,7 @@ impl CollectionSchema {
             properties,
             indexes,
             links,
+            version: SchemaManager::ISAR_VERSION,
         }
     }
 
@@ -186,43 +190,24 @@ impl CollectionSchema {
         Ok(())
     }
 
-    pub(crate) fn merge_properties(&mut self, existing: &Self) -> Result<()> {
+    pub(crate) fn merge_properties(&mut self, existing: &Self) -> Result<Vec<String>> {
         let mut properties = existing.properties.clone();
-        for property in &self.properties {
-            let existing_property = existing.properties.iter().find(|p| p.name == property.name);
-            if let Some(existing_property) = existing_property {
-                // In previus versions, bool properties were stored as byte so we silently ignore the change. TODO: remove in the future
-                let byte_to_bool = property.data_type == DataType::Bool
-                    && existing_property.data_type == DataType::Byte;
-                if property.data_type != existing_property.data_type && !byte_to_bool {
-                    return Err(IsarError::SchemaError {
-                        message: format!(
-                            "Property \"{}\" already exists but has a different type",
-                            property.name.as_ref().unwrap()
-                        ),
-                    });
-                }
+        let mut removed_properties = vec![];
 
-                if property.target_col != existing_property.target_col {
-                    return Err(IsarError::SchemaError {
-                        message: format!(
-                            "Property \"{}\" already exists but has a different target collection",
-                            property.name.as_ref().unwrap()
-                        ),
-                    });
-                }
-            } else {
-                properties.push(property.clone());
-            }
-        }
         for property in &mut properties {
             if !self.properties.contains(property) {
-                property.name = None;
+                removed_properties.push(property.name.take().unwrap());
             }
         }
+        for property in &self.properties {
+            if !properties.contains(property) {
+                properties.push(property.clone())
+            }
+        }
+
         self.properties = properties;
 
-        Ok(())
+        Ok(removed_properties)
     }
 
     pub fn get_properties(&self) -> Vec<Property> {
@@ -235,14 +220,15 @@ impl CollectionSchema {
             }
             offset += property_schema.data_type.get_static_size();
         }
+
+        properties.sort_by(|a, b| a.name.cmp(&b.name));
         properties
     }
 
-    pub fn debug_link_id(&self, index: usize) -> u64 {
-        let link_schema = self.links.get(index).unwrap();
-        let id = xxh3_64(self.name.as_bytes());
-        let id = xxh3_64_with_seed(link_schema.target_col.as_bytes(), id);
-        xxh3_64_with_seed(link_schema.name.as_bytes(), id)
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>> {
+        serde_json::to_vec(self).map_err(|_| IsarError::SchemaError {
+            message: "Could not serialize schema.".to_string(),
+        })
     }
 }
 

@@ -43,6 +43,14 @@ impl<'txn, 'env> IsarCursors<'txn, 'env> {
         })
     }
 
+    pub fn db_stat(&self, db: Db) -> Result<(u64, u64)> {
+        db.stat(&self.txn)
+    }
+
+    pub fn clear_db(&self, db: Db) -> Result<()> {
+        db.clear(&self.txn)
+    }
+
     pub fn close(self) -> Vec<UnboundCursor> {
         let mut unbound_cursors = self.unbound_cursors.take();
         for (_, cursor) in self.cursors.borrow_mut().drain() {
