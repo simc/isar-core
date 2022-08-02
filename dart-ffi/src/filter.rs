@@ -61,8 +61,7 @@ pub fn get_property(
     } else {
         &collection.properties
     };
-    let property = properties.iter().find(|p| p.id == property_id);
-    if let Some(property) = property {
+    if let Some(property) = properties.get(property_id as usize) {
         Ok(property)
     } else {
         illegal_arg("Property does not exist.")
