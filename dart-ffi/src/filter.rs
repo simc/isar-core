@@ -174,15 +174,18 @@ pub unsafe extern "C" fn isar_filter_null(
 #[macro_export]
 macro_rules! include_num {
     ($type:ident, $lower:ident, $include_lower:expr, $upper:ident, $include_upper:expr) => {{
+        let lower = $lower.clamp($type::MIN as i64, $type::MAX as i64) as $type;
         let lower = if !$include_lower {
-            ($lower as $type).checked_add(1)
+            lower.checked_add(1)
         } else {
-            Some($lower as $type)
+            Some(lower)
         };
+
+        let upper = $upper.clamp($type::MIN as i64, $type::MAX as i64) as $type;
         let upper = if !$include_upper {
-            ($upper as $type).checked_sub(1)
+            upper.checked_sub(1)
         } else {
-            Some($upper as $type)
+            Some(upper)
         };
 
         (lower, upper)
@@ -221,20 +224,30 @@ pub unsafe extern "C" fn isar_filter_long(
 ) -> i64 {
     isar_try! {
         let property = get_property(collection, embedded_col_id, property_id)?;
-        let query_filter = if property.data_type == DataType::Byte || property.data_type == DataType::ByteList {
-            if let (Some(lower), Some(upper)) = include_num!(u8, lower, include_lower, upper, include_upper) {
+        let query_filter = if property.data_type == DataType::Byte
+            || property.data_type == DataType::ByteList
+            || property.data_type == DataType::Bool
+            || property.data_type == DataType::BoolList
+        {
+            if let (Some(lower), Some(upper)) =
+                include_num!(u8, lower, include_lower, upper, include_upper)
+            {
                 Filter::byte(property, lower, upper)?
             } else {
                 Filter::stat(false)
             }
         } else if property.data_type == DataType::Int || property.data_type == DataType::IntList {
-            if let (Some(lower), Some(upper)) = include_num!(i32, lower, include_lower, upper, include_upper) {
+            if let (Some(lower), Some(upper)) =
+                include_num!(i32, lower, include_lower, upper, include_upper)
+            {
                 Filter::int(property, lower, upper)?
             } else {
                 Filter::stat(false)
             }
         } else {
-            if let (Some(lower), Some(upper)) = include_num!(i64, lower, include_lower, upper, include_upper) {
+            if let (Some(lower), Some(upper)) =
+                include_num!(i64, lower, include_lower, upper, include_upper)
+            {
                 Filter::long(property, lower, upper)?
             } else {
                 Filter::stat(false)

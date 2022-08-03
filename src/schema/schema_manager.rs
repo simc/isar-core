@@ -198,23 +198,22 @@ impl SchemaManager {
             .schemas
             .iter()
             .position(|s| s.name == schema.name)
-            .map(|e| self.schemas.remove(e));
+            .map(|index| self.schemas.remove(index));
 
         let added_indexes = if let Some(existing_schema) = &mut existing_schema {
             if existing_schema.version == 1 {
                 migrate_v1(txn, existing_schema)?
-            } else if schema.version != Self::ISAR_VERSION {
+            } else if existing_schema.version != Self::ISAR_VERSION {
                 return Err(IsarError::VersionError {});
             }
-            let added_index = Self::perform_migration(txn, &mut schema, existing_schema)?;
-
-            let mut info_cursor = cursors.get_cursor(self.info_db)?;
-            Self::save_schema(&mut info_cursor, &schema)?;
-
-            added_index
+            Self::perform_migration(txn, &mut schema, existing_schema)?
         } else {
             vec![]
         };
+        let mut info_cursor = cursors.get_cursor(self.info_db)?;
+        schema.version = Self::ISAR_VERSION;
+        Self::save_schema(&mut info_cursor, &schema)?;
+        let schema = schema; // no longer mutable beyond this point
 
         let db = Self::open_collection_db(txn, &schema)?;
         let properties = schema.get_properties();

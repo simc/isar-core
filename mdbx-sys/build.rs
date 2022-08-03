@@ -50,7 +50,7 @@ impl ParseCallbacks for Callbacks {
 }
 
 const LIBMDBX_REPO: &str = "https://github.com/isar/libmdbx.git";
-const LIBMDBX_TAG: &str = "v0.11.8";
+const LIBMDBX_TAG: &str = "v0.11.9";
 
 fn main() {
     let _ = fs::remove_dir_all("libmdbx");
@@ -80,12 +80,6 @@ fn main() {
     let core = fs::read_to_string(core_path.as_path()).unwrap();
     let core = core.replace("CharToOemBuffA(buf, buf, size)", "false");
     fs::write(core_path.as_path(), core).unwrap();
-
-    // Replace MDBX_LOCK_SUFFIX
-    let header_path = mdbx.join("mdbx.h");
-    let header = fs::read_to_string(header_path.as_path()).unwrap();
-    let header = header.replace("-lck", ".lock");
-    fs::write(header_path.as_path(), header).unwrap();
 
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
@@ -122,6 +116,7 @@ fn main() {
             .define("MDBX_BUILD_CXX", "0")
             .define("MDBX_BUILD_TOOLS", "0")
             .define("MDBX_BUILD_SHARED_LIBRARY", "0")
+            .define("MDBX_LOCK_SUFFIX", "\".lock\"")
             .define("MDBX_TXN_CHECKOWNER", "0")
             .define("MDBX_ENV_CHECKPID", "0")
             .define("MDBX_DISABLE_PAGECHECKS", "1")
@@ -145,6 +140,10 @@ fn main() {
     } else {
         cc_builder
             .define("MDBX_BUILD_FLAGS", flags.as_str())
+            .define("MDBX_BUILD_CXX", "0")
+            .define("MDBX_BUILD_TOOLS", "0")
+            .define("MDBX_BUILD_SHARED_LIBRARY", "0")
+            .define("MDBX_LOCK_SUFFIX", "\".lock\"")
             .define("MDBX_TXN_CHECKOWNER", "0")
             .define("MDBX_ENV_CHECKPID", "0")
             .define("MDBX_OSX_SPEED_INSTEADOF_DURABILITY", "1")

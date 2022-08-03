@@ -16,7 +16,7 @@ pub struct CollectionSchema {
     pub(crate) properties: Vec<PropertySchema>,
     pub(crate) indexes: Vec<IndexSchema>,
     pub(crate) links: Vec<LinkSchema>,
-    #[serde(skip)]
+    #[serde(default)]
     pub(crate) version: u8,
 }
 
