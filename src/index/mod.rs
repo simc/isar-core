@@ -173,7 +173,33 @@ impl IsarIndex {
     }
 
     pub fn verify(&self, cursors: &IsarCursors, objects: &IntMap<IsarObject>) -> Result<()> {
-        // TODO
-        Ok(())
+        let mut count = 0;
+
+        let mut cursor = cursors.get_cursor(self.db)?;
+        for id in objects.keys() {
+            let id = *id;
+            let object = *objects.get(id).unwrap();
+            let key_builder = IndexKeyBuilder::new(&self.properties);
+            key_builder.create_keys(object, |key| {
+                count += 1;
+
+                let result = cursor.move_to_key_val(key, &(id as i64).to_id_bytes())?;
+                if result.is_some() {
+                    Ok(true)
+                } else {
+                    Err(IsarError::DbCorrupted {
+                        message: "Missing index entry.".to_string(),
+                    })
+                }
+            })?;
+        }
+
+        if cursors.db_stat(self.db)?.0 != count {
+            Err(IsarError::DbCorrupted {
+                message: "Obsolete index entry.".to_string(),
+            })
+        } else {
+            Ok(())
+        }
     }
 }

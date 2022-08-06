@@ -14,7 +14,9 @@ pub struct CollectionSchema {
     pub(crate) name: String,
     pub(crate) embedded: bool,
     pub(crate) properties: Vec<PropertySchema>,
+    #[serde(default)]
     pub(crate) indexes: Vec<IndexSchema>,
+    #[serde(default)]
     pub(crate) links: Vec<LinkSchema>,
     #[serde(default)]
     pub(crate) version: u8,
