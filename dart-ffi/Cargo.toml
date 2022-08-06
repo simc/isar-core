@@ -12,6 +12,7 @@ serde_json = "1.0"
 paste = "1.0"
 unicode-segmentation = "1.9.0"
 intmap = "2.0.0"
+itertools = "0.10.3"
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 objc = "0.2.7"
