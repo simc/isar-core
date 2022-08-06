@@ -166,8 +166,16 @@ pub unsafe extern "C" fn isar_instance_verify(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn isar_get_offsets(collection: &IsarCollection, offsets: *mut u32) -> u32 {
-    let properties = &collection.properties;
+pub unsafe extern "C" fn isar_get_offsets(
+    collection: &IsarCollection,
+    embedded_col_id: u64,
+    offsets: *mut u32,
+) -> u32 {
+    let properties = if embedded_col_id == 0 {
+        &collection.properties
+    } else {
+        collection.embedded_properties.get(embedded_col_id).unwrap()
+    };
     let offsets = std::slice::from_raw_parts_mut(offsets, properties.len());
     for (i, p) in properties.iter().enumerate() {
         offsets[i] = p.offset as u32;
