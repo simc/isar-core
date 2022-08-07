@@ -19,6 +19,7 @@ impl<'a> IsarObject<'a> {
     pub const NULL_LONG: i64 = i64::MIN;
     pub const NULL_FLOAT: f32 = f32::NAN;
     pub const NULL_DOUBLE: f64 = f64::NAN;
+    pub const MAX_SIZE: u32 = 2 << 24;
 
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
         let static_size = LittleEndian::read_u16(bytes) as usize;

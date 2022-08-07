@@ -174,7 +174,7 @@ impl IsarCollection {
         id: Option<i64>,
         object: IsarObject,
     ) -> Result<i64> {
-        if object.len() > u16::MAX as usize {
+        if object.len() > IsarObject::MAX_SIZE as usize {
             illegal_arg("Object is bigger than 16MB")?;
         }
 
