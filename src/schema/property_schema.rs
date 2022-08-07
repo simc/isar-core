@@ -2,7 +2,7 @@ use crate::object::data_type::DataType;
 use crate::object::property::Property;
 use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Serialize, Deserialize, Clone, Eq)]
+#[derive(Serialize, Deserialize, Clone, Eq)]
 pub struct PropertySchema {
     pub(crate) name: Option<String>,
     #[serde(rename = "type")]
@@ -32,5 +32,20 @@ impl PropertySchema {
         } else {
             None
         }
+    }
+}
+
+impl PartialEq for PropertySchema {
+    fn eq(&self, other: &Self) -> bool {
+        let type_bool_byte = (self.data_type == DataType::Bool || self.data_type == DataType::Byte)
+            && (other.data_type == DataType::Bool || other.data_type == DataType::Byte);
+
+        let type_bool_byte_list = (self.data_type == DataType::BoolList
+            || self.data_type == DataType::ByteList)
+            && (other.data_type == DataType::BoolList || other.data_type == DataType::ByteList);
+
+        let type_eq = self.data_type == other.data_type || type_bool_byte || type_bool_byte_list;
+
+        self.name == other.name && type_eq && self.target_col == other.target_col
     }
 }

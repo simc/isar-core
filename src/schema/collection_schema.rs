@@ -197,7 +197,7 @@ impl CollectionSchema {
         let mut removed_properties = vec![];
 
         for property in &mut properties {
-            if !self.properties.contains(property) {
+            if property.name.is_some() && !self.properties.contains(property) {
                 removed_properties.push(property.name.take().unwrap());
             }
         }
