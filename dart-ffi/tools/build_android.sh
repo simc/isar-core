@@ -9,10 +9,7 @@ else
     exit
 fi
 
-NDK="$ANDROID_HOME/ndk/21.4.7075529"
-if [ ! -d "$NDK" ]; then
-    NDK=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-"$ANDROID_SDK_ROOT/ndk"}}
-fi
+NDK=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-"$ANDROID_SDK_ROOT/ndk"}}
 COMPILER_DIR="$NDK/toolchains/llvm/prebuilt/$NDK_HOST_TAG/bin"
 export PATH="$COMPILER_DIR:$PATH"
 
@@ -40,18 +37,18 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR=$COMPILER_DIR/llvm-ar
 
 if [ "$1" = "x86" ]; then
   rustup target add i686-linux-android
-  cargo build --target i686-linux-android --release
+  cargo build -Z build-std=panic_abort,std --target i686-linux-android --release
   mv "target/i686-linux-android/release/libisar.so" "libisar_android_x86.so"
 elif [ "$1" = "x64" ]; then
   rustup target add x86_64-linux-android
-  cargo build --target x86_64-linux-android --release
+  cargo build -Z build-std=panic_abort,std --target x86_64-linux-android --release
   mv "target/x86_64-linux-android/release/libisar.so" "libisar_android_x64.so"
 elif [ "$1" = "armv7" ]; then
   rustup target add armv7-linux-androideabi
-  cargo build --target armv7-linux-androideabi --release
+  cargo build -Z build-std=panic_abort,std --target armv7-linux-androideabi --release
   mv "target/armv7-linux-androideabi/release/libisar.so" "libisar_android_armv7.so"
 else
   rustup target add aarch64-linux-android
-  cargo build --target aarch64-linux-android --release
+  cargo build -Z build-std=panic_abort,std --target aarch64-linux-android --release
   mv "target/aarch64-linux-android/release/libisar.so" "libisar_android_arm64.so"
 fi
