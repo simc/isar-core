@@ -50,7 +50,7 @@ impl ParseCallbacks for Callbacks {
 }
 
 const LIBMDBX_REPO: &str = "https://github.com/isar/libmdbx.git";
-const LIBMDBX_TAG: &str = "v0.11.9";
+const LIBMDBX_TAG: &str = "v0.11.8";
 
 fn main() {
     let _ = fs::remove_dir_all("libmdbx");
