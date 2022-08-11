@@ -11,6 +11,7 @@ use super::property::Property;
 pub struct JsonEncodeDecode {}
 
 impl<'a> JsonEncodeDecode {
+    #[inline(never)]
     pub fn encode(
         properties: &[Property],
         embedded_properties: &IntMap<Vec<Property>>,
@@ -122,6 +123,7 @@ impl<'a> JsonEncodeDecode {
         }
     }
 
+    #[inline(never)]
     pub fn decode(
         properties: &[Property],
         embedded_properties: &IntMap<Vec<Property>>,

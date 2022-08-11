@@ -2,8 +2,6 @@ use crate::from_c_str;
 use isar_core::collection::IsarCollection;
 use isar_core::error::illegal_arg;
 use isar_core::error::Result;
-use isar_core::object::data_type::DataType;
-use isar_core::object::isar_object::IsarObject;
 use isar_core::object::property::Property;
 use isar_core::query::filter::*;
 use std::os::raw::c_char;
@@ -136,36 +134,12 @@ pub unsafe extern "C" fn isar_filter_list_length(
 pub unsafe extern "C" fn isar_filter_null(
     collection: &IsarCollection,
     filter: *mut *const Filter,
-    any_null: bool,
     embedded_col_id: u64,
     property_id: u64,
 ) -> i64 {
     isar_try! {
         let property = get_property(collection, embedded_col_id, property_id)?;
-        let query_filter = if !property.data_type.is_scalar() && any_null {
-            match property.data_type {
-                DataType::BoolList | DataType::ByteList => {
-                    Filter::byte(property, IsarObject::NULL_BYTE, IsarObject::NULL_BYTE)?
-                },
-                DataType::IntList => {
-                    Filter::int(property, IsarObject::NULL_INT, IsarObject::NULL_INT)?
-                },
-                DataType::FloatList => {
-                    Filter::float(property, IsarObject::NULL_FLOAT, IsarObject::NULL_FLOAT)?
-                },
-                DataType::LongList => {
-                    Filter::long(property, IsarObject::NULL_LONG, IsarObject::NULL_LONG)?
-                },
-                DataType::DoubleList => {
-                    Filter::double(property, IsarObject::NULL_DOUBLE, IsarObject::NULL_DOUBLE)?
-                },
-                DataType::StringList => Filter::string(property, None, None, false)?,
-                DataType::ObjectList => Filter::object(property, None)?,
-                _ => unreachable!()
-            }
-        } else {
-            Filter::null(property)
-        };
+        let query_filter = Filter::null(property);
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
     }
@@ -173,19 +147,17 @@ pub unsafe extern "C" fn isar_filter_null(
 
 #[macro_export]
 macro_rules! include_num {
-    ($type:ident, $lower:ident, $include_lower:expr, $upper:ident, $include_upper:expr) => {{
-        let lower = $lower.clamp($type::MIN as i64, $type::MAX as i64) as $type;
+    ($lower:ident, $include_lower:expr, $upper:ident, $include_upper:expr) => {{
         let lower = if !$include_lower {
-            lower.checked_add(1)
+            $lower.checked_add(1)
         } else {
-            Some(lower)
+            Some($lower)
         };
 
-        let upper = $upper.clamp($type::MIN as i64, $type::MAX as i64) as $type;
         let upper = if !$include_upper {
-            upper.checked_sub(1)
+            $upper.checked_sub(1)
         } else {
-            Some(upper)
+            Some($upper)
         };
 
         (lower, upper)
@@ -201,7 +173,7 @@ pub unsafe extern "C" fn isar_filter_id(
     include_upper: bool,
 ) {
     let query_filter = if let (Some(lower), Some(upper)) =
-        include_num!(i64, lower, include_lower, upper, include_upper)
+        include_num!(lower, include_lower, upper, include_upper)
     {
         Filter::id(lower, upper)
     } else {
@@ -209,6 +181,56 @@ pub unsafe extern "C" fn isar_filter_id(
     };
     let ptr = Box::into_raw(Box::new(query_filter));
     filter.write(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_byte(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    lower: u8,
+    include_lower: bool,
+    upper: u8,
+    include_upper: bool,
+    embedded_col_id: u64,
+    property_id: u64,
+) -> i64 {
+    isar_try! {
+        let property = get_property(collection, embedded_col_id, property_id)?;
+        let query_filter = if let (Some(lower), Some(upper)) =
+            include_num!(lower, include_lower, upper, include_upper)
+        {
+            Filter::byte(property, lower, upper)?
+        } else {
+            Filter::stat(false)
+        };
+        let ptr = Box::into_raw(Box::new(query_filter));
+        filter.write(ptr);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_int(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    lower: i32,
+    include_lower: bool,
+    upper: i32,
+    include_upper: bool,
+    embedded_col_id: u64,
+    property_id: u64,
+) -> i64 {
+    isar_try! {
+        let property = get_property(collection, embedded_col_id, property_id)?;
+        let query_filter = if let (Some(lower), Some(upper)) =
+            include_num!(lower, include_lower, upper, include_upper)
+        {
+            Filter::int(property, lower, upper)?
+        } else {
+            Filter::stat(false)
+        };
+        let ptr = Box::into_raw(Box::new(query_filter));
+        filter.write(ptr);
+    }
 }
 
 #[no_mangle]
@@ -224,34 +246,33 @@ pub unsafe extern "C" fn isar_filter_long(
 ) -> i64 {
     isar_try! {
         let property = get_property(collection, embedded_col_id, property_id)?;
-        let query_filter = if property.data_type == DataType::Byte
-            || property.data_type == DataType::ByteList
-            || property.data_type == DataType::Bool
-            || property.data_type == DataType::BoolList
+        let query_filter = if let (Some(lower), Some(upper)) =
+            include_num!(lower, include_lower, upper, include_upper)
         {
-            if let (Some(lower), Some(upper)) =
-                include_num!(u8, lower, include_lower, upper, include_upper)
-            {
-                Filter::byte(property, lower, upper)?
-            } else {
-                Filter::stat(false)
-            }
-        } else if property.data_type == DataType::Int || property.data_type == DataType::IntList {
-            if let (Some(lower), Some(upper)) =
-                include_num!(i32, lower, include_lower, upper, include_upper)
-            {
-                Filter::int(property, lower, upper)?
-            } else {
-                Filter::stat(false)
-            }
+            Filter::long(property, lower, upper)?
         } else {
-            if let (Some(lower), Some(upper)) =
-                include_num!(i64, lower, include_lower, upper, include_upper)
-            {
-                Filter::long(property, lower, upper)?
-            } else {
-                Filter::stat(false)
-            }
+            Filter::stat(false)
+        };
+        let ptr = Box::into_raw(Box::new(query_filter));
+        filter.write(ptr);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn isar_filter_float(
+    collection: &IsarCollection,
+    filter: *mut *const Filter,
+    lower: f32,
+    upper: f32,
+    embedded_col_id: u64,
+    property_id: u64,
+) -> i64 {
+    isar_try! {
+        let property = get_property(collection, embedded_col_id, property_id)?;
+        let query_filter = if upper.is_nan() {
+            Filter::stat(false)
+        } else {
+            Filter::float(property, lower, upper)?
         };
         let ptr = Box::into_raw(Box::new(query_filter));
         filter.write(ptr);
@@ -271,8 +292,6 @@ pub unsafe extern "C" fn isar_filter_double(
         let property = get_property(collection, embedded_col_id, property_id)?;
         let query_filter = if upper.is_nan() {
             Filter::stat(false)
-        } else if property.data_type == DataType::Float || property.data_type == DataType::FloatList {
-            Filter::float(property, lower as f32, upper as f32)?
         } else {
             Filter::double(property, lower, upper)?
         };
